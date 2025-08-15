@@ -1,0 +1,41 @@
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.loading-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.dark .loading-fullscreen {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.loading-container .ant-spin-text {
+  margin-top: 8px;
+  color: #666;
+}
+
+.dark .loading-container .ant-spin-text {
+  color: #999;
+}
+
+.loading-fullscreen .ant-spin-text {
+  margin-top: 8px;
+  color: #666;
+}
+
+.dark .loading-fullscreen .ant-spin-text {
+  color: #999;
+}
