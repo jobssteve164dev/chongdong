@@ -1,0 +1,412 @@
+.settings-page {
+  padding: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+/* 标签页样式 */
+.ant-tabs-tab {
+  font-weight: 500;
+}
+
+.ant-tabs-tab-active {
+  font-weight: 600;
+}
+
+.ant-tabs-tab .anticon {
+  margin-right: 8px;
+}
+
+/* 卡片样式 */
+.ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ant-card-head {
+  border-radius: 8px 8px 0 0;
+}
+
+.ant-card-head-title {
+  font-weight: 600;
+}
+
+/* 表单样式 */
+.ant-form-item-label > label {
+  font-weight: 500;
+  color: #333;
+}
+
+.dark .ant-form-item-label > label {
+  color: #ffffff;
+}
+
+.ant-form-item-required::before {
+  color: #ff4d4f;
+}
+
+/* 开关样式 */
+.ant-switch {
+  background-color: #d9d9d9;
+}
+
+.ant-switch-checked {
+  background-color: #1890ff;
+}
+
+/* 输入框样式 */
+.ant-input,
+.ant-select-selector,
+.ant-input-number {
+  border-radius: 6px;
+}
+
+.ant-input:focus,
+.ant-select-focused .ant-select-selector,
+.ant-input-number-focused {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* 按钮样式 */
+.ant-btn {
+  border-radius: 6px;
+}
+
+.ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.ant-btn-primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* 分割线样式 */
+.ant-divider {
+  margin: 24px 0;
+  border-color: #f0f0f0;
+}
+
+.dark .ant-divider {
+  border-color: #303030;
+}
+
+/* 标题样式 */
+.ant-typography h4 {
+  margin-bottom: 16px;
+  color: #333;
+  font-weight: 600;
+}
+
+.dark .ant-typography h4 {
+  color: #ffffff;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 16px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .ant-tabs-tab {
+    padding: 8px 12px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 16px;
+  }
+}
+
+/* 深色主题适配 */
+.dark .settings-page {
+  background-color: #000000;
+}
+
+.dark .ant-card {
+  background: #1f1f1f;
+  border-color: #303030;
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.06);
+}
+
+.dark .ant-tabs-tab {
+  color: #ffffff;
+}
+
+.dark .ant-tabs-tab:hover {
+  color: #1890ff;
+}
+
+.dark .ant-tabs-tab-active {
+  color: #1890ff;
+}
+
+.dark .ant-tabs-ink-bar {
+  background: #1890ff;
+}
+
+.dark .ant-input,
+.dark .ant-select-selector,
+.dark .ant-input-number {
+  background: #262626;
+  border-color: #303030;
+  color: #ffffff;
+}
+
+.dark .ant-input::placeholder,
+.dark .ant-select-selection-placeholder {
+  color: #666;
+}
+
+.dark .ant-select-dropdown {
+  background: #1f1f1f;
+  border-color: #303030;
+}
+
+.dark .ant-select-item {
+  color: #ffffff;
+}
+
+.dark .ant-select-item-option-selected {
+  background: #1890ff;
+}
+
+.dark .ant-select-item-option-active {
+  background: #262626;
+}
+
+/* 动画效果 */
+.settings-page {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 卡片悬停效果 */
+.ant-card {
+  transition: all 0.3s ease;
+}
+
+.ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.dark .ant-card:hover {
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+}
+
+/* 表单组样式 */
+.form-section {
+  margin-bottom: 32px;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+/* 开关组样式 */
+.switch-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.switch-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.dark .switch-item {
+  border-bottom-color: #303030;
+}
+
+.switch-item:last-child {
+  border-bottom: none;
+}
+
+.switch-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.switch-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.switch-description {
+  font-size: 12px;
+  color: #666;
+}
+
+.dark .switch-description {
+  color: #999;
+}
+
+/* 端口设置样式 */
+.port-settings {
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.dark .port-settings {
+  background: #262626;
+}
+
+/* 安全提示样式 */
+.security-alert {
+  margin-bottom: 24px;
+}
+
+/* 网络配置样式 */
+.network-config {
+  margin-bottom: 24px;
+}
+
+.network-config .ant-form-item {
+  margin-bottom: 16px;
+}
+
+/* 界面偏好样式 */
+.interface-preferences {
+  margin-bottom: 24px;
+}
+
+.preference-group {
+  margin-bottom: 24px;
+}
+
+.preference-group:last-child {
+  margin-bottom: 0;
+}
+
+/* 保存按钮组样式 */
+.save-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.dark .save-actions {
+  border-top-color: #303030;
+}
+
+/* 标签页内容样式 */
+.tab-content {
+  padding: 24px 0;
+}
+
+/* 表单验证样式 */
+.ant-form-item-has-error .ant-input,
+.ant-form-item-has-error .ant-select-selector,
+.ant-form-item-has-error .ant-input-number {
+  border-color: #ff4d4f;
+}
+
+.ant-form-item-explain-error {
+  color: #ff4d4f;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* 密码输入框样式 */
+.ant-input-password {
+  border-radius: 6px;
+}
+
+.ant-input-password:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* 多选标签样式 */
+.ant-select-selection-item {
+  background: #f0f0f0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 2px;
+}
+
+.dark .ant-select-selection-item {
+  background: #404040;
+  color: #ffffff;
+}
+
+/* 数字输入框样式 */
+.ant-input-number {
+  width: 100%;
+}
+
+.ant-input-number-handler-wrap {
+  border-radius: 0 6px 6px 0;
+}
+
+/* 标签页图标样式 */
+.tab-icon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+/* 设置项描述样式 */
+.setting-description {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.dark .setting-description {
+  color: #999;
+}
+
+/* 高级设置样式 */
+.advanced-settings {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 6px;
+  margin-top: 16px;
+}
+
+.dark .advanced-settings {
+  background: #1a1a1a;
+}
+
+.advanced-settings .ant-typography h4 {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.dark .advanced-settings .ant-typography h4 {
+  color: #999;
+}

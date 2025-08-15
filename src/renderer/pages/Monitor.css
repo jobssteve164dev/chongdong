@@ -1,0 +1,295 @@
+.monitor-page {
+  padding: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+/* 统计卡片样式 */
+.ant-statistic-title {
+  font-size: 14px;
+  color: #666;
+}
+
+.dark .ant-statistic-title {
+  color: #999;
+}
+
+.ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 进度条样式 */
+.ant-progress-text {
+  font-size: 12px;
+}
+
+/* 表格样式 */
+.ant-table-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dark .ant-table-wrapper {
+  background: #1f1f1f;
+}
+
+/* 标签样式 */
+.ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* 按钮样式 */
+.ant-btn {
+  border-radius: 6px;
+}
+
+.ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.ant-btn-primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* 卡片样式 */
+.ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ant-card-head {
+  border-radius: 8px 8px 0 0;
+}
+
+/* 连接历史样式 */
+.connection-history {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .monitor-page {
+    padding: 16px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  .ant-table {
+    font-size: 12px;
+  }
+
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 4px;
+  }
+}
+
+/* 深色主题适配 */
+.dark .monitor-page {
+  background-color: #000000;
+}
+
+.dark .ant-card {
+  background: #1f1f1f;
+  border-color: #303030;
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.06);
+}
+
+.dark .ant-table {
+  background: #1f1f1f;
+  color: #ffffff;
+}
+
+.dark .ant-table-thead > tr > th {
+  background: #141414;
+  color: #ffffff;
+  border-color: #303030;
+}
+
+.dark .ant-table-tbody > tr > td {
+  border-color: #303030;
+}
+
+.dark .ant-table-tbody > tr:hover > td {
+  background: #262626;
+}
+
+.dark .ant-progress-bg {
+  background-color: #1890ff;
+}
+
+.dark .ant-progress-text {
+  color: #ffffff;
+}
+
+/* 动画效果 */
+.monitor-page {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 卡片悬停效果 */
+.ant-card {
+  transition: all 0.3s ease;
+}
+
+.ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.dark .ant-card:hover {
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+}
+
+/* 统计卡片特殊样式 */
+.statistic-card {
+  text-align: center;
+}
+
+.statistic-card .ant-statistic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.statistic-card .ant-statistic-title {
+  margin-bottom: 8px;
+}
+
+.statistic-card .ant-statistic-content {
+  margin-top: 4px;
+}
+
+/* 进度条容器样式 */
+.progress-container {
+  margin-bottom: 16px;
+}
+
+.progress-container:last-child {
+  margin-bottom: 0;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.progress-label .ant-typography {
+  margin: 0;
+}
+
+/* 系统指标表格样式 */
+.system-metrics-table .ant-table-tbody > tr > td {
+  padding: 12px 16px;
+}
+
+.system-metrics-table .ant-table-tbody > tr:hover > td {
+  background-color: #f5f5f5;
+}
+
+.dark .system-metrics-table .ant-table-tbody > tr:hover > td {
+  background-color: #262626;
+}
+
+/* 性能监控卡片样式 */
+.performance-card .ant-space {
+  width: 100%;
+}
+
+.performance-card .ant-space-item {
+  width: 100%;
+}
+
+/* 连接历史卡片样式 */
+.history-card {
+  min-height: 200px;
+}
+
+.history-card .ant-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-indicator.success {
+  background-color: #52c41a;
+}
+
+.status-indicator.warning {
+  background-color: #faad14;
+}
+
+.status-indicator.error {
+  background-color: #f5222d;
+}
+
+/* 刷新按钮样式 */
+.refresh-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-button .anticon {
+  font-size: 14px;
+}
+
+/* 空状态样式 */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state .anticon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
+}
+
+.dark .empty-state {
+  color: #666;
+}
