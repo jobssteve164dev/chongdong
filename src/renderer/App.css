@@ -1,16 +1,37 @@
 /* 应用布局样式 */
 .app-layout {
   height: 100vh;
+  overflow: hidden;
+}
+
+/* 确保Layout组件不会产生滚动 */
+.ant-layout {
+  overflow: hidden !important;
+}
+
+.ant-layout-content {
+  overflow: hidden !important;
 }
 
 .app-sider {
   background: #fff;
   border-right: 1px solid #f0f0f0;
+  overflow: hidden;
 }
 
 .app-sider .logo {
   padding: 16px;
   border-bottom: 1px solid #f0f0f0;
+  overflow: hidden;
+}
+
+/* 确保Menu组件不会产生滚动 */
+.ant-menu {
+  overflow: hidden !important;
+}
+
+.ant-menu-inline {
+  overflow: hidden !important;
 }
 
 .app-header {
