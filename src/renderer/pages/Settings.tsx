@@ -62,6 +62,7 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
 import { log } from '../utils/logger';
+import ConfigApi from '../utils/configApi';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -73,51 +74,46 @@ const Settings: React.FC = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
+    theme: 'auto',
+    language: 'zh-CN',
     autoStart: false,
-    systemProxy: false,
-    allowLan: false,
-    logLevel: 'info',
-    port: 7890,
+    systemProxy: true,
+    proxyPort: 7890,
     socksPort: 7891,
-    mixedPort: 7892,
-    externalController: '127.0.0.1:9090',
-    secret: '',
+    mixedPort: 7890,
+    allowLan: false,
     mode: 'rule',
-    ipv6: false,
-    tcpConcurrent: true,
-    findProcessMode: 'strict',
-    globalClientFingerprint: 'chrome',
-    tun: {
-      enable: false,
-      device: 'utun0',
-      stack: 'system',
-      dnsHijack: ['any:53'],
-      autoRoute: true,
-      autoDetectInterface: true,
-    },
-    dns: {
-      enable: false,
-      listen: '0.0.0.0:53',
-      defaultNameserver: ['223.5.5.5', '119.29.29.29'],
-      nameserver: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-      fallback: ['https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query'],
-      fallbackFilter: {
-        geoip: true,
-        ipcidr: ['240.0.0.0/4', '0.0.0.0/32'],
-      },
-    },
+    logLevel: 'info',
+    enableLog: true,
+    logFile: 'chongdong.log',
+    enableUdp: true,
+    enableIpv6: false,
+    enableTun: false,
+    tunDevice: 'utun0',
+    enableFakeIp: true,
+    fakeIpRange: '198.18.0.1/16',
+    enableDns: true,
+    dnsServer: '8.8.8.8',
+    enableDoh: false,
+    dohServer: 'https://dns.google/dns-query'
   });
 
   const [preferences, setPreferences] = useState<UserPreferences>({
-    theme: 'light',
-    language: 'zh-CN',
-    autoUpdate: true,
-    checkUpdateInterval: 3600,
-    showTrayIcon: true,
+    windowSize: { width: 1200, height: 800 },
+    windowPosition: { x: 100, y: 100 },
+    sidebarCollapsed: false,
+    autoHideMenuBar: false,
+    alwaysOnTop: false,
     minimizeToTray: true,
     startMinimized: false,
-    notifications: true,
-    soundEnabled: false,
+    enableNotifications: true,
+    notificationSound: true,
+    enableHotkeys: true,
+    hotkeys: {
+      toggleProxy: 'Ctrl+Shift+P',
+      showMainWindow: 'Ctrl+Shift+M',
+      quickSwitch: 'Ctrl+Shift+S'
+    }
   });
 
   const handleSaveSettings = async (values: any) => {
@@ -154,6 +150,65 @@ const Settings: React.FC = () => {
     form.resetFields();
     message.info('设置已重置为默认值');
     log.info('重置应用设置', null, 'Settings');
+  };
+
+  const handleExportConfig = async (format: string) => {
+    try {
+      const result = ConfigApi.exportConfig(format);
+      if (result.success) {
+        // 创建下载链接
+        const blob = new Blob([result.data!], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = ConfigApi.generateExportFileName(format);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        message.success(`${format.toUpperCase()}配置导出成功`);
+      } else {
+        message.error(`导出失败: ${result.message}`);
+      }
+    } catch (error) {
+      message.error('导出配置失败');
+      log.error('导出配置失败', error, 'Settings');
+    }
+  };
+
+  const handleImportConfig = async (file: File) => {
+    try {
+      const content = await file.text();
+      const result = ConfigApi.autoImportConfig(content);
+      if (result.success) {
+        message.success('配置导入成功');
+        // 重新加载设置
+        const newSettings = ConfigApi.getSettings();
+        setSettings(newSettings);
+      } else {
+        message.error(`导入失败: ${result.message}`);
+      }
+    } catch (error) {
+      message.error('导入配置失败');
+      log.error('导入配置失败', error, 'Settings');
+    }
+  };
+
+  const handleResetConfig = async () => {
+    try {
+      const result = ConfigApi.resetConfig();
+      if (result.success) {
+        message.success('配置重置成功');
+        // 重新加载设置
+        const newSettings = ConfigApi.getSettings();
+        setSettings(newSettings);
+      } else {
+        message.error(`重置失败: ${result.message}`);
+      }
+    } catch (error) {
+      message.error('重置配置失败');
+      log.error('重置配置失败', error, 'Settings');
+    }
   };
 
   return (
@@ -480,6 +535,129 @@ const Settings: React.FC = () => {
                 </Col>
               </Row>
             </Form>
+          </Card>
+        </TabPane>
+
+        <TabPane
+          tab={
+            <span>
+              <CloudOutlined />
+              配置管理
+            </span>
+          }
+          key="config"
+        >
+          <Card title="配置管理">
+            <Alert
+              message="配置管理"
+              description="您可以导入、导出或重置应用配置。支持多种格式的配置文件。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 24 }}
+            />
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <Card title="导出配置" size="small">
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Text>选择导出格式：</Text>
+                    <Space wrap>
+                      <Button 
+                        icon={<ExportOutlined />} 
+                        onClick={() => handleExportConfig('json')}
+                      >
+                        导出JSON
+                      </Button>
+                      <Button 
+                        icon={<ExportOutlined />} 
+                        onClick={() => handleExportConfig('yaml')}
+                      >
+                        导出YAML
+                      </Button>
+                      <Button 
+                        icon={<ExportOutlined />} 
+                        onClick={() => handleExportConfig('clash')}
+                      >
+                        导出Clash
+                      </Button>
+                      <Button 
+                        icon={<ExportOutlined />} 
+                        onClick={() => handleExportConfig('v2ray')}
+                      >
+                        导出V2Ray
+                      </Button>
+                      <Button 
+                        icon={<ExportOutlined />} 
+                        onClick={() => handleExportConfig('singbox')}
+                      >
+                        导出Sing-box
+                      </Button>
+                    </Space>
+                  </Space>
+                </Card>
+              </Col>
+
+              <Col xs={24} md={12}>
+                <Card title="导入配置" size="small">
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Text>选择配置文件：</Text>
+                    <Upload
+                      accept=".json,.yaml,.yml,.txt"
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        handleImportConfig(file);
+                        return false;
+                      }}
+                    >
+                      <Button icon={<ImportOutlined />}>
+                        选择文件
+                      </Button>
+                    </Upload>
+                    <Text type="secondary">
+                      支持JSON、YAML、Clash、V2Ray、Sing-box格式
+                    </Text>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+
+            <Divider />
+
+            <Card title="配置操作" size="small">
+              <Space>
+                <Button 
+                  icon={<ReloadOutlined />} 
+                  onClick={handleResetConfig}
+                  danger
+                >
+                  重置所有配置
+                </Button>
+                <Text type="secondary">
+                  警告：此操作将重置所有配置为默认值，无法撤销！
+                </Text>
+              </Space>
+            </Card>
+
+            <Divider />
+
+            <Card title="配置信息" size="small">
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="配置版本">1.0.0</Descriptions.Item>
+                <Descriptions.Item label="最后更新">{new Date().toLocaleString()}</Descriptions.Item>
+                <Descriptions.Item label="代理服务器数量">
+                  {ConfigApi.getServers().length}
+                </Descriptions.Item>
+                <Descriptions.Item label="订阅数量">
+                  {ConfigApi.getSubscriptions().length}
+                </Descriptions.Item>
+                <Descriptions.Item label="代理组数量">
+                  {ConfigApi.getGroups().length}
+                </Descriptions.Item>
+                <Descriptions.Item label="配置状态">
+                  <Badge status="success" text="正常" />
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
           </Card>
         </TabPane>
       </Tabs>
