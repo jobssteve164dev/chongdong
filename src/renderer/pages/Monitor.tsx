@@ -61,6 +61,8 @@ const Monitor: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [trafficStats, setTrafficStats] = useState<TrafficStats>(monitorManager.getTrafficStats());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(monitorManager.getConnectionStatus());
+  const [systemMetrics, setSystemMetrics] = useState(monitorManager.getSystemMetrics());
+  const [performanceMetrics, setPerformanceMetrics] = useState(monitorManager.getPerformanceMetrics(1)[0]);
 
   // 启动监控
   useEffect(() => {
@@ -70,6 +72,11 @@ const Monitor: React.FC = () => {
     const interval = setInterval(() => {
       setTrafficStats(monitorManager.getTrafficStats());
       setConnectionStatus(monitorManager.getConnectionStatus());
+      setSystemMetrics(monitorManager.getSystemMetrics());
+      const latestMetrics = monitorManager.getPerformanceMetrics(1)[0];
+      if (latestMetrics) {
+        setPerformanceMetrics(latestMetrics);
+      }
     }, 1000);
 
     return () => {
@@ -125,38 +132,38 @@ const Monitor: React.FC = () => {
     },
   ];
 
-  const systemMetrics = [
+  const systemMetricsData = [
     {
       key: '1',
       metric: 'CPU使用率',
-      value: 0,
-      formattedValue: '0%',
+      value: systemMetrics.cpuUsage,
+      formattedValue: `${systemMetrics.cpuUsage.toFixed(1)}%`,
       unit: '',
-      status: '正常',
+      status: systemMetrics.cpuUsage < 80 ? '正常' : systemMetrics.cpuUsage < 95 ? '警告' : '异常',
     },
     {
       key: '2',
       metric: '内存使用率',
-      value: 0,
-      formattedValue: '0%',
+      value: systemMetrics.memoryUsage,
+      formattedValue: `${systemMetrics.memoryUsage.toFixed(1)}%`,
       unit: '',
-      status: '正常',
+      status: systemMetrics.memoryUsage < 80 ? '正常' : systemMetrics.memoryUsage < 95 ? '警告' : '异常',
     },
     {
       key: '3',
-      metric: '网络延迟',
-      value: 0,
-      formattedValue: '0',
-      unit: 'ms',
-      status: '正常',
+      metric: '磁盘使用率',
+      value: systemMetrics.diskUsage,
+      formattedValue: `${systemMetrics.diskUsage.toFixed(1)}%`,
+      unit: '',
+      status: systemMetrics.diskUsage < 80 ? '正常' : systemMetrics.diskUsage < 95 ? '警告' : '异常',
     },
     {
       key: '4',
-      metric: '丢包率',
-      value: 0,
-      formattedValue: '0%',
+      metric: '网络使用率',
+      value: systemMetrics.networkUsage,
+      formattedValue: `${systemMetrics.networkUsage.toFixed(1)}%`,
       unit: '',
-      status: '正常',
+      status: systemMetrics.networkUsage < 80 ? '正常' : systemMetrics.networkUsage < 95 ? '警告' : '异常',
     },
   ];
 
@@ -233,32 +240,61 @@ const Monitor: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 系统指标 */}
+      {/* 系统指标和网络性能 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={12}>
           <Card title="系统指标" extra={<DashboardOutlined />}>
             <Table
               columns={columns}
-              dataSource={systemMetrics}
+              dataSource={systemMetricsData}
               pagination={false}
               size="small"
             />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="性能监控" extra={<LineChartOutlined />}>
+          <Card title="网络性能" extra={<LineChartOutlined />}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <div>
-                <Text>CPU使用率</Text>
-                <Progress percent={0} size="small" />
+                <Text>网络延迟</Text>
+                <Progress 
+                  percent={performanceMetrics ? Math.min(performanceMetrics.latency / 2, 100) : 0} 
+                  size="small" 
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {performanceMetrics ? `${performanceMetrics.latency.toFixed(1)} ms` : '0 ms'}
+                </Text>
               </div>
               <div>
-                <Text>内存使用率</Text>
-                <Progress percent={0} size="small" />
+                <Text>网络吞吐量</Text>
+                <Progress 
+                  percent={performanceMetrics ? Math.min(performanceMetrics.throughput / 10, 100) : 0} 
+                  size="small" 
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {performanceMetrics ? `${performanceMetrics.throughput.toFixed(1)} Mbps` : '0 Mbps'}
+                </Text>
               </div>
               <div>
-                <Text>网络使用率</Text>
-                <Progress percent={0} size="small" />
+                <Text>丢包率</Text>
+                <Progress 
+                  percent={performanceMetrics ? performanceMetrics.packetLoss * 20 : 0} 
+                  size="small" 
+                  strokeColor={performanceMetrics && performanceMetrics.packetLoss > 2 ? '#ff4d4f' : undefined}
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {performanceMetrics ? `${performanceMetrics.packetLoss.toFixed(2)}%` : '0%'}
+                </Text>
+              </div>
+              <div>
+                <Text>抖动</Text>
+                <Progress 
+                  percent={performanceMetrics ? Math.min(performanceMetrics.jitter * 5, 100) : 0} 
+                  size="small" 
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {performanceMetrics ? `${performanceMetrics.jitter.toFixed(1)} ms` : '0 ms'}
+                </Text>
               </div>
             </Space>
           </Card>
