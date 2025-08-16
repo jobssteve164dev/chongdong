@@ -1,5 +1,8 @@
 import { ProxyConfig } from './proxyEngine';
 
+// 由于此文件不直接与主进程通信，因此不需要ipcRenderer
+// const { ipcRenderer } = window.require('electron');
+
 export interface ChainConfig {
   id: string;
   name: string;

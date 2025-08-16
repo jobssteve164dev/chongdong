@@ -15,8 +15,6 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      nodeIntegration: true,
-      contextIsolation: false,
     },
   });
 
@@ -34,7 +32,7 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/src/renderer/index.html'));
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
   // 设置应用菜单
@@ -299,8 +297,66 @@ ipcMain.handle('system:requestAdmin', async () => {
     // 简化版本，实际应该请求管理员权限
     return false;
   } catch (error) {
-    console.error('Failed to request admin privileges:', error);
+    console.error('Failed to request admin:', error);
     return false;
+  }
+});
+
+// 订阅管理IPC处理程序
+ipcMain.handle('subscription:parse', async (_event, _url: string) => {
+  try {
+    // 这里应该调用订阅管理器的解析功能
+    // 由于订阅管理器在渲染进程中，这里只是占位
+    return { success: true, servers: [], groups: [] };
+  } catch (error) {
+    console.error('Failed to parse subscription:', error);
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('subscription:update', async (_event, _subscription: any) => {
+  try {
+    // 这里应该调用订阅管理器的更新功能
+    return { success: true, servers: [], groups: [] };
+  } catch (error) {
+    console.error('Failed to update subscription:', error);
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 监控统计IPC处理程序
+ipcMain.handle('monitor:get-stats', async () => {
+  try {
+    // 这里应该调用监控管理器的统计功能
+    return {
+      trafficStats: {
+        upload: 0,
+        download: 0,
+        uploadSpeed: 0,
+        downloadSpeed: 0,
+        timestamp: Date.now()
+      },
+      connectionStatus: {
+        connected: false,
+        upload: 0,
+        download: 0,
+        uploadSpeed: 0,
+        downloadSpeed: 0
+      }
+    };
+  } catch (error) {
+    console.error('Failed to get monitor stats:', error);
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('monitor:get-history', async (_event, _limit: number = 100) => {
+  try {
+    // 这里应该调用监控管理器的历史记录功能
+    return { history: [] };
+  } catch (error) {
+    console.error('Failed to get monitor history:', error);
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
 

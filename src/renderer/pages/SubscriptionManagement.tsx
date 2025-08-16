@@ -73,6 +73,7 @@ import {
 } from '@ant-design/icons';
 import { Subscription } from '../../shared/types/index';
 import { log } from '../utils/logger';
+import { subscriptionManager } from '../utils/subscriptionManager';
 import './SubscriptionManagement.css';
 
 const { Title, Text } = Typography;
@@ -139,32 +140,24 @@ const SubscriptionManagement: React.FC = () => {
   const handleUpdateSubscription = async (subscription: Subscription) => {
     setLoading(true);
     try {
-      // 模拟更新过程
-      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-      
-      const updatedSubscription = {
-        ...subscription,
-        lastUpdate: Date.now(),
-        nextUpdate: Date.now() + (subscription.updateInterval * 1000),
-        servers: Array.from({ length: Math.floor(Math.random() * 20) + 5 }, (_, i) => ({
-          id: `server-${subscription.id}-${i}`,
-          name: `节点${i + 1}`,
-          host: `node${i + 1}.example.com`,
-          port: 443,
-          enabled: true,
-        })),
-      };
-      
-      setSubscriptions(prev =>
-        prev.map(sub =>
-          sub.id === subscription.id ? updatedSubscription : sub
-        )
-      );
-      
-      message.success('订阅更新成功');
-      log.info('更新订阅', { subscription: subscription.name }, 'SubscriptionManagement');
+      const result = await subscriptionManager.updateSubscription(subscription);
+      if (result.success) {
+        // 更新本地状态
+        setSubscriptions(prev =>
+          prev.map(sub =>
+            sub.id === subscription.id 
+              ? { ...sub, servers: result.servers || [], groups: result.groups || [], lastUpdate: result.timestamp }
+              : sub
+          )
+        );
+        message.success('订阅更新成功');
+        log.info('更新订阅成功', { subscription: subscription.name, serverCount: result.servers?.length }, 'SubscriptionManagement');
+      } else {
+        message.error(`更新失败: ${result.error}`);
+        log.error('更新订阅失败', { subscription: subscription.name, error: result.error }, 'SubscriptionManagement');
+      }
     } catch (error) {
-      message.error('订阅更新失败');
+      message.error('更新失败');
       log.error('更新订阅失败', error, 'SubscriptionManagement');
     } finally {
       setLoading(false);

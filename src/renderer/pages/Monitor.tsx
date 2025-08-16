@@ -51,6 +51,7 @@ import {
 import { TrafficStats, ConnectionStatus } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { useTheme } from '../contexts/ThemeContext';
+import { monitorManager } from '../utils/monitorManager';
 import './Monitor.css';
 
 const { Title, Text } = Typography;
@@ -58,25 +59,35 @@ const { Title, Text } = Typography;
 const Monitor: React.FC = () => {
   const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
-  const [trafficStats, setTrafficStats] = useState<TrafficStats>({
-    upload: 0,
-    download: 0,
-    uploadSpeed: 0,
-    downloadSpeed: 0,
-    timestamp: Date.now(),
-  });
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    connected: false,
-    upload: 0,
-    download: 0,
-    uploadSpeed: 0,
-    downloadSpeed: 0,
-  });
+  const [trafficStats, setTrafficStats] = useState<TrafficStats>(monitorManager.getTrafficStats());
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(monitorManager.getConnectionStatus());
+
+  // 启动监控
+  useEffect(() => {
+    monitorManager.startMonitoring();
+    
+    // 定期更新数据
+    const interval = setInterval(() => {
+      setTrafficStats(monitorManager.getTrafficStats());
+      setConnectionStatus(monitorManager.getConnectionStatus());
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      monitorManager.stopMonitoring();
+    };
+  }, []);
 
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      // 这里将调用实际的API获取数据
+      // 获取最新的监控数据
+      const newTrafficStats = monitorManager.getTrafficStats();
+      const newConnectionStatus = monitorManager.getConnectionStatus();
+      
+      setTrafficStats(newTrafficStats);
+      setConnectionStatus(newConnectionStatus);
+      
       log.info('刷新监控数据', null, 'Monitor');
     } catch (error) {
       log.error('刷新监控数据失败', error, 'Monitor');
