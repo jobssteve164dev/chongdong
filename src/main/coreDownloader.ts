@@ -118,6 +118,26 @@ export class CoreDownloader {
           downloadUrl: `https://github.com/Dreamacro/clash/releases/download/v1.18.0/clash-${platform}-${arch}-v1.18.0.gz`
         };
       
+      case 'geoip':
+        return {
+          name: 'GeoIP Database',
+          version: 'latest',
+          platform: 'all',
+          arch: 'all',
+          fileName: 'geoip.db',
+          downloadUrl: 'https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db'
+        };
+      
+      case 'geosite':
+        return {
+          name: 'GeoSite Database',
+          version: 'latest',
+          platform: 'all',
+          arch: 'all',
+          fileName: 'geosite.db',
+          downloadUrl: 'https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db'
+        };
+      
       default:
         throw new Error(`不支持的核心: ${coreName}`);
     }
@@ -198,18 +218,33 @@ export class CoreDownloader {
   /**
    * 解压文件
    */
-  private async extractFile(filePath: string, extractDir: string): Promise<void> {
+  private async extractFile(filePath: string, extractDir: string, targetFileName: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const isGzip = filePath.endsWith('.gz');
       const isZip = filePath.endsWith('.zip');
       const isTarGz = filePath.endsWith('.tar.gz');
       
+      console.log(`解压文件: ${filePath}`);
+      console.log(`目标目录: ${extractDir}`);
+      console.log(`目标文件名: ${targetFileName}`);
+      console.log(`文件类型: gzip=${isGzip}, zip=${isZip}, tarGz=${isTarGz}`);
+      
       let command: string;
       let args: string[];
       
+      let tempDir: string;
+      
       if (isTarGz) {
+        // 对于 tar.gz 文件，先解压到临时目录
+        tempDir = join(this.coresDir, 'temp');
+        console.log(`创建临时目录: ${tempDir}`);
+        if (!existsSync(tempDir)) {
+          mkdirSync(tempDir, { recursive: true });
+        }
+        
         command = 'tar';
-        args = ['-xzf', filePath, '-C', extractDir, '--strip-components=1'];
+        args = ['-xzf', filePath, '-C', tempDir];
+        console.log(`执行解压命令: ${command} ${args.join(' ')}`);
       } else if (isGzip) {
         command = 'gunzip';
         args = ['-f', filePath];
@@ -217,6 +252,7 @@ export class CoreDownloader {
         command = 'unzip';
         args = ['-o', filePath, '-d', extractDir];
       } else {
+        console.log('不支持的文件格式，跳过解压');
         resolve();
         return;
       }
@@ -224,16 +260,112 @@ export class CoreDownloader {
       const child = spawn(command, args);
       
       child.on('close', (code) => {
+        console.log(`解压命令退出码: ${code}`);
         if (code === 0) {
-          resolve();
+          if (isTarGz) {
+            console.log(`解压成功，开始查找可执行文件...`);
+            // 查找并移动可执行文件
+            this.findAndMoveExecutable(tempDir, extractDir, targetFileName)
+              .then(() => {
+                console.log('可执行文件移动完成');
+                resolve();
+              })
+              .catch((error) => {
+                console.error('可执行文件移动失败:', error);
+                reject(error);
+              });
+          } else {
+            console.log('解压完成');
+            resolve();
+          }
         } else {
+          console.error(`解压失败: ${command} exited with code ${code}`);
           reject(new Error(`解压失败: ${command} exited with code ${code}`));
         }
       });
       
       child.on('error', (error) => {
+        console.error(`解压命令执行失败:`, error);
         reject(new Error(`解压失败: ${error.message}`));
       });
+    });
+  }
+
+  /**
+   * 查找并移动可执行文件
+   */
+  private async findAndMoveExecutable(sourceDir: string, targetDir: string, targetFileName: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const { readdirSync, renameSync, existsSync, mkdirSync } = require('fs');
+      
+      try {
+        // 确保目标目录存在
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true });
+        }
+        
+        console.log(`查找可执行文件: ${targetFileName}`);
+        console.log(`源目录: ${sourceDir}`);
+        console.log(`目标目录: ${targetDir}`);
+        
+        const files = readdirSync(sourceDir);
+        console.log(`源目录内容:`, files);
+        
+        let executableFound = false;
+        
+        // 递归查找函数
+        const findExecutable = (dir: string, depth: number = 0): boolean => {
+          const indent = '  '.repeat(depth);
+          console.log(`${indent}搜索目录: ${dir}`);
+          
+          try {
+            const items = readdirSync(dir);
+            console.log(`${indent}目录内容:`, items);
+            
+            for (const item of items) {
+              const itemPath = join(dir, item);
+              const stats = require('fs').statSync(itemPath);
+              
+              if (stats.isDirectory()) {
+                // 递归查找子目录
+                console.log(`${indent}进入子目录: ${item}`);
+                if (findExecutable(itemPath, depth + 1)) {
+                  return true;
+                }
+              } else {
+                // 检查文件是否匹配
+                console.log(`${indent}检查文件: ${item}`);
+                if (item === targetFileName || 
+                    (process.platform === 'win32' && item.endsWith('.exe')) ||
+                    (process.platform !== 'win32' && !item.includes('.') && item !== 'LICENSE' && item !== 'README')) {
+                  console.log(`${indent}找到可执行文件: ${itemPath}`);
+                  const targetPath = join(targetDir, targetFileName);
+                  console.log(`${indent}移动到: ${targetPath}`);
+                  renameSync(itemPath, targetPath);
+                  return true;
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`${indent}读取目录失败: ${dir}`, error);
+          }
+          return false;
+        };
+        
+        executableFound = findExecutable(sourceDir);
+        
+        if (!executableFound) {
+          console.error(`未找到可执行文件: ${targetFileName}`);
+          console.error(`源目录内容:`, files);
+          reject(new Error(`未找到可执行文件: ${targetFileName}`));
+        } else {
+          console.log(`可执行文件移动成功: ${targetFileName}`);
+          resolve();
+        }
+      } catch (error) {
+        console.error('查找可执行文件时出错:', error);
+        reject(error);
+      }
     });
   }
 
@@ -243,10 +375,19 @@ export class CoreDownloader {
   public async downloadCore(coreName: string): Promise<void> {
     try {
       const coreInfo = this.getCoreInfo(coreName);
-      const downloadPath = join(this.coresDir, `${coreName}-${coreInfo.version}.${coreInfo.downloadUrl.split('.').pop()}`);
+      
+      // 从下载 URL 中提取正确的文件名
+      const urlParts = coreInfo.downloadUrl.split('/');
+      const originalFileName = urlParts[urlParts.length - 1];
+      if (!originalFileName) {
+        throw new Error(`无法从下载 URL 中提取文件名: ${coreInfo.downloadUrl}`);
+      }
+      const downloadPath = join(this.coresDir, originalFileName);
       const corePath = join(this.binDir, coreInfo.fileName);
       
       console.log(`开始下载 ${coreInfo.name} v${coreInfo.version}...`);
+      console.log(`下载文件: ${originalFileName}`);
+      console.log(`下载路径: ${downloadPath}`);
       
       // 下载文件
       await this.downloadFile(coreInfo.downloadUrl, downloadPath);
@@ -254,14 +395,21 @@ export class CoreDownloader {
       console.log(`下载完成，开始解压...`);
       
       // 解压文件
-      await this.extractFile(downloadPath, this.binDir);
+      await this.extractFile(downloadPath, this.binDir, coreInfo.fileName);
+      
+      // 验证文件是否存在
+      if (!existsSync(corePath)) {
+        throw new Error(`核心文件未找到: ${corePath}`);
+      }
       
       // 设置执行权限（Unix 系统）
       if (process.platform !== 'win32') {
         try {
           chmodSync(corePath, 0o755);
+          console.log(`执行权限设置成功: ${corePath}`);
         } catch (error) {
           console.warn('设置执行权限失败:', error);
+          // 不抛出错误，因为文件已经存在，只是权限设置失败
         }
       }
       
@@ -274,14 +422,50 @@ export class CoreDownloader {
   }
 
   /**
+   * 下载数据库文件
+   */
+  public async downloadDatabase(dbName: string): Promise<void> {
+    try {
+      const dbInfo = this.getCoreInfo(dbName);
+      
+      // 数据库文件直接下载到 bin 目录
+      const downloadPath = join(this.binDir, dbInfo.fileName);
+      
+      console.log(`开始下载 ${dbInfo.name}...`);
+      console.log(`下载文件: ${dbInfo.fileName}`);
+      console.log(`下载路径: ${downloadPath}`);
+      
+      // 下载文件
+      await this.downloadFile(dbInfo.downloadUrl, downloadPath);
+      
+      console.log(`${dbInfo.name} 下载完成: ${downloadPath}`);
+      
+    } catch (error) {
+      console.error(`下载 ${dbName} 失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * 获取所有核心的安装状态
    */
   public getCoresStatus(): { [key: string]: boolean } {
     return {
       singbox: this.isCoreInstalled('singbox'),
       xray: this.isCoreInstalled('xray'),
-      clash: this.isCoreInstalled('clash')
+      clash: this.isCoreInstalled('clash'),
+      geoip: this.isDatabaseInstalled('geoip'),
+      geosite: this.isDatabaseInstalled('geosite')
     };
+  }
+
+  /**
+   * 检查数据库文件是否已安装
+   */
+  public isDatabaseInstalled(dbName: string): boolean {
+    const dbInfo = this.getCoreInfo(dbName);
+    const dbPath = join(this.binDir, dbInfo.fileName);
+    return existsSync(dbPath);
   }
 
   /**

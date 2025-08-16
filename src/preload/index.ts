@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.send(channel, data);
     },
     on: (channel: string, func: (...args: any[]) => void) => {
-      const validChannels = ['menu-new-config', 'menu-import-config', 'menu-about'];
+      const validChannels = ['menu-new-config', 'menu-import-config', 'menu-about', 'proxy:portInUse'];
       if (validChannels.includes(channel)) {
         // Deliberately strip event as it includes `sender`
         ipcRenderer.on(channel, (_event, ...args) => func(...args));

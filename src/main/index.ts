@@ -165,16 +165,31 @@ ipcMain.handle('get-app-path', () => {
 });
 
 // 核心下载IPC处理程序
-ipcMain.handle('core:getStatus', () => {
-  return coreDownloader.getCoresStatus();
-});
-
-ipcMain.handle('core:download', async (_, { coreName }) => {
+ipcMain.handle('core:download', async (_, coreName) => {
   try {
     await coreDownloader.downloadCore(coreName);
     return { success: true };
   } catch (error) {
     console.error(`Failed to download core ${coreName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('core:downloadDatabase', async (_, dbName) => {
+  try {
+    await coreDownloader.downloadDatabase(dbName);
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to download database ${dbName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('core:getStatus', async () => {
+  try {
+    return coreDownloader.getCoresStatus();
+  } catch (error) {
+    console.error('Failed to get core status:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
@@ -229,7 +244,7 @@ ipcMain.handle('proxy:getStats', async () => {
     return await proxyManager.getStats();
   } catch (error) {
     console.error('Failed to get proxy stats:', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
 
@@ -259,7 +274,32 @@ ipcMain.handle('system:getProxy', async () => {
     return await systemProxyManager.getSystemProxy();
   } catch (error) {
     console.error('Failed to get system proxy:', error);
-    return null;
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 端口占用处理
+ipcMain.handle('proxy:killProcessOnPort', async (_, port) => {
+  try {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execAsync = util.promisify(exec);
+    
+    // 查找占用端口的进程
+    const { stdout } = await execAsync(`lsof -ti:${port}`);
+    if (stdout.trim()) {
+      const pids = stdout.trim().split('\n');
+      for (const pid of pids) {
+        console.log(`终止进程 ${pid} (占用端口 ${port})`);
+        await execAsync(`kill -9 ${pid}`);
+      }
+      return { success: true, message: `已终止占用端口 ${port} 的进程` };
+    } else {
+      return { success: false, message: `未找到占用端口 ${port} 的进程` };
+    }
+  } catch (error) {
+    console.error('Failed to kill process on port:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
 

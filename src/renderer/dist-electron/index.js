@@ -185,6 +185,24 @@ class CoreDownloader {
           fileName: platform2 === "win32" ? "clash.exe" : "clash",
           downloadUrl: `https://github.com/Dreamacro/clash/releases/download/v1.18.0/clash-${platform2}-${arch}-v1.18.0.gz`
         };
+      case "geoip":
+        return {
+          name: "GeoIP Database",
+          version: "latest",
+          platform: "all",
+          arch: "all",
+          fileName: "geoip.db",
+          downloadUrl: "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db"
+        };
+      case "geosite":
+        return {
+          name: "GeoSite Database",
+          version: "latest",
+          platform: "all",
+          arch: "all",
+          fileName: "geosite.db",
+          downloadUrl: "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db"
+        };
       default:
         throw new Error(`不支持的核心: ${coreName}`);
     }
@@ -252,16 +270,27 @@ class CoreDownloader {
   /**
    * 解压文件
    */
-  async extractFile(filePath, extractDir) {
+  async extractFile(filePath, extractDir, targetFileName) {
     return new Promise((resolve, reject) => {
       const isGzip = filePath.endsWith(".gz");
       const isZip = filePath.endsWith(".zip");
       const isTarGz = filePath.endsWith(".tar.gz");
+      console.log(`解压文件: ${filePath}`);
+      console.log(`目标目录: ${extractDir}`);
+      console.log(`目标文件名: ${targetFileName}`);
+      console.log(`文件类型: gzip=${isGzip}, zip=${isZip}, tarGz=${isTarGz}`);
       let command;
       let args;
+      let tempDir;
       if (isTarGz) {
+        tempDir = path.join(this.coresDir, "temp");
+        console.log(`创建临时目录: ${tempDir}`);
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
         command = "tar";
-        args = ["-xzf", filePath, "-C", extractDir, "--strip-components=1"];
+        args = ["-xzf", filePath, "-C", tempDir];
+        console.log(`执行解压命令: ${command} ${args.join(" ")}`);
       } else if (isGzip) {
         command = "gunzip";
         args = ["-f", filePath];
@@ -269,20 +298,97 @@ class CoreDownloader {
         command = "unzip";
         args = ["-o", filePath, "-d", extractDir];
       } else {
+        console.log("不支持的文件格式，跳过解压");
         resolve();
         return;
       }
       const child = child_process.spawn(command, args);
       child.on("close", (code) => {
+        console.log(`解压命令退出码: ${code}`);
         if (code === 0) {
-          resolve();
+          if (isTarGz) {
+            console.log(`解压成功，开始查找可执行文件...`);
+            this.findAndMoveExecutable(tempDir, extractDir, targetFileName).then(() => {
+              console.log("可执行文件移动完成");
+              resolve();
+            }).catch((error) => {
+              console.error("可执行文件移动失败:", error);
+              reject(error);
+            });
+          } else {
+            console.log("解压完成");
+            resolve();
+          }
         } else {
+          console.error(`解压失败: ${command} exited with code ${code}`);
           reject(new Error(`解压失败: ${command} exited with code ${code}`));
         }
       });
       child.on("error", (error) => {
+        console.error(`解压命令执行失败:`, error);
         reject(new Error(`解压失败: ${error.message}`));
       });
+    });
+  }
+  /**
+   * 查找并移动可执行文件
+   */
+  async findAndMoveExecutable(sourceDir, targetDir, targetFileName) {
+    return new Promise((resolve, reject) => {
+      const { readdirSync, renameSync, existsSync: existsSync2, mkdirSync: mkdirSync2 } = require("fs");
+      try {
+        if (!existsSync2(targetDir)) {
+          mkdirSync2(targetDir, { recursive: true });
+        }
+        console.log(`查找可执行文件: ${targetFileName}`);
+        console.log(`源目录: ${sourceDir}`);
+        console.log(`目标目录: ${targetDir}`);
+        const files = readdirSync(sourceDir);
+        console.log(`源目录内容:`, files);
+        let executableFound = false;
+        const findExecutable = (dir, depth = 0) => {
+          const indent = "  ".repeat(depth);
+          console.log(`${indent}搜索目录: ${dir}`);
+          try {
+            const items = readdirSync(dir);
+            console.log(`${indent}目录内容:`, items);
+            for (const item of items) {
+              const itemPath = path.join(dir, item);
+              const stats = require("fs").statSync(itemPath);
+              if (stats.isDirectory()) {
+                console.log(`${indent}进入子目录: ${item}`);
+                if (findExecutable(itemPath, depth + 1)) {
+                  return true;
+                }
+              } else {
+                console.log(`${indent}检查文件: ${item}`);
+                if (item === targetFileName || process.platform === "win32" && item.endsWith(".exe") || process.platform !== "win32" && !item.includes(".") && item !== "LICENSE" && item !== "README") {
+                  console.log(`${indent}找到可执行文件: ${itemPath}`);
+                  const targetPath = path.join(targetDir, targetFileName);
+                  console.log(`${indent}移动到: ${targetPath}`);
+                  renameSync(itemPath, targetPath);
+                  return true;
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`${indent}读取目录失败: ${dir}`, error);
+          }
+          return false;
+        };
+        executableFound = findExecutable(sourceDir);
+        if (!executableFound) {
+          console.error(`未找到可执行文件: ${targetFileName}`);
+          console.error(`源目录内容:`, files);
+          reject(new Error(`未找到可执行文件: ${targetFileName}`));
+        } else {
+          console.log(`可执行文件移动成功: ${targetFileName}`);
+          resolve();
+        }
+      } catch (error) {
+        console.error("查找可执行文件时出错:", error);
+        reject(error);
+      }
     });
   }
   /**
@@ -291,15 +397,26 @@ class CoreDownloader {
   async downloadCore(coreName) {
     try {
       const coreInfo = this.getCoreInfo(coreName);
-      const downloadPath = path.join(this.coresDir, `${coreName}-${coreInfo.version}.${coreInfo.downloadUrl.split(".").pop()}`);
+      const urlParts = coreInfo.downloadUrl.split("/");
+      const originalFileName = urlParts[urlParts.length - 1];
+      if (!originalFileName) {
+        throw new Error(`无法从下载 URL 中提取文件名: ${coreInfo.downloadUrl}`);
+      }
+      const downloadPath = path.join(this.coresDir, originalFileName);
       const corePath = path.join(this.binDir, coreInfo.fileName);
       console.log(`开始下载 ${coreInfo.name} v${coreInfo.version}...`);
+      console.log(`下载文件: ${originalFileName}`);
+      console.log(`下载路径: ${downloadPath}`);
       await this.downloadFile(coreInfo.downloadUrl, downloadPath);
       console.log(`下载完成，开始解压...`);
-      await this.extractFile(downloadPath, this.binDir);
+      await this.extractFile(downloadPath, this.binDir, coreInfo.fileName);
+      if (!fs.existsSync(corePath)) {
+        throw new Error(`核心文件未找到: ${corePath}`);
+      }
       if (process.platform !== "win32") {
         try {
           fs.chmodSync(corePath, 493);
+          console.log(`执行权限设置成功: ${corePath}`);
         } catch (error) {
           console.warn("设置执行权限失败:", error);
         }
@@ -311,14 +428,41 @@ class CoreDownloader {
     }
   }
   /**
+   * 下载数据库文件
+   */
+  async downloadDatabase(dbName) {
+    try {
+      const dbInfo = this.getCoreInfo(dbName);
+      const downloadPath = path.join(this.binDir, dbInfo.fileName);
+      console.log(`开始下载 ${dbInfo.name}...`);
+      console.log(`下载文件: ${dbInfo.fileName}`);
+      console.log(`下载路径: ${downloadPath}`);
+      await this.downloadFile(dbInfo.downloadUrl, downloadPath);
+      console.log(`${dbInfo.name} 下载完成: ${downloadPath}`);
+    } catch (error) {
+      console.error(`下载 ${dbName} 失败:`, error);
+      throw error;
+    }
+  }
+  /**
    * 获取所有核心的安装状态
    */
   getCoresStatus() {
     return {
       singbox: this.isCoreInstalled("singbox"),
       xray: this.isCoreInstalled("xray"),
-      clash: this.isCoreInstalled("clash")
+      clash: this.isCoreInstalled("clash"),
+      geoip: this.isDatabaseInstalled("geoip"),
+      geosite: this.isDatabaseInstalled("geosite")
     };
+  }
+  /**
+   * 检查数据库文件是否已安装
+   */
+  isDatabaseInstalled(dbName) {
+    const dbInfo = this.getCoreInfo(dbName);
+    const dbPath = path.join(this.binDir, dbInfo.fileName);
+    return fs.existsSync(dbPath);
   }
   /**
    * 清理下载的临时文件
@@ -353,11 +497,17 @@ class ProxyManager {
     var _a, _b;
     const processId = `singbox_${Date.now()}`;
     const configPath = path.join(this.configDir, `${processId}.json`);
+    console.log(`准备启动 Sing-box 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`配置文件内容:`, JSON.stringify(config, null, 2));
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     const singboxPath = await this.getSingboxPath();
+    console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     const childProcess = child_process.spawn(singboxPath, ["run", "-c", configPath], {
       stdio: ["pipe", "pipe", "pipe"],
-      detached: false
+      detached: false,
+      cwd: this.binDir
+      // 设置工作目录为 bin 目录
     });
     childProcess.on("error", (error) => {
       console.error("Sing-box process error:", error);
@@ -365,6 +515,32 @@ class ProxyManager {
     childProcess.on("exit", (code, signal) => {
       console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
       this.processes.delete(processId);
+    });
+    childProcess.stdout.on("data", (data) => {
+      console.log(`Sing-box stdout: ${data.toString()}`);
+    });
+    childProcess.stderr.on("data", (data) => {
+      var _a2, _b2;
+      const errorMessage = data.toString();
+      console.error(`Sing-box stderr: ${errorMessage}`);
+      if (errorMessage.includes("bind: address already in use")) {
+        console.log("检测到端口占用，发送端口占用通知");
+        const { BrowserWindow } = require("electron");
+        const windows = BrowserWindow.getAllWindows();
+        console.log(`找到 ${windows.length} 个窗口`);
+        if (windows.length > 0) {
+          const port = ((_b2 = (_a2 = config.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 7890;
+          const notificationData = {
+            port,
+            processId
+          };
+          console.log("发送端口占用通知:", notificationData);
+          windows[0].webContents.send("proxy:portInUse", notificationData);
+          console.log("端口占用通知已发送");
+        } else {
+          console.log("没有找到窗口，无法发送通知");
+        }
+      }
     });
     this.processes.set(processId, {
       id: processId,
@@ -1122,15 +1298,29 @@ electron.ipcMain.handle("get-app-name", () => {
 electron.ipcMain.handle("get-app-path", () => {
   return electron.app.getAppPath();
 });
-electron.ipcMain.handle("core:getStatus", () => {
-  return coreDownloader.getCoresStatus();
-});
-electron.ipcMain.handle("core:download", async (_, { coreName }) => {
+electron.ipcMain.handle("core:download", async (_, coreName) => {
   try {
     await coreDownloader.downloadCore(coreName);
     return { success: true };
   } catch (error) {
     console.error(`Failed to download core ${coreName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("core:downloadDatabase", async (_, dbName) => {
+  try {
+    await coreDownloader.downloadDatabase(dbName);
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to download database ${dbName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("core:getStatus", async () => {
+  try {
+    return coreDownloader.getCoresStatus();
+  } catch (error) {
+    console.error("Failed to get core status:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
@@ -1178,7 +1368,7 @@ electron.ipcMain.handle("proxy:getStats", async () => {
     return await proxyManager.getStats();
   } catch (error) {
     console.error("Failed to get proxy stats:", error);
-    return { error: error instanceof Error ? error.message : "Unknown error" };
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
 electron.ipcMain.handle("system:setProxy", async (_, { host, port }) => {
@@ -1204,7 +1394,28 @@ electron.ipcMain.handle("system:getProxy", async () => {
     return await systemProxyManager.getSystemProxy();
   } catch (error) {
     console.error("Failed to get system proxy:", error);
-    return null;
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("proxy:killProcessOnPort", async (_, port) => {
+  try {
+    const { exec } = require("child_process");
+    const util2 = require("util");
+    const execAsync2 = util2.promisify(exec);
+    const { stdout } = await execAsync2(`lsof -ti:${port}`);
+    if (stdout.trim()) {
+      const pids = stdout.trim().split("\n");
+      for (const pid of pids) {
+        console.log(`终止进程 ${pid} (占用端口 ${port})`);
+        await execAsync2(`kill -9 ${pid}`);
+      }
+      return { success: true, message: `已终止占用端口 ${port} 的进程` };
+    } else {
+      return { success: false, message: `未找到占用端口 ${port} 的进程` };
+    }
+  } catch (error) {
+    console.error("Failed to kill process on port:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
 electron.ipcMain.handle("vpn:create", async (_, config) => {

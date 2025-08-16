@@ -45,16 +45,22 @@ export class ProxyManager {
     const processId = `singbox_${Date.now()}`;
     const configPath = join(this.configDir, `${processId}.json`);
     
+    console.log(`准备启动 Sing-box 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`配置文件内容:`, JSON.stringify(config, null, 2));
+    
     // 写入配置文件
     writeFileSync(configPath, JSON.stringify(config, null, 2));
     
     // 获取Sing-box可执行文件路径
     const singboxPath = await this.getSingboxPath();
+    console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     
-    // 启动进程
+    // 启动进程，设置工作目录为 bin 目录，这样 Sing-box 能找到数据库文件
     const childProcess = spawn(singboxPath, ['run', '-c', configPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false
+      detached: false,
+      cwd: this.binDir  // 设置工作目录为 bin 目录
     });
 
     // 监听进程事件
@@ -65,6 +71,37 @@ export class ProxyManager {
     childProcess.on('exit', (code, signal) => {
       console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
       this.processes.delete(processId);
+    });
+
+    // 监听标准输出和错误输出
+    childProcess.stdout.on('data', (data) => {
+      console.log(`Sing-box stdout: ${data.toString()}`);
+    });
+
+    childProcess.stderr.on('data', (data) => {
+      const errorMessage = data.toString();
+      console.error(`Sing-box stderr: ${errorMessage}`);
+      
+      // 检测端口占用错误
+      if (errorMessage.includes('bind: address already in use')) {
+        console.log('检测到端口占用，发送端口占用通知');
+        // 通过 IPC 发送端口占用通知到渲染进程
+        const { BrowserWindow } = require('electron');
+        const windows = BrowserWindow.getAllWindows();
+        console.log(`找到 ${windows.length} 个窗口`);
+        if (windows.length > 0) {
+          const port = config.inbounds?.[0]?.listen_port || 7890;
+          const notificationData = {
+            port: port,
+            processId: processId
+          };
+          console.log('发送端口占用通知:', notificationData);
+          windows[0].webContents.send('proxy:portInUse', notificationData);
+          console.log('端口占用通知已发送');
+        } else {
+          console.log('没有找到窗口，无法发送通知');
+        }
+      }
     });
 
     // 存储进程信息

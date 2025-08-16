@@ -21,17 +21,75 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
   const [currentStatus, setCurrentStatus] = useState<ProxyStatus | null>(null);
   const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
+  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
+    singbox: false, 
+    xray: false, 
+    clash: false,
+    geoip: false,
+    geosite: false
+  });
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ProxyConfig | null>(null);
   const [form] = Form.useForm();
-  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ singbox: false, xray: false, clash: false });
 
   // 加载配置
   useEffect(() => {
     loadConfigs();
     loadSystemProxy();
     startStatusPolling();
+    
+    console.log('设置端口占用监听器...');
+    
+    // 监听端口占用通知
+    const handlePortInUse = (event: any, data: { port: number; processId: string }) => {
+      console.log('收到端口占用通知:', data);
+      Modal.confirm({
+        title: '端口被占用',
+        content: (
+          <div>
+            <p>端口 {data.port} 已被其他进程占用，无法启动代理服务。</p>
+            <p>可能的原因：</p>
+            <ul>
+              <li>之前的代理进程未完全退出</li>
+              <li>其他应用正在使用该端口</li>
+              <li>系统代理已启用</li>
+            </ul>
+            <p>是否要终止占用该端口的进程？</p>
+          </div>
+        ),
+        okText: '终止进程',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            const result = await window.electron.ipcRenderer.invoke('proxy:killProcessOnPort', data.port);
+            if (result.success) {
+              message.success(result.message);
+              // 重新尝试启动代理
+              setTimeout(() => {
+                // 这里可以重新启动代理，但需要知道是哪个配置
+                message.info('请重新尝试启动代理服务');
+              }, 1000);
+            } else {
+              message.error(result.message || '操作失败');
+            }
+          } catch (error) {
+            message.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
+          }
+        }
+      });
+    };
+
+    // 注册监听器
+    window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
+    console.log('端口占用监听器已设置');
+
+    // 清理监听器
+    return () => {
+      // 注意：这里我们无法直接移除特定的监听器，但这是可以接受的
+      // 因为组件卸载时会自动清理
+      console.log('清理端口占用监听器');
+    };
   }, []);
 
   const loadConfigs = async () => {

@@ -17,6 +17,8 @@ export interface CoreStatus {
   singbox: boolean;
   xray: boolean;
   clash: boolean;
+  geoip: boolean;
+  geosite: boolean;
 }
 
 export interface DownloadProgress {
@@ -35,7 +37,7 @@ export class CoreManager {
       return await ipcRenderer.invoke('core:getStatus');
     } catch (error) {
       console.error('获取核心状态失败:', error);
-      return { singbox: false, xray: false, clash: false };
+      return { singbox: false, xray: false, clash: false, geoip: false, geosite: false };
     }
   }
 
@@ -56,7 +58,7 @@ export class CoreManager {
    */
   static async downloadCore(coreName: string): Promise<boolean> {
     try {
-      const result = await ipcRenderer.invoke('core:download', { coreName });
+      const result = await ipcRenderer.invoke('core:download', coreName);
       
       if (result.success) {
         return true;
@@ -71,15 +73,47 @@ export class CoreManager {
   }
 
   /**
+   * 下载数据库文件
+   */
+  static async downloadDatabase(dbName: string): Promise<boolean> {
+    try {
+      const result = await ipcRenderer.invoke('core:downloadDatabase', dbName);
+      
+      if (result.success) {
+        return true;
+      } else {
+        console.error(`下载失败: ${result.error}`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`下载数据库 ${dbName} 失败:`, error);
+      return false;
+    }
+  }
+
+  /**
    * 获取核心显示名称
    */
   static getCoreDisplayName(coreName: string): string {
     const names: { [key: string]: string } = {
       singbox: 'Sing-box',
       xray: 'Xray',
-      clash: 'Clash'
+      clash: 'Clash',
+      geoip: 'GeoIP 数据库',
+      geosite: 'GeoSite 数据库'
     };
     return names[coreName] || coreName;
+  }
+
+  /**
+   * 获取数据库显示名称
+   */
+  static getDatabaseDisplayName(dbName: string): string {
+    const names: { [key: string]: string } = {
+      geoip: 'GeoIP 数据库',
+      geosite: 'GeoSite 数据库'
+    };
+    return names[dbName] || dbName;
   }
 
   /**
@@ -92,5 +126,16 @@ export class CoreManager {
       clash: '基于规则的跨平台代理工具'
     };
     return descriptions[coreName] || '';
+  }
+
+  /**
+   * 获取数据库描述
+   */
+  static getDatabaseDescription(dbName: string): string {
+    const descriptions: { [key: string]: string } = {
+      geoip: 'IP 地址地理位置数据库，用于基于 IP 的路由规则',
+      geosite: '域名地理位置数据库，用于基于域名的路由规则'
+    };
+    return descriptions[dbName] || '';
   }
 }

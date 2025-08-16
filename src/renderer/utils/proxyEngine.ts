@@ -143,8 +143,14 @@ export class ProxyEngine {
    * 启动Sing-box引擎
    */
   private async startSingbox(config: ProxyConfig): Promise<void> {
+    console.log('开始启动 Sing-box 引擎');
+    console.log('原始配置:', config);
+    
     const singboxConfig = this.convertToSingboxConfig(config);
-    await ipcRenderer.invoke('proxy:startSingbox', singboxConfig);
+    console.log('转换后的 Sing-box 配置:', JSON.stringify(singboxConfig, null, 2));
+    
+    const result = await ipcRenderer.invoke('proxy:startSingbox', singboxConfig);
+    console.log('Sing-box 启动结果:', result);
   }
 
   /**
@@ -168,7 +174,7 @@ export class ProxyEngine {
    */
   private convertToSingboxConfig(config: ProxyConfig): any {
     // 基础Sing-box配置结构
-    const singboxConfig = {
+    const singboxConfig: any = {
       log: {
         level: "info",
         output: "stdout"
@@ -202,13 +208,34 @@ export class ProxyEngine {
             outbound: "direct"
           }
         ],
-        final: "proxy"
+        final: "direct"  // 修改为 "direct"，因为默认有 direct 出站
       }
     };
 
     // 根据具体配置添加代理出站
     if (config.config.outbounds) {
-      singboxConfig.outbounds.unshift(...config.config.outbounds);
+      // 修复网络类型
+      const fixedOutbounds = config.config.outbounds.map((outbound: any) => {
+        if (outbound.network === 'ws') {
+          // 在 Sing-box 中，WebSocket 使用 transport 字段
+          const fixedOutbound = { ...outbound };
+          delete fixedOutbound.network;
+          delete fixedOutbound.ws_opts; // 完全移除 ws_opts 字段
+          fixedOutbound.transport = {
+            type: "ws",
+            path: outbound.ws_opts?.path || "/",
+            headers: outbound.ws_opts?.headers || {}
+          };
+          return fixedOutbound;
+        }
+        return outbound;
+      });
+      
+      singboxConfig.outbounds.unshift(...fixedOutbounds);
+      // 如果有代理出站，将 final 改为第一个代理出站的 tag
+      if (fixedOutbounds.length > 0 && fixedOutbounds[0].tag) {
+        singboxConfig.route.final = fixedOutbounds[0].tag;
+      }
     }
 
     return singboxConfig;
