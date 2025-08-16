@@ -121,7 +121,7 @@ const Dashboard: React.FC = () => {
         <Col span={24}>
           <Card>
             <div className="connection-status">
-              <div className="status-indicator">
+              <div className="dashboard-status-indicator">
                 <div className={`status-dot ${connectionStatus.connected ? 'connected' : 'disconnected'}`} />
                 <Text strong>
                   {connectionStatus.connected ? '已连接' : '未连接'}

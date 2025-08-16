@@ -4,6 +4,7 @@ import { PlayCircleOutlined, StopOutlined, SettingOutlined, PlusOutlined, Delete
 import { proxyEngine, ProxyConfig, ProxyStatus } from '../utils/proxyEngine';
 import { systemProxy, ProxySettings } from '../utils/systemProxy';
 import { chainProxyManager, ChainConfig } from '../utils/chainProxy';
+import { Storage, STORAGE_KEYS } from '../utils/storage';
 import './ProxyManagement.css';
 
 const { Option } = Select;
@@ -34,64 +35,96 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
 
   const loadConfigs = async () => {
     try {
-      // 这里应该从配置管理器加载配置
-      // 暂时使用模拟数据
-      const mockConfigs: ProxyConfig[] = [
-        {
-          id: '1',
-          name: 'Sing-box 代理',
-          type: 'singbox',
-          config: {
-            outbounds: [
-              {
-                type: 'vmess',
-                tag: 'proxy-1',
-                server: 'example.com',
-                server_port: 443,
-                uuid: '12345678-1234-1234-1234-123456789012',
-                security: 'auto',
-                alter_id: 0,
-                network: 'ws',
-                ws_opts: {
-                  path: '/path',
-                  headers: {
-                    Host: 'example.com'
+      // 从存储中加载代理配置
+      const savedProxyConfigs = Storage.get<ProxyConfig[]>('proxy_configs', []) || [];
+      const savedChainConfigs = Storage.get<ChainConfig[]>('chain_configs', []) || [];
+
+      // 如果没有保存的配置，使用默认配置
+      if (savedProxyConfigs.length === 0) {
+        const defaultConfigs: ProxyConfig[] = [
+          {
+            id: '1',
+            name: 'Sing-box 代理',
+            type: 'singbox',
+            config: {
+              outbounds: [
+                {
+                  type: 'vmess',
+                  tag: 'proxy-1',
+                  server: 'example.com',
+                  server_port: 443,
+                  uuid: '12345678-1234-1234-1234-123456789012',
+                  security: 'auto',
+                  alter_id: 0,
+                  network: 'ws',
+                  ws_opts: {
+                    path: '/path',
+                    headers: {
+                      Host: 'example.com'
+                    }
                   }
                 }
+              ]
+            },
+            enabled: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ];
+
+        const defaultChains: ChainConfig[] = [
+          {
+            id: 'chain-1',
+            name: '默认代理链',
+            description: '包含多个代理的链式配置',
+            proxies: ['1'],
+            rules: [
+              {
+                id: 'rule-1',
+                type: 'geoip',
+                value: 'cn',
+                action: 'direct',
+                priority: 100
               }
-            ]
-          },
-          enabled: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      ];
+            ],
+            enabled: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ];
 
-      const mockChains: ChainConfig[] = [
-        {
-          id: 'chain-1',
-          name: '默认代理链',
-          description: '包含多个代理的链式配置',
-          proxies: ['1'],
-          rules: [
-            {
-              id: 'rule-1',
-              type: 'geoip',
-              value: 'cn',
-              action: 'direct',
-              priority: 100
-            }
-          ],
-          enabled: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      ];
+        // 保存默认配置到存储
+        Storage.set('proxy_configs', defaultConfigs);
+        Storage.set('chain_configs', defaultChains);
 
-      setProxyConfigs(mockConfigs);
-      setChainConfigs(mockChains);
+        setProxyConfigs(defaultConfigs);
+        setChainConfigs(defaultChains);
+      } else {
+        setProxyConfigs(savedProxyConfigs);
+        setChainConfigs(savedChainConfigs);
+      }
     } catch (error) {
       message.error('加载配置失败');
+    }
+  };
+
+  // 保存代理配置到存储
+  const saveProxyConfigs = (configs: ProxyConfig[]) => {
+    try {
+      Storage.set('proxy_configs', configs);
+      setProxyConfigs(configs);
+    } catch (error: unknown) {
+      message.error('保存代理配置失败');
+    }
+  };
+
+  // 保存代理链配置到存储
+  const saveChainConfigs = (configs: ChainConfig[]) => {
+    try {
+      Storage.set('chain_configs', configs);
+      setChainConfigs(configs);
+    } catch (error: unknown) {
+      message.error('保存代理链配置失败');
     }
   };
 
@@ -157,10 +190,10 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
       if (editingConfig) {
         // 更新配置
         const updatedConfigs = proxyConfigs.map(c => c.id === config.id ? config : c);
-        setProxyConfigs(updatedConfigs);
+        saveProxyConfigs(updatedConfigs);
       } else {
         // 添加新配置
-        setProxyConfigs([...proxyConfigs, config]);
+        saveProxyConfigs([...proxyConfigs, config]);
       }
 
       setModalVisible(false);
@@ -178,7 +211,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
       content: '确定要删除这个代理配置吗？',
       onOk: () => {
         const updatedConfigs = proxyConfigs.filter(c => c.id !== id);
-        setProxyConfigs(updatedConfigs);
+        saveProxyConfigs(updatedConfigs);
         message.success('配置已删除');
       }
     });
@@ -201,10 +234,10 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
       if (editingChain) {
         // 更新代理链
         const updatedChains = chainConfigs.map(c => c.id === chain.id ? chain : c);
-        setChainConfigs(updatedChains);
+        saveChainConfigs(updatedChains);
       } else {
         // 添加新代理链
-        setChainConfigs([...chainConfigs, chain]);
+        saveChainConfigs([...chainConfigs, chain]);
       }
 
       setChainModalVisible(false);
@@ -222,7 +255,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
       content: '确定要删除这个代理链吗？',
       onOk: () => {
         const updatedChains = chainConfigs.filter(c => c.id !== id);
-        setChainConfigs(updatedChains);
+        saveChainConfigs(updatedChains);
         message.success('代理链已删除');
       }
     });
@@ -337,7 +370,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
             const updatedChains = chainConfigs.map(c =>
               c.id === record.id ? { ...c, enabled: checked } : c
             );
-            setChainConfigs(updatedChains);
+            saveChainConfigs(updatedChains);
           }}
         />
       ),

@@ -15,7 +15,7 @@
   align-items: center;
 }
 
-.status-indicator {
+.dashboard-status-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -24,7 +24,7 @@
 }
 
 /* 确保连接状态文字正常水平显示 */
-.status-indicator .ant-typography {
+.dashboard-status-indicator .ant-typography {
   writing-mode: horizontal-tb !important;
   text-orientation: mixed !important;
   transform: none !important;

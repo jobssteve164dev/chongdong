@@ -63,6 +63,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import ConfigApi from '../utils/configApi';
+import { Storage, STORAGE_KEYS } from '../utils/storage';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -116,11 +117,43 @@ const Settings: React.FC = () => {
     }
   });
 
+  // 加载已保存的设置
+  useEffect(() => {
+    loadSavedSettings();
+  }, []);
+
+  const loadSavedSettings = () => {
+    try {
+      // 加载应用设置
+      const savedSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
+      if (savedSettings) {
+        setSettings(prev => ({ ...prev, ...savedSettings }));
+        form.setFieldsValue(savedSettings);
+      }
+
+      // 加载用户偏好设置
+      const savedPreferences = Storage.get<UserPreferences>(STORAGE_KEYS.USER_PREFERENCES);
+      if (savedPreferences) {
+        setPreferences(prev => ({ ...prev, ...savedPreferences }));
+      }
+
+      log.info('加载已保存的设置', { settings: savedSettings, preferences: savedPreferences }, 'Settings');
+    } catch (error) {
+      log.error('加载设置失败', error, 'Settings');
+    }
+  };
+
   const handleSaveSettings = async (values: any) => {
     setLoading(true);
     try {
-      // 这里将调用实际的API保存设置
-      setSettings(prev => ({ ...prev, ...values }));
+      const newSettings = { ...settings, ...values };
+      
+      // 保存到本地存储
+      Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
+      
+      // 更新状态
+      setSettings(newSettings);
+      
       message.success('设置已保存');
       log.info('保存应用设置', values, 'Settings');
     } catch (error) {
@@ -134,8 +167,14 @@ const Settings: React.FC = () => {
   const handleSavePreferences = async (values: any) => {
     setLoading(true);
     try {
-      // 这里将调用实际的API保存偏好设置
-      setPreferences(prev => ({ ...prev, ...values }));
+      const newPreferences = { ...preferences, ...values };
+      
+      // 保存到本地存储
+      Storage.set(STORAGE_KEYS.USER_PREFERENCES, newPreferences);
+      
+      // 更新状态
+      setPreferences(newPreferences);
+      
       message.success('偏好设置已保存');
       log.info('保存用户偏好设置', values, 'Settings');
     } catch (error) {
@@ -147,7 +186,54 @@ const Settings: React.FC = () => {
   };
 
   const handleResetSettings = () => {
+    // 清除存储的设置
+    Storage.remove(STORAGE_KEYS.SETTINGS);
+    Storage.remove(STORAGE_KEYS.USER_PREFERENCES);
+    
+    // 重置表单和状态
     form.resetFields();
+    setSettings({
+      theme: 'auto',
+      language: 'zh-CN',
+      autoStart: false,
+      systemProxy: true,
+      proxyPort: 7890,
+      socksPort: 7891,
+      mixedPort: 7890,
+      allowLan: false,
+      mode: 'rule',
+      logLevel: 'info',
+      enableLog: true,
+      logFile: 'chongdong.log',
+      enableUdp: true,
+      enableIpv6: false,
+      enableTun: false,
+      tunDevice: 'utun0',
+      enableFakeIp: true,
+      fakeIpRange: '198.18.0.1/16',
+      enableDns: true,
+      dnsServer: '8.8.8.8',
+      enableDoh: false,
+      dohServer: 'https://dns.google/dns-query'
+    });
+    setPreferences({
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
+      autoHideMenuBar: false,
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: 'Ctrl+Shift+P',
+        showMainWindow: 'Ctrl+Shift+M',
+        quickSwitch: 'Ctrl+Shift+S'
+      }
+    });
+    
     message.info('设置已重置为默认值');
     log.info('重置应用设置', null, 'Settings');
   };

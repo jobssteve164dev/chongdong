@@ -74,42 +74,80 @@ import {
 import { Subscription } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
+import { Storage, STORAGE_KEYS } from '../utils/storage';
 import './SubscriptionManagement.css';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const SubscriptionManagement: React.FC = () => {
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([
-    {
-      id: '1',
-      name: '香港节点订阅',
-      url: 'https://example.com/hk-subscription',
-      enabled: true,
-      autoUpdate: true,
-      updateInterval: 3600,
-      lastUpdate: Date.now() - 1800000, // 30分钟前
-      nextUpdate: Date.now() + 1800000, // 30分钟后
-      servers: [],
-      groups: [],
-    },
-    {
-      id: '2',
-      name: '新加坡节点订阅',
-      url: 'https://example.com/sg-subscription',
-      enabled: true,
-      autoUpdate: false,
-      updateInterval: 7200,
-      lastUpdate: Date.now() - 3600000, // 1小时前
-      nextUpdate: Date.now() + 3600000, // 1小时后
-      servers: [],
-      groups: [],
-    },
-  ]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
+
+  // 加载订阅配置
+  useEffect(() => {
+    loadSubscriptions();
+  }, []);
+
+  const loadSubscriptions = () => {
+    try {
+      // 从存储中加载订阅配置
+      const savedSubscriptions = Storage.get<Subscription[]>(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []) || [];
+
+      // 如果没有保存的订阅，使用默认订阅
+      if (savedSubscriptions.length === 0) {
+        const defaultSubscriptions: Subscription[] = [
+          {
+            id: '1',
+            name: '香港节点订阅',
+            url: 'https://example.com/hk-subscription',
+            enabled: true,
+            autoUpdate: true,
+            updateInterval: 3600,
+            lastUpdate: Date.now() - 1800000, // 30分钟前
+            nextUpdate: Date.now() + 1800000, // 30分钟后
+            servers: [],
+            groups: [],
+          },
+          {
+            id: '2',
+            name: '新加坡节点订阅',
+            url: 'https://example.com/sg-subscription',
+            enabled: true,
+            autoUpdate: false,
+            updateInterval: 7200,
+            lastUpdate: Date.now() - 3600000, // 1小时前
+            nextUpdate: Date.now() + 3600000, // 1小时后
+            servers: [],
+            groups: [],
+          }
+        ];
+
+        // 保存默认订阅到存储
+        Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, defaultSubscriptions);
+        setSubscriptions(defaultSubscriptions);
+      } else {
+        setSubscriptions(savedSubscriptions);
+      }
+    } catch (error: unknown) {
+      message.error('加载订阅配置失败');
+      log.error('加载订阅配置失败', error, 'SubscriptionManagement');
+    }
+  };
+
+  // 保存订阅配置到存储
+  const saveSubscriptions = (newSubscriptions: Subscription[]) => {
+    try {
+      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, newSubscriptions);
+      setSubscriptions(newSubscriptions);
+    } catch (error: unknown) {
+      message.error('保存订阅配置失败');
+      log.error('保存订阅配置失败', error, 'SubscriptionManagement');
+    }
+  };
 
   const handleAddSubscription = () => {
     setEditingSubscription(null);
@@ -124,17 +162,17 @@ const SubscriptionManagement: React.FC = () => {
   };
 
   const handleDeleteSubscription = (id: string) => {
-    setSubscriptions(prev => prev.filter(sub => sub.id !== id));
+    const updatedSubscriptions = subscriptions.filter(sub => sub.id !== id);
+    saveSubscriptions(updatedSubscriptions);
     message.success('订阅已删除');
     log.info('删除订阅', { id }, 'SubscriptionManagement');
   };
 
   const handleToggleSubscription = (id: string) => {
-    setSubscriptions(prev =>
-      prev.map(sub =>
-        sub.id === id ? { ...sub, enabled: !sub.enabled } : sub
-      )
+    const updatedSubscriptions = subscriptions.map(sub =>
+      sub.id === id ? { ...sub, enabled: !sub.enabled } : sub
     );
+    saveSubscriptions(updatedSubscriptions);
   };
 
   const handleUpdateSubscription = async (subscription: Subscription) => {
@@ -168,11 +206,10 @@ const SubscriptionManagement: React.FC = () => {
     try {
       if (editingSubscription) {
         // 编辑现有订阅
-        setSubscriptions(prev =>
-          prev.map(sub =>
-            sub.id === editingSubscription.id ? { ...sub, ...values } : sub
-          )
+        const updatedSubscriptions = subscriptions.map(sub =>
+          sub.id === editingSubscription.id ? { ...sub, ...values } : sub
         );
+        saveSubscriptions(updatedSubscriptions);
         message.success('订阅已更新');
         log.info('更新订阅', { subscription: editingSubscription.name }, 'SubscriptionManagement');
       } else {
@@ -184,12 +221,12 @@ const SubscriptionManagement: React.FC = () => {
           servers: [],
           groups: [],
         };
-        setSubscriptions(prev => [...prev, newSubscription]);
+        saveSubscriptions([...subscriptions, newSubscription]);
         message.success('订阅已添加');
         log.info('添加订阅', { subscription: newSubscription.name }, 'SubscriptionManagement');
       }
       setModalVisible(false);
-    } catch (error) {
+    } catch (error: unknown) {
       message.error('保存失败');
       log.error('保存订阅失败', error, 'SubscriptionManagement');
     }
