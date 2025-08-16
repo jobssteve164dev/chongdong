@@ -1,5 +1,7 @@
 .dashboard-page {
   padding: 24px;
+  min-height: 100%;
+  overflow-x: hidden;
 }
 
 .dashboard-header {
@@ -99,6 +101,8 @@
 @media (max-width: 768px) {
   .dashboard-page {
     padding: 16px;
+    min-height: 100%;
+    overflow-x: hidden;
   }
 
   .dashboard-header {
