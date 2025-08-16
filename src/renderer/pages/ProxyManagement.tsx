@@ -42,8 +42,12 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     console.log('设置端口占用监听器...');
     
     // 监听端口占用通知
-    const handlePortInUse = (event: any, data: { port: number; processId: string }) => {
+    const handlePortInUse = (data: { port: number; processId: string }) => {
       console.log('收到端口占用通知:', data);
+      if (!data) {
+        console.error('端口占用通知未收到有效数据');
+        return;
+      }
       Modal.confirm({
         title: '端口被占用',
         content: (
@@ -235,6 +239,22 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
       loadSystemProxy();
     } catch (error) {
       message.error(`启动失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      
+      // 启动失败时，将状态重置为inactive
+      const updatedConfigs = proxyConfigs.map(c => 
+        c.id === config.id ? { ...c, enabled: false, updatedAt: new Date() } : c
+      );
+      saveProxyConfigs(updatedConfigs);
+
+      // 更新代理状态卡片
+      setCurrentStatus({
+        running: false,
+        uptime: 0,
+        connections: 0,
+        upload: 0,
+        download: 0,
+        error: error instanceof Error ? error.message : '未知错误'
+      });
     } finally {
       setLoading(false);
     }
@@ -371,7 +391,16 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
           checked={currentStatus?.running && record.enabled}
           onChange={(checked) => {
             if (checked) {
-              handleStartProxy(record);
+              try {
+                handleStartProxy(record);
+              } catch (error) {
+                console.error('启动代理服务失败:', error);
+                const errorMessage = error instanceof Error ? error.message : '未知错误';
+                message.error(`启动代理服务失败: ${errorMessage}`);
+                // 启动失败时，将状态重置为inactive
+                const newConfigs = proxyConfigs.map(c => c.id === record.id ? { ...c, enabled: false } : c);
+                setProxyConfigs(newConfigs);
+              }
             } else {
               handleStopProxy();
             }

@@ -1,28 +1,36 @@
-import { contextBridge, ipcRenderer } from 'electron';
+// All of the Node.js APIs are available in the preload process.
+// It has the same sandbox as a Chrome extension.
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
+// Custom APIs for renderer
+const api = {
+  // ... any other APIs you want to expose
+}
+
+// Use `contextBridge` to securely expose Node.js APIs to the renderer process
 contextBridge.exposeInMainWorld('electron', {
   ipcRenderer: {
-    send: (channel: string, data: any) => {
-      ipcRenderer.send(channel, data);
-    },
-    on: (channel: string, func: (...args: any[]) => void) => {
-      const validChannels = ['menu-new-config', 'menu-import-config', 'menu-about', 'proxy:portInUse'];
-      if (validChannels.includes(channel)) {
-        // Deliberately strip event as it includes `sender`
-        ipcRenderer.on(channel, (_event, ...args) => func(...args));
-      }
-    },
-    invoke: (channel: string, ...args: any[]) => {
-      return ipcRenderer.invoke(channel, ...args);
-    },
-  },
-  require: (module: string) => {
-    if (module === 'electron') {
-      return { ipcRenderer };
-    }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(module);
-  },
-});
+    invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+    on: (channel: string, listener: (...args: any[]) => void) => {
+      // Create a new listener that wraps the original one
+      const wrappedListener = (_event: IpcRendererEvent, ...args: any[]) => {
+        listener(...args);
+      };
+      // Add the wrapped listener
+      ipcRenderer.on(channel, wrappedListener);
 
-console.log('Preload script loaded.');
+      // Return a function to remove the listener
+      return () => {
+        ipcRenderer.removeListener(channel, wrappedListener);
+      };
+    },
+    send: (channel: string, ...args: any[]) => {
+      ipcRenderer.send(channel, ...args);
+    },
+    removeAllListeners: (channel: string) => {
+      ipcRenderer.removeAllListeners(channel);
+    }
+  }
+})
+
+contextBridge.exposeInMainWorld('api', api)

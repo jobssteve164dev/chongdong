@@ -56,64 +56,83 @@ export class ProxyManager {
     const singboxPath = await this.getSingboxPath();
     console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     
-    // 启动进程，设置工作目录为 bin 目录，这样 Sing-box 能找到数据库文件
-    const childProcess = spawn(singboxPath, ['run', '-c', configPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false,
-      cwd: this.binDir  // 设置工作目录为 bin 目录
-    });
+    return new Promise<void>((resolve, reject) => {
+      // 启动进程，设置工作目录为 bin 目录，这样 Sing-box 能找到数据库文件
+      const childProcess = spawn(singboxPath, ['run', '-c', configPath], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: false,
+        cwd: this.binDir  // 设置工作目录为 bin 目录
+      });
 
-    // 监听进程事件
-    childProcess.on('error', (error) => {
-      console.error('Sing-box process error:', error);
-    });
+      // 监听进程事件
+      childProcess.on('error', (error) => {
+        console.error('Sing-box process error:', error);
+        reject(error);
+      });
 
-    childProcess.on('exit', (code, signal) => {
-      console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
-      this.processes.delete(processId);
-    });
-
-    // 监听标准输出和错误输出
-    childProcess.stdout.on('data', (data) => {
-      console.log(`Sing-box stdout: ${data.toString()}`);
-    });
-
-    childProcess.stderr.on('data', (data) => {
-      const errorMessage = data.toString();
-      console.error(`Sing-box stderr: ${errorMessage}`);
-      
-      // 检测端口占用错误
-      if (errorMessage.includes('bind: address already in use')) {
-        console.log('检测到端口占用，发送端口占用通知');
-        // 通过 IPC 发送端口占用通知到渲染进程
-        const { BrowserWindow } = require('electron');
-        const windows = BrowserWindow.getAllWindows();
-        console.log(`找到 ${windows.length} 个窗口`);
-        if (windows.length > 0) {
-          const port = config.inbounds?.[0]?.listen_port || 7890;
-          const notificationData = {
-            port: port,
-            processId: processId
-          };
-          console.log('发送端口占用通知:', notificationData);
-          windows[0].webContents.send('proxy:portInUse', notificationData);
-          console.log('端口占用通知已发送');
-        } else {
-          console.log('没有找到窗口，无法发送通知');
+      childProcess.on('exit', (code, signal) => {
+        console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
+        this.processes.delete(processId);
+        if (code !== 0) {
+          reject(new Error(`Sing-box process failed with exit code: ${code}`));
         }
-      }
-    });
+      });
 
-    // 存储进程信息
-    this.processes.set(processId, {
-      id: processId,
-      type: 'singbox',
-      process: childProcess,
-      config,
-      port: config.inbounds?.[0]?.listen_port || 7890
-    });
+      // 监听标准输出
+      childProcess.stdout.on('data', (data) => {
+        console.log(`Sing-box stdout: ${data.toString()}`);
+      });
 
-    console.log(`Started Sing-box process: ${processId}`);
+      // 监听标准错误
+      childProcess.stderr.on('data', (data) => {
+        const errorMessage = data.toString();
+        console.error(`Sing-box stderr: ${errorMessage}`);
+        
+        // 检测端口占用错误
+        if (errorMessage.includes('bind: address already in use')) {
+          console.log('检测到端口占用，发送端口占用通知');
+          // 通过 IPC 发送端口占用通知到渲染进程
+          const { BrowserWindow } = require('electron');
+          const windows = BrowserWindow.getAllWindows();
+          console.log(`找到 ${windows.length} 个窗口`);
+          if (windows.length > 0) {
+            const port = config.inbounds?.[0]?.listen_port || 7890;
+            const notificationData = {
+              port: port,
+              processId: processId
+            };
+            console.log('发送端口占用通知:', notificationData);
+            windows[0].webContents.send('proxy:portInUse', notificationData);
+            console.log('端口占用通知已发送');
+          } else {
+            console.log('没有找到窗口，无法发送通知');
+          }
+          
+          // 终止子进程
+          childProcess.kill();
+          
+          // 使用 reject 而不是 throw，避免未捕获的异常
+          reject(new Error(`端口 ${config.inbounds?.[0]?.listen_port || 7890} 已被占用，无法启动代理服务`));
+          return;
+        }
+      });
+
+      // 存储进程信息
+      this.processes.set(processId, {
+        id: processId,
+        type: 'singbox',
+        process: childProcess,
+        config,
+        port: config.inbounds?.[0]?.listen_port || 7890
+      });
+
+      console.log(`Started Sing-box process: ${processId}`);
+      
+      // 如果进程启动成功，延迟一点时间再 resolve，确保没有立即错误
+      setTimeout(() => {
+        resolve();
+      }, 100);
+    });
   }
 
   /**
@@ -129,32 +148,82 @@ export class ProxyManager {
     // 获取Xray可执行文件路径
     const xrayPath = await this.getXrayPath();
     
-    // 启动进程
-    const childProcess = spawn(xrayPath, ['run', '-c', configPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false
-    });
+    return new Promise<void>((resolve, reject) => {
+      // 启动进程
+      const childProcess = spawn(xrayPath, ['run', '-c', configPath], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: false
+      });
 
-    // 监听进程事件
-    childProcess.on('error', (error) => {
-      console.error('Xray process error:', error);
-    });
+      // 监听进程事件
+      childProcess.on('error', (error) => {
+        console.error('Xray process error:', error);
+        reject(error);
+      });
 
-    childProcess.on('exit', (code, signal) => {
-      console.log(`Xray process exited with code ${code} and signal ${signal}`);
-      this.processes.delete(processId);
-    });
+      childProcess.on('exit', (code, signal) => {
+        console.log(`Xray process exited with code ${code} and signal ${signal}`);
+        this.processes.delete(processId);
+        if (code !== 0) {
+          reject(new Error(`Xray process failed with exit code: ${code}`));
+        }
+      });
 
-    // 存储进程信息
-    this.processes.set(processId, {
-      id: processId,
-      type: 'xray',
-      process: childProcess,
-      config,
-      port: config.inbounds?.[0]?.port || 1080
-    });
+      // 监听标准输出
+      childProcess.stdout.on('data', (data) => {
+        console.log(`Xray stdout: ${data.toString()}`);
+      });
 
-    console.log(`Started Xray process: ${processId}`);
+      // 监听标准错误
+      childProcess.stderr.on('data', (data) => {
+        const errorMessage = data.toString();
+        console.error(`Xray stderr: ${errorMessage}`);
+        
+        // 检测端口占用错误
+        if (errorMessage.includes('bind: address already in use')) {
+          console.log('检测到端口占用，发送端口占用通知');
+          // 通过 IPC 发送端口占用通知到渲染进程
+          const { BrowserWindow } = require('electron');
+          const windows = BrowserWindow.getAllWindows();
+          console.log(`找到 ${windows.length} 个窗口`);
+          if (windows.length > 0) {
+            const port = config.inbounds?.[0]?.port || 1080;
+            const notificationData = {
+              port: port,
+              processId: processId
+            };
+            console.log('发送端口占用通知:', notificationData);
+            windows[0].webContents.send('proxy:portInUse', notificationData);
+            console.log('端口占用通知已发送');
+          } else {
+            console.log('没有找到窗口，无法发送通知');
+          }
+          
+          // 终止子进程
+          childProcess.kill();
+          
+          // 使用 reject 而不是 throw，避免未捕获的异常
+          reject(new Error(`端口 ${config.inbounds?.[0]?.port || 1080} 已被占用，无法启动代理服务`));
+          return;
+        }
+      });
+
+      // 存储进程信息
+      this.processes.set(processId, {
+        id: processId,
+        type: 'xray',
+        process: childProcess,
+        config,
+        port: config.inbounds?.[0]?.port || 1080
+      });
+
+      console.log(`Started Xray process: ${processId}`);
+      
+      // 如果进程启动成功，延迟一点时间再 resolve，确保没有立即错误
+      setTimeout(() => {
+        resolve();
+      }, 100);
+    });
   }
 
   /**
@@ -170,32 +239,82 @@ export class ProxyManager {
     // 获取Clash可执行文件路径
     const clashPath = await this.getClashPath();
     
-    // 启动进程
-    const childProcess = spawn(clashPath, ['-d', this.configDir, '-f', configPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: false
-    });
+    return new Promise<void>((resolve, reject) => {
+      // 启动进程
+      const childProcess = spawn(clashPath, ['-d', this.configDir, '-f', configPath], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: false
+      });
 
-    // 监听进程事件
-    childProcess.on('error', (error) => {
-      console.error('Clash process error:', error);
-    });
+      // 监听进程事件
+      childProcess.on('error', (error) => {
+        console.error('Clash process error:', error);
+        reject(error);
+      });
 
-    childProcess.on('exit', (code, signal) => {
-      console.log(`Clash process exited with code ${code} and signal ${signal}`);
-      this.processes.delete(processId);
-    });
+      childProcess.on('exit', (code, signal) => {
+        console.log(`Clash process exited with code ${code} and signal ${signal}`);
+        this.processes.delete(processId);
+        if (code !== 0) {
+          reject(new Error(`Clash process failed with exit code: ${code}`));
+        }
+      });
 
-    // 存储进程信息
-    this.processes.set(processId, {
-      id: processId,
-      type: 'clash',
-      process: childProcess,
-      config,
-      port: config.port || 7890
-    });
+      // 监听标准输出
+      childProcess.stdout.on('data', (data) => {
+        console.log(`Clash stdout: ${data.toString()}`);
+      });
 
-    console.log(`Started Clash process: ${processId}`);
+      // 监听标准错误
+      childProcess.stderr.on('data', (data) => {
+        const errorMessage = data.toString();
+        console.error(`Clash stderr: ${errorMessage}`);
+        
+        // 检测端口占用错误
+        if (errorMessage.includes('bind: address already in use')) {
+          console.log('检测到端口占用，发送端口占用通知');
+          // 通过 IPC 发送端口占用通知到渲染进程
+          const { BrowserWindow } = require('electron');
+          const windows = BrowserWindow.getAllWindows();
+          console.log(`找到 ${windows.length} 个窗口`);
+          if (windows.length > 0) {
+            const port = config.port || 7890;
+            const notificationData = {
+              port: port,
+              processId: processId
+            };
+            console.log('发送端口占用通知:', notificationData);
+            windows[0].webContents.send('proxy:portInUse', notificationData);
+            console.log('端口占用通知已发送');
+          } else {
+            console.log('没有找到窗口，无法发送通知');
+          }
+          
+          // 终止子进程
+          childProcess.kill();
+          
+          // 使用 reject 而不是 throw，避免未捕获的异常
+          reject(new Error(`端口 ${config.port || 7890} 已被占用，无法启动代理服务`));
+          return;
+        }
+      });
+
+      // 存储进程信息
+      this.processes.set(processId, {
+        id: processId,
+        type: 'clash',
+        process: childProcess,
+        config,
+        port: config.port || 7890
+      });
+
+      console.log(`Started Clash process: ${processId}`);
+      
+      // 如果进程启动成功，延迟一点时间再 resolve，确保没有立即错误
+      setTimeout(() => {
+        resolve();
+      }, 100);
+    });
   }
 
   /**
