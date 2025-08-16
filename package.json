@@ -2,7 +2,7 @@
   "name": "chongdong",
   "version": "1.0.0",
   "description": "虫洞 - 新一代跨平台代理客户端应用",
-  "main": "dist/main.js",
+  "main": "dist/main/index.js",
   "homepage": "https://github.com/your-username/chongdong",
   "repository": {
     "type": "git",
@@ -22,7 +22,16 @@
     "format": "prettier --write src/**/*.{ts,tsx,js,jsx,json,css,md}",
     "prepare": "husky install"
   },
-  "keywords": ["proxy", "client", "electron", "react", "typescript", "chongdong", "虫洞", "代理"],
+  "keywords": [
+    "proxy",
+    "client",
+    "electron",
+    "react",
+    "typescript",
+    "chongdong",
+    "虫洞",
+    "代理"
+  ],
   "author": "ChongDong Team",
   "license": "MIT",
   "devDependencies": {
@@ -31,8 +40,9 @@
     "@types/react-dom": "^18.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
     "concurrently": "^8.0.0",
-    "electron": "^28.0.0",
+    "electron": "^28.3.3",
     "electron-builder": "^24.0.0",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
@@ -43,18 +53,18 @@
     "lint-staged": "^15.0.0",
     "prettier": "^3.0.0",
     "typescript": "^5.0.0",
-    "vite": "^5.0.0",
-    "@vitejs/plugin-react": "^4.0.0"
+    "vite": "^5.0.0"
   },
   "dependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "antd": "^5.0.0",
     "@ant-design/icons": "^5.0.0",
+    "@electron-toolkit/utils": "^4.0.0",
+    "antd": "^5.0.0",
     "axios": "^1.0.0",
     "electron-store": "^8.0.0",
     "electron-updater": "^6.0.0",
-    "node-fetch": "^3.0.0"
+    "node-fetch": "^3.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
   },
   "build": {
     "appId": "com.chongdong.app",
@@ -68,24 +78,25 @@
       "package.json"
     ],
     "mac": {
-      "category": "public.app-category.utilities",
-      "icon": "build/icon.icns"
+      "category": "public.app-category.utilities"
     },
     "win": {
-      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
     "linux": {
-      "icon": "build/icon.png",
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     }

@@ -17,12 +17,12 @@ interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeType>('light');
 
-  // 从本地存储加载主题设置
+  // 从本地存储加载主题设置，强制使用浅色主题
   useEffect(() => {
-    const savedTheme = localStorage.getItem('chongdong-theme') as ThemeType;
-    if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark')) {
-      setThemeState(savedTheme);
-    }
+    // 清除可能存在的深色主题设置，强制使用浅色主题
+    localStorage.removeItem('chongdong-theme');
+    setThemeState('light');
+    document.body.className = '';
   }, []);
 
   // 保存主题设置到本地存储

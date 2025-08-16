@@ -1,4 +1,5 @@
 import type { ThemeConfig } from 'antd';
+import { theme } from 'antd';
 
 // 浅色主题配置
 export const lightTheme: ThemeConfig = {
@@ -53,7 +54,7 @@ export const darkTheme: ThemeConfig = {
     borderRadius: 6,
     wireframe: false,
   },
-  algorithm: 'darkAlgorithm',
+  algorithm: theme.darkAlgorithm,
   components: {
     Layout: {
       headerBg: '#1f1f1f',

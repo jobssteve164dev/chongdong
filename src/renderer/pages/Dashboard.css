@@ -19,6 +19,26 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+/* 确保连接状态文字正常水平显示 */
+.status-indicator .ant-typography {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  transform: none !important;
+  white-space: nowrap;
+  direction: ltr !important;
+  unicode-bidi: normal !important;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* 全局确保所有文字正常水平显示 */
+.ant-typography {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
 }
 
 .status-dot {
@@ -26,6 +46,8 @@
   height: 12px;
   border-radius: 50%;
   transition: all 0.3s ease;
+  flex-shrink: 0;
+  display: inline-block;
 }
 
 .status-dot.connected {

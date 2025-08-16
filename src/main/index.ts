@@ -1,7 +1,6 @@
 import { app, BrowserWindow, Menu, shell, ipcMain } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
-import icon from '../../resources/icon.png?asset';
 
 function createWindow(): void {
   // Create the browser window.
@@ -12,7 +11,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    // 暂时移除图标设置，避免找不到图标文件
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -35,7 +34,7 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    mainWindow.loadFile(join(__dirname, '../renderer/src/renderer/index.html'));
   }
 
   // 设置应用菜单
@@ -112,7 +111,7 @@ function createWindow(): void {
     },
   ];
 
-  const menu = Menu.buildFromTemplate(template);
+  const menu = Menu.buildFromTemplate(template as any);
   Menu.setApplicationMenu(menu);
 }
 

@@ -1,17 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Progress, Button, Space, Typography, Alert } from 'antd';
 import {
-  CloudOutlined,
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Progress,
+  Button,
+  Space,
+  Typography,
+  Alert,
+  List,
+  Avatar,
+  Tag,
+  Switch,
+  Divider,
+} from 'antd';
+import {
   ThunderboltOutlined,
-  BarChartOutlined,
+  CloudOutlined,
+  GlobalOutlined,
+  WifiOutlined,
   SettingOutlined,
+  ReloadOutlined,
   PlayCircleOutlined,
   PauseCircleOutlined,
-  ReloadOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
-import { useTheme } from '@/contexts/ThemeContext';
-import { log } from '@/utils/logger';
-import { ConnectionStatus, TrafficStats } from '@/shared/types';
+import { useTheme } from '../contexts/ThemeContext';
+import { ConnectionStatus, TrafficStats } from '../../shared/types/index';
+import { log } from '../utils/logger';
 import './Dashboard.css';
 
 const { Title, Text } = Typography;

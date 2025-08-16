@@ -26,8 +26,8 @@ import {
   ReloadOutlined,
   CloudOutlined,
 } from '@ant-design/icons';
-import { ProxyServer, ProxyProtocol } from '@/shared/types';
-import { log } from '@/utils/logger';
+import { ProxyServer, ProxyProtocol } from '../../shared/types/index';
+import { log } from '../utils/logger';
 import './ProxyManagement.css';
 
 const { Title, Text } = Typography;

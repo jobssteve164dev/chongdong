@@ -6,8 +6,6 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   base: './',
-  root: path.join(__dirname, 'src', 'renderer'),
-  publicDir: path.join(__dirname, 'public'),
   build: {
     outDir: path.join(__dirname, 'dist', 'renderer'),
     emptyOutDir: true,
@@ -27,6 +25,7 @@ export default defineConfig({
       '@/hooks': path.resolve(__dirname, 'src', 'renderer', 'hooks'),
       '@/types': path.resolve(__dirname, 'src', 'shared', 'types'),
     },
+    extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json'],
   },
   server: {
     port: 3000,

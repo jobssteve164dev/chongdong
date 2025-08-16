@@ -1,28 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   Row,
   Col,
   Statistic,
-  Typography,
-  Space,
+  Progress,
   Button,
+  Space,
+  Typography,
   Table,
   Tag,
-  Progress,
+  DatePicker,
+  Select,
+  Divider,
   Alert,
+  List,
+  Avatar,
+  Tooltip,
+  Badge,
+  Switch,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  TimePicker,
 } from 'antd';
 import {
-  DashboardOutlined,
-  CloudOutlined,
-  ThunderboltOutlined,
-  ClockCircleOutlined,
-  ReloadOutlined,
+  BarChartOutlined,
   LineChartOutlined,
+  PieChartOutlined,
+  DownloadOutlined,
+  UploadOutlined,
+  EyeOutlined,
+  SettingOutlined,
+  ReloadOutlined,
+  FilterOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ClockCircleOutlined,
+  ThunderboltOutlined,
+  CloudOutlined,
+  GlobalOutlined,
+  WifiOutlined,
+  SignalFilled,
+  DashboardOutlined,
 } from '@ant-design/icons';
-import { useTheme } from '@/contexts/ThemeContext';
-import { log } from '@/utils/logger';
-import { TrafficStats, ConnectionStatus } from '@/shared/types';
+import { TrafficStats, ConnectionStatus } from '../../shared/types/index';
+import { log } from '../utils/logger';
+import { useTheme } from '../contexts/ThemeContext';
 import './Monitor.css';
 
 const { Title, Text } = Typography;

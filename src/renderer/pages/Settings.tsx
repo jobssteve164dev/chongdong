@@ -1,32 +1,67 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   Form,
   Switch,
-  InputNumber,
   Input,
   Button,
   Space,
   Typography,
   Divider,
+  Alert,
+  Select,
+  InputNumber,
+  ColorPicker,
+  Slider,
+  Radio,
+  Checkbox,
+  Upload,
+  message,
   Row,
   Col,
-  Select,
-  message,
-  Alert,
+  List,
+  Avatar,
+  Tag,
+  Tooltip,
+  Badge,
+  Modal,
   Tabs,
+  Collapse,
+  Descriptions,
+  Statistic,
+  Progress,
 } from 'antd';
 import {
   SettingOutlined,
-  SecurityScanOutlined,
-  GlobalOutlined,
-  DesktopOutlined,
   SaveOutlined,
   ReloadOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  EditOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  LockOutlined,
+  UnlockOutlined,
+  KeyOutlined,
+  UserOutlined,
+  GlobalOutlined,
+  WifiOutlined,
+  ThunderboltOutlined,
+  CloudOutlined,
+  InfoCircleOutlined,
+  QuestionCircleOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
+  WarningOutlined,
+  CloseCircleOutlined,
+  SecurityScanOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons';
-import { useTheme } from '@/contexts/ThemeContext';
-import { log } from '@/utils/logger';
-import { AppSettings, UserPreferences } from '@/shared/types';
+import { useTheme } from '../contexts/ThemeContext';
+import { AppSettings, UserPreferences } from '../../shared/types/index';
+import { log } from '../utils/logger';
 import './Settings.css';
 
 const { Title, Text } = Typography;

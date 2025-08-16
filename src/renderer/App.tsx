@@ -57,9 +57,18 @@ const AppContent: React.FC = () => {
     <Layout className="app-layout">
       <Sider width={200} className="app-sider">
         <div className="logo">
-          <Title level={4} style={{ color: '#1890ff', margin: '16px 0', textAlign: 'center' }}>
-            虫洞
-          </Title>
+          <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
+            <Title level={4} style={{ color: '#1890ff', margin: '16px 0', textAlign: 'center' }}>
+              虫洞
+            </Title>
+            <Button
+              type="text"
+              size="small"
+              icon={theme === 'light' ? <BulbFilled /> : <BulbOutlined />}
+              onClick={toggleTheme}
+              title={theme === 'light' ? '切换到深色主题' : '切换到浅色主题'}
+            />
+          </Space>
         </div>
         <Menu
           mode="inline"
@@ -70,21 +79,6 @@ const AppContent: React.FC = () => {
         />
       </Sider>
       <Layout>
-        <Header className="app-header">
-          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Title level={4} style={{ margin: 0, color: 'inherit' }}>
-              虫洞 - 新一代跨平台代理客户端
-            </Title>
-            <Space>
-              <Button
-                type="text"
-                icon={theme === 'light' ? <BulbFilled /> : <BulbOutlined />}
-                onClick={toggleTheme}
-                title={theme === 'light' ? '切换到深色主题' : '切换到浅色主题'}
-              />
-            </Space>
-          </Space>
-        </Header>
         <Content className="app-content">
           <div className="content-wrapper">
             {selectedKey === 'dashboard' && <Dashboard />}
