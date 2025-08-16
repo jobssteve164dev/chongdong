@@ -1,395 +1,598 @@
-import React, { useState } from 'react';
-import {
-  Card,
-  Table,
-  Button,
-  Space,
-  Modal,
-  Form,
-  Input,
-  Select,
-  Switch,
-  Tag,
-  Popconfirm,
-  message,
-  Typography,
-  Row,
-  Col,
-  Statistic,
-} from 'antd';
-import {
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  PlayCircleOutlined,
-  PauseCircleOutlined,
-  ReloadOutlined,
-  CloudOutlined,
-} from '@ant-design/icons';
-import { ProxyServer, ProxyProtocol } from '../../shared/types/index';
-import { log } from '../utils/logger';
+import React, { useState, useEffect } from 'react';
+import { Button, Card, Table, Tag, Switch, Modal, Form, Input, Select, message, Space, Tooltip, Progress } from 'antd';
+import { PlayCircleOutlined, StopOutlined, SettingOutlined, PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { proxyEngine, ProxyConfig, ProxyStatus } from '../utils/proxyEngine';
+import { systemProxy, ProxySettings } from '../utils/systemProxy';
+import { chainProxyManager, ChainConfig } from '../utils/chainProxy';
 import './ProxyManagement.css';
 
-const { Title, Text } = Typography;
 const { Option } = Select;
 
-const ProxyManagement: React.FC = () => {
-  const [servers, setServers] = useState<ProxyServer[]>([
-    {
-      id: '1',
-      name: '香港节点1',
-      protocol: ProxyProtocol.VMESS,
-      host: 'hk1.example.com',
-      port: 443,
-      enabled: true,
-      latency: 50,
-    },
-    {
-      id: '2',
-      name: '新加坡节点1',
-      protocol: ProxyProtocol.TROJAN,
-      host: 'sg1.example.com',
-      port: 443,
-      enabled: true,
-      latency: 80,
-    },
-  ]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingServer, setEditingServer] = useState<ProxyServer | null>(null);
-  const [form] = Form.useForm();
+interface ProxyManagementProps {
+  // 可以添加props如果需要
+}
+
+const ProxyManagement: React.FC<ProxyManagementProps> = () => {
+  const [proxyConfigs, setProxyConfigs] = useState<ProxyConfig[]>([]);
+  const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
+  const [currentStatus, setCurrentStatus] = useState<ProxyStatus | null>(null);
+  const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [chainModalVisible, setChainModalVisible] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<ProxyConfig | null>(null);
+  const [editingChain, setEditingChain] = useState<ChainConfig | null>(null);
+  const [form] = Form.useForm();
+  const [chainForm] = Form.useForm();
 
-  const handleAddServer = () => {
-    setEditingServer(null);
-    form.resetFields();
-    setModalVisible(true);
+  // 加载配置
+  useEffect(() => {
+    loadConfigs();
+    loadSystemProxy();
+    startStatusPolling();
+  }, []);
+
+  const loadConfigs = async () => {
+    try {
+      // 这里应该从配置管理器加载配置
+      // 暂时使用模拟数据
+      const mockConfigs: ProxyConfig[] = [
+        {
+          id: '1',
+          name: 'Sing-box 代理',
+          type: 'singbox',
+          config: {
+            outbounds: [
+              {
+                type: 'vmess',
+                tag: 'proxy-1',
+                server: 'example.com',
+                server_port: 443,
+                uuid: '12345678-1234-1234-1234-123456789012',
+                security: 'auto',
+                alter_id: 0,
+                network: 'ws',
+                ws_opts: {
+                  path: '/path',
+                  headers: {
+                    Host: 'example.com'
+                  }
+                }
+              }
+            ]
+          },
+          enabled: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+
+      const mockChains: ChainConfig[] = [
+        {
+          id: 'chain-1',
+          name: '默认代理链',
+          description: '包含多个代理的链式配置',
+          proxies: ['1'],
+          rules: [
+            {
+              id: 'rule-1',
+              type: 'geoip',
+              value: 'cn',
+              action: 'direct',
+              priority: 100
+            }
+          ],
+          enabled: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+
+      setProxyConfigs(mockConfigs);
+      setChainConfigs(mockChains);
+    } catch (error) {
+      message.error('加载配置失败');
+    }
   };
 
-  const handleEditServer = (server: ProxyServer) => {
-    setEditingServer(server);
-    form.setFieldsValue(server);
-    setModalVisible(true);
+  const loadSystemProxy = async () => {
+    try {
+      const settings = await systemProxy.getSystemProxy();
+      setSystemProxySettings(settings);
+    } catch (error) {
+      console.error('Failed to load system proxy:', error);
+    }
   };
 
-  const handleDeleteServer = (id: string) => {
-    setServers(prev => prev.filter(server => server.id !== id));
-    message.success('代理服务器已删除');
-    log.info('删除代理服务器', { id }, 'ProxyManagement');
+  const startStatusPolling = () => {
+    const interval = setInterval(() => {
+      const status = proxyEngine.getStatus();
+      setCurrentStatus(status);
+    }, 2000);
+
+    return () => clearInterval(interval);
   };
 
-  const handleToggleServer = (id: string) => {
-    setServers(prev =>
-      prev.map(server =>
-        server.id === id ? { ...server, enabled: !server.enabled } : server
-      )
-    );
-  };
-
-  const handleTestServer = async (server: ProxyServer) => {
+  // 代理配置管理
+  const handleStartProxy = async (config: ProxyConfig) => {
     setLoading(true);
     try {
-      // 模拟测试延迟
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-      const latency = Math.floor(Math.random() * 200) + 10;
-      
-      setServers(prev =>
-        prev.map(s =>
-          s.id === server.id ? { ...s, latency, lastTest: Date.now() } : s
-        )
-      );
-      
-      message.success(`测试完成，延迟: ${latency}ms`);
-      log.info('测试代理服务器', { server: server.name, latency }, 'ProxyManagement');
+      await proxyEngine.start(config);
+      await systemProxy.setSystemProxy('127.0.0.1', 7890);
+      message.success('代理启动成功');
+      loadSystemProxy();
     } catch (error) {
-      message.error('测试失败');
-      log.error('测试代理服务器失败', error, 'ProxyManagement');
+      message.error(`启动失败: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveServer = async (values: any) => {
+  const handleStopProxy = async () => {
+    setLoading(true);
     try {
-      if (editingServer) {
-        // 编辑现有服务器
-        setServers(prev =>
-          prev.map(server =>
-            server.id === editingServer.id ? { ...server, ...values } : server
-          )
-        );
-        message.success('代理服务器已更新');
-        log.info('更新代理服务器', { server: editingServer.name }, 'ProxyManagement');
-      } else {
-        // 添加新服务器
-        const newServer: ProxyServer = {
-          id: Date.now().toString(),
-          ...values,
-          enabled: true,
-        };
-        setServers(prev => [...prev, newServer]);
-        message.success('代理服务器已添加');
-        log.info('添加代理服务器', { server: newServer.name }, 'ProxyManagement');
-      }
-      setModalVisible(false);
+      await proxyEngine.stop();
+      await systemProxy.clearSystemProxy();
+      message.success('代理已停止');
+      loadSystemProxy();
     } catch (error) {
-      message.error('保存失败');
-      log.error('保存代理服务器失败', error, 'ProxyManagement');
+      message.error(`停止失败: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getProtocolColor = (protocol: ProxyProtocol) => {
-    const colors: Record<ProxyProtocol, string> = {
-      [ProxyProtocol.HTTP]: 'blue',
-      [ProxyProtocol.HTTPS]: 'green',
-      [ProxyProtocol.SOCKS5]: 'orange',
-      [ProxyProtocol.SHADOWSOCKS]: 'purple',
-      [ProxyProtocol.VMESS]: 'cyan',
-      [ProxyProtocol.VLESS]: 'magenta',
-      [ProxyProtocol.TROJAN]: 'red',
-      [ProxyProtocol.HYSTERIA]: 'volcano',
-      [ProxyProtocol.TUIC]: 'gold',
-      [ProxyProtocol.WIREGUARD]: 'lime',
-    };
-    return colors[protocol] || 'default';
+  const handleSaveConfig = async (values: any) => {
+    try {
+      const config: ProxyConfig = {
+        id: editingConfig?.id || `config_${Date.now()}`,
+        name: values.name,
+        type: values.type,
+        config: values.config,
+        enabled: false,
+        createdAt: editingConfig?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+
+      if (editingConfig) {
+        // 更新配置
+        const updatedConfigs = proxyConfigs.map(c => c.id === config.id ? config : c);
+        setProxyConfigs(updatedConfigs);
+      } else {
+        // 添加新配置
+        setProxyConfigs([...proxyConfigs, config]);
+      }
+
+      setModalVisible(false);
+      setEditingConfig(null);
+      form.resetFields();
+      message.success('配置保存成功');
+    } catch (error) {
+      message.error('保存失败');
+    }
   };
 
-  const getLatencyColor = (latency?: number) => {
-    if (!latency) return 'default';
-    if (latency < 50) return 'success';
-    if (latency < 100) return 'warning';
-    return 'error';
+  const handleDeleteConfig = (id: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这个代理配置吗？',
+      onOk: () => {
+        const updatedConfigs = proxyConfigs.filter(c => c.id !== id);
+        setProxyConfigs(updatedConfigs);
+        message.success('配置已删除');
+      }
+    });
   };
 
-  const columns = [
+  // 代理链管理
+  const handleSaveChain = async (values: any) => {
+    try {
+      const chain: ChainConfig = {
+        id: editingChain?.id || `chain_${Date.now()}`,
+        name: values.name,
+        description: values.description,
+        proxies: values.proxies || [],
+        rules: values.rules || [],
+        enabled: false,
+        createdAt: editingChain?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+
+      if (editingChain) {
+        // 更新代理链
+        const updatedChains = chainConfigs.map(c => c.id === chain.id ? chain : c);
+        setChainConfigs(updatedChains);
+      } else {
+        // 添加新代理链
+        setChainConfigs([...chainConfigs, chain]);
+      }
+
+      setChainModalVisible(false);
+      setEditingChain(null);
+      chainForm.resetFields();
+      message.success('代理链保存成功');
+    } catch (error) {
+      message.error('保存失败');
+    }
+  };
+
+  const handleDeleteChain = (id: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这个代理链吗？',
+      onOk: () => {
+        const updatedChains = chainConfigs.filter(c => c.id !== id);
+        setChainConfigs(updatedChains);
+        message.success('代理链已删除');
+      }
+    });
+  };
+
+  // 表格列定义
+  const proxyColumns = [
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: ProxyServer) => (
-        <div>
-          <Text strong>{text}</Text>
-          <br />
-          <Text type="secondary">{record.host}:{record.port}</Text>
-        </div>
-      ),
     },
     {
-      title: '协议',
-      dataIndex: 'protocol',
-      key: 'protocol',
-      render: (protocol: ProxyProtocol) => (
-        <Tag color={getProtocolColor(protocol)}>{protocol.toUpperCase()}</Tag>
-      ),
-    },
-    {
-      title: '延迟',
-      dataIndex: 'latency',
-      key: 'latency',
-      render: (latency?: number) => (
-        latency ? (
-          <Tag color={getLatencyColor(latency)}>{latency}ms</Tag>
-        ) : (
-          <Text type="secondary">未测试</Text>
-        )
+      title: '类型',
+      dataIndex: 'type',
+      key: 'type',
+      render: (type: string) => (
+        <Tag color={type === 'singbox' ? 'blue' : type === 'xray' ? 'green' : 'orange'}>
+          {type.toUpperCase()}
+        </Tag>
       ),
     },
     {
       title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      render: (enabled: boolean) => (
+      key: 'status',
+      render: (_, record: ProxyConfig) => (
         <Switch
-          checked={enabled}
-          onChange={() => handleToggleServer(servers.find(s => s.enabled === enabled)?.id || '')}
+          checked={currentStatus?.running && record.enabled}
+          onChange={(checked) => {
+            if (checked) {
+              handleStartProxy(record);
+            } else {
+              handleStopProxy();
+            }
+          }}
+          loading={loading}
         />
       ),
     },
     {
       title: '操作',
       key: 'actions',
-      render: (_: any, record: ProxyServer) => (
+      render: (_, record: ProxyConfig) => (
         <Space>
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => handleTestServer(record)}
-            loading={loading}
-          >
-            测试
-          </Button>
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEditServer(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定要删除这个代理服务器吗？"
-            onConfirm={() => handleDeleteServer(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button size="small" icon={<DeleteOutlined />} danger>
-              删除
-            </Button>
-          </Popconfirm>
+          <Tooltip title="编辑">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setEditingConfig(record);
+                form.setFieldsValue(record);
+                setModalVisible(true);
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="查看配置">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => {
+                Modal.info({
+                  title: '配置详情',
+                  content: (
+                    <pre>{JSON.stringify(record.config, null, 2)}</pre>
+                  ),
+                  width: 600,
+                });
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteConfig(record.id)}
+            />
+          </Tooltip>
         </Space>
       ),
     },
   ];
 
-  const enabledServers = servers.filter(s => s.enabled);
-  const totalServers = servers.length;
+  const chainColumns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+    },
+    {
+      title: '代理数量',
+      key: 'proxyCount',
+      render: (_, record: ChainConfig) => record.proxies.length,
+    },
+    {
+      title: '规则数量',
+      key: 'ruleCount',
+      render: (_, record: ChainConfig) => record.rules.length,
+    },
+    {
+      title: '状态',
+      key: 'status',
+      render: (_, record: ChainConfig) => (
+        <Switch
+          checked={record.enabled}
+          onChange={(checked) => {
+            const updatedChains = chainConfigs.map(c =>
+              c.id === record.id ? { ...c, enabled: checked } : c
+            );
+            setChainConfigs(updatedChains);
+          }}
+        />
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_, record: ChainConfig) => (
+        <Space>
+          <Tooltip title="编辑">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => {
+                setEditingChain(record);
+                chainForm.setFieldsValue(record);
+                setChainModalVisible(true);
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteChain(record.id)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
 
   return (
-    <div className="proxy-management-page">
-      <div className="page-header">
-        <Title level={2}>代理管理</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddServer}>
-          添加代理
-        </Button>
+    <div className="proxy-management">
+      <div className="proxy-header">
+        <h2>代理管理</h2>
+        <Space>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditingConfig(null);
+              form.resetFields();
+              setModalVisible(true);
+            }}
+          >
+            添加代理
+          </Button>
+          <Button
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditingChain(null);
+              chainForm.resetFields();
+              setChainModalVisible(true);
+            }}
+          >
+            添加代理链
+          </Button>
+        </Space>
       </div>
 
-      {/* 统计信息 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="总代理数"
-              value={totalServers}
-              prefix={<CloudOutlined />}
-              valueStyle={{ color: '#1890ff' }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="启用代理"
-              value={enabledServers.length}
-              prefix={<PlayCircleOutlined />}
-              valueStyle={{ color: '#52c41a' }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card>
-            <Statistic
-              title="禁用代理"
-              value={totalServers - enabledServers.length}
-              prefix={<PauseCircleOutlined />}
-              valueStyle={{ color: '#faad14' }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/* 状态卡片 */}
+      <div className="status-cards">
+        <Card title="代理状态" className="status-card">
+          <div className="status-content">
+            <div className="status-item">
+              <span>运行状态:</span>
+              <Tag color={currentStatus?.running ? 'green' : 'red'}>
+                {currentStatus?.running ? '运行中' : '已停止'}
+              </Tag>
+            </div>
+            {currentStatus?.running && (
+              <>
+                <div className="status-item">
+                  <span>运行时间:</span>
+                  <span>{Math.floor((Date.now() - (currentStatus.uptime || 0)) / 1000)}秒</span>
+                </div>
+                <div className="status-item">
+                  <span>连接数:</span>
+                  <span>{currentStatus.connections}</span>
+                </div>
+                <div className="status-item">
+                  <span>上传:</span>
+                  <span>{(currentStatus.upload / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+                <div className="status-item">
+                  <span>下载:</span>
+                  <span>{(currentStatus.download / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
 
-      {/* 代理服务器列表 */}
-      <Card title="代理服务器列表">
+        <Card title="系统代理" className="status-card">
+          <div className="status-content">
+            <div className="status-item">
+              <span>状态:</span>
+              <Tag color={systemProxySettings?.enabled ? 'green' : 'red'}>
+                {systemProxySettings?.enabled ? '已启用' : '未启用'}
+              </Tag>
+            </div>
+            {systemProxySettings?.enabled && (
+              <div className="status-item">
+                <span>代理地址:</span>
+                <span>{systemProxySettings.host}:{systemProxySettings.port}</span>
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* 代理配置表格 */}
+      <Card title="代理配置" className="config-card">
         <Table
-          columns={columns}
-          dataSource={servers}
+          dataSource={proxyConfigs}
+          columns={proxyColumns}
           rowKey="id"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total, range) =>
-              `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
-          }}
+          pagination={false}
         />
       </Card>
 
-      {/* 添加/编辑代理服务器模态框 */}
+      {/* 代理链表格 */}
+      <Card title="代理链配置" className="config-card">
+        <Table
+          dataSource={chainConfigs}
+          columns={chainColumns}
+          rowKey="id"
+          pagination={false}
+        />
+      </Card>
+
+      {/* 代理配置模态框 */}
       <Modal
-        title={editingServer ? '编辑代理服务器' : '添加代理服务器'}
+        title={editingConfig ? '编辑代理配置' : '添加代理配置'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          setEditingConfig(null);
+          form.resetFields();
+        }}
         footer={null}
         width={600}
       >
         <Form
           form={form}
           layout="vertical"
-          onFinish={handleSaveServer}
-          initialValues={{
-            protocol: ProxyProtocol.VMESS,
-            port: 443,
-            enabled: true,
-          }}
+          onFinish={handleSaveConfig}
         >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="name"
-                label="服务器名称"
-                rules={[{ required: true, message: '请输入服务器名称' }]}
-              >
-                <Input placeholder="例如：香港节点1" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="protocol"
-                label="代理协议"
-                rules={[{ required: true, message: '请选择代理协议' }]}
-              >
-                <Select placeholder="选择协议">
-                  {Object.values(ProxyProtocol).map(protocol => (
-                    <Option key={protocol} value={protocol}>
-                      {protocol.toUpperCase()}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="name"
+            label="配置名称"
+            rules={[{ required: true, message: '请输入配置名称' }]}
+          >
+            <Input placeholder="请输入配置名称" />
+          </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="host"
-                label="服务器地址"
-                rules={[{ required: true, message: '请输入服务器地址' }]}
-              >
-                <Input placeholder="例如：example.com" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="port"
-                label="端口"
-                rules={[{ required: true, message: '请输入端口号' }]}
-              >
-                <Input type="number" placeholder="例如：443" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="type"
+            label="代理类型"
+            rules={[{ required: true, message: '请选择代理类型' }]}
+          >
+            <Select placeholder="请选择代理类型">
+              <Option value="singbox">Sing-box</Option>
+              <Option value="xray">Xray</Option>
+              <Option value="clash">Clash</Option>
+            </Select>
+          </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="username" label="用户名">
-                <Input placeholder="用户名（可选）" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="password" label="密码">
-                <Input.Password placeholder="密码（可选）" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="enabled" label="启用状态" valuePropName="checked">
-            <Switch />
+          <Form.Item
+            name="config"
+            label="配置内容"
+            rules={[{ required: true, message: '请输入配置内容' }]}
+          >
+            <Input.TextArea
+              rows={10}
+              placeholder="请输入JSON格式的配置内容"
+            />
           </Form.Item>
 
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit">
-                {editingServer ? '更新' : '添加'}
+                保存
               </Button>
-              <Button onClick={() => setModalVisible(false)}>
+              <Button onClick={() => {
+                setModalVisible(false);
+                setEditingConfig(null);
+                form.resetFields();
+              }}>
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 代理链配置模态框 */}
+      <Modal
+        title={editingChain ? '编辑代理链' : '添加代理链'}
+        open={chainModalVisible}
+        onCancel={() => {
+          setChainModalVisible(false);
+          setEditingChain(null);
+          chainForm.resetFields();
+        }}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={chainForm}
+          layout="vertical"
+          onFinish={handleSaveChain}
+        >
+          <Form.Item
+            name="name"
+            label="链名称"
+            rules={[{ required: true, message: '请输入链名称' }]}
+          >
+            <Input placeholder="请输入链名称" />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="描述"
+          >
+            <Input.TextArea
+              rows={3}
+              placeholder="请输入描述信息"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="proxies"
+            label="代理列表"
+            rules={[{ required: true, message: '请选择代理' }]}
+          >
+            <Select
+              mode="multiple"
+              placeholder="请选择代理"
+              options={proxyConfigs.map(p => ({ label: p.name, value: p.id }))}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                保存
+              </Button>
+              <Button onClick={() => {
+                setChainModalVisible(false);
+                setEditingChain(null);
+                chainForm.resetFields();
+              }}>
                 取消
               </Button>
             </Space>

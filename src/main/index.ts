@@ -148,7 +148,11 @@ app.on('window-all-closed', () => {
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
 
-// IPC 处理程序
+// 导入管理器
+import { proxyManager } from './proxyManager';
+import { systemProxyManager } from './systemProxyManager';
+
+// 基础IPC处理程序
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
@@ -159,4 +163,168 @@ ipcMain.handle('get-app-name', () => {
 
 ipcMain.handle('get-app-path', () => {
   return app.getAppPath();
+});
+
+// 代理引擎IPC处理程序
+ipcMain.handle('proxy:startSingbox', async (_, config) => {
+  try {
+    await proxyManager.startSingbox(config);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start Sing-box:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('proxy:startXray', async (_, config) => {
+  try {
+    await proxyManager.startXray(config);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start Xray:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('proxy:startClash', async (_, config) => {
+  try {
+    await proxyManager.startClash(config);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start Clash:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('proxy:stop', async () => {
+  try {
+    await proxyManager.stopAll();
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to stop proxy:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('proxy:getStats', async () => {
+  try {
+    return await proxyManager.getStats();
+  } catch (error) {
+    console.error('Failed to get proxy stats:', error);
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 系统代理IPC处理程序
+ipcMain.handle('system:setProxy', async (_, { host, port }) => {
+  try {
+    await systemProxyManager.setSystemProxy(host, port);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to set system proxy:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('system:clearProxy', async () => {
+  try {
+    await systemProxyManager.clearSystemProxy();
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to clear system proxy:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('system:getProxy', async () => {
+  try {
+    return await systemProxyManager.getSystemProxy();
+  } catch (error) {
+    console.error('Failed to get system proxy:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('vpn:create', async (_, config) => {
+  try {
+    await systemProxyManager.createVPNConnection(config);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to create VPN:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('vpn:connect', async (_, name) => {
+  try {
+    await systemProxyManager.connectVPN(name);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to connect VPN:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('vpn:disconnect', async (_, name) => {
+  try {
+    await systemProxyManager.disconnectVPN(name);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to disconnect VPN:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('vpn:getStatus', async () => {
+  try {
+    // 简化版本，实际应该检查VPN连接状态
+    return { connected: false };
+  } catch (error) {
+    console.error('Failed to get VPN status:', error);
+    return { connected: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('system:checkPermissions', async () => {
+  try {
+    return await systemProxyManager.checkPermissions();
+  } catch (error) {
+    console.error('Failed to check permissions:', error);
+    return { admin: false, network: false, vpn: false };
+  }
+});
+
+ipcMain.handle('system:requestAdmin', async () => {
+  try {
+    // 简化版本，实际应该请求管理员权限
+    return false;
+  } catch (error) {
+    console.error('Failed to request admin privileges:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('network:getInterfaces', async () => {
+  try {
+    return systemProxyManager.getNetworkInterfaces();
+  } catch (error) {
+    console.error('Failed to get network interfaces:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('network:getStatus', async () => {
+  try {
+    // 简化版本，实际应该获取网络状态
+    const interfaces = systemProxyManager.getNetworkInterfaces();
+    return {
+      connected: interfaces.length > 0,
+      type: 'ethernet',
+      interface: interfaces[0]?.name || '',
+      ip: interfaces[0]?.address || ''
+    };
+  } catch (error) {
+    console.error('Failed to get network status:', error);
+    return { connected: false, type: 'unknown', interface: '', ip: '' };
+  }
 });
