@@ -31,7 +31,7 @@ export class Logger {
 
   private constructor() {
     this.config = {
-      level: LogLevel.INFO,
+      level: LogLevel.DEBUG,
       enableConsole: true,
       enableStorage: true,
       maxStorageLogs: 1000,

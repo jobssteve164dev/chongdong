@@ -1,5 +1,6 @@
 import { Subscription, ProxyServer, ProxyGroup, ProxyProtocol } from '../../shared/types';
 import { log } from './logger';
+import { Base64 } from 'js-base64';
 
 export interface SubscriptionParseResult {
   servers: ProxyServer[];
@@ -132,7 +133,9 @@ export class SubscriptionManager {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const content = await response.text();
+      // [核心修复] 使用ArrayBuffer和TextDecoder强制UTF-8解码，避免乱码
+      const buffer = await response.arrayBuffer();
+      const content = new TextDecoder('utf-8').decode(buffer);
       
       // 检测订阅格式并解析
       const format = this.detectFormat(content);
@@ -299,7 +302,7 @@ export class SubscriptionManager {
     // 检测Base64编码
     if (this.isBase64(content)) {
       try {
-        const decoded = atob(content);
+        const decoded = Base64.decode(content);
         if (decoded.includes('vmess://') || decoded.includes('vless://')) {
           return 'base64';
         }
@@ -361,7 +364,7 @@ export class SubscriptionManager {
    */
   private parseBase64(content: string): SubscriptionParseResult {
     try {
-      const decoded = atob(content);
+      const decoded = Base64.decode(content);
       return this.parseLinks(decoded);
     } catch (error) {
       return {
@@ -511,33 +514,11 @@ export class SubscriptionManager {
   private parseVmessLink(link: string): ProxyServer | null {
     try {
       const vmessContent = link.replace('vmess://', '');
-      const decoded = atob(vmessContent);
+      const decoded = Base64.decode(vmessContent);
       const config = JSON.parse(decoded);
 
       // 处理节点名称，确保正确解码
-      let nodeName = 'VMess节点';
-      if (config.ps) {
-        try {
-          // 尝试解码Base64编码的名称
-          if (this.isBase64(config.ps)) {
-            const decoded = atob(config.ps);
-            // 直接使用解码结果，不进行额外的UTF-8处理
-            nodeName = decoded;
-          } else {
-            // 尝试URL解码
-            nodeName = decodeURIComponent(config.ps);
-          }
-        } catch (error) {
-          // 如果解码失败，使用原始名称
-          nodeName = config.ps;
-        }
-      } else if (config.name) {
-        try {
-          nodeName = decodeURIComponent(config.name);
-        } catch (error) {
-          nodeName = config.name;
-        }
-      }
+      const nodeName = this.decodeNodeName(config.ps || config.name || 'VMess节点');
 
       return {
         id: this.generateId(),
@@ -568,27 +549,7 @@ export class SubscriptionManager {
       const params = new URLSearchParams(url.search);
 
       // 处理节点名称
-      let nodeName = 'VLESS节点';
-      if (url.hash) {
-        try {
-          const hashContent = url.hash.slice(1);
-          // 尝试多种解码方式
-          try {
-            nodeName = decodeURIComponent(hashContent);
-          } catch (error) {
-            // 如果URL解码失败，尝试Base64解码
-            if (this.isBase64(hashContent)) {
-              const decoded = atob(hashContent);
-              // 直接使用解码结果，不进行额外的UTF-8处理
-              nodeName = decoded;
-            } else {
-              nodeName = hashContent;
-            }
-          }
-        } catch (error) {
-          nodeName = url.hash.slice(1);
-        }
-      }
+      const nodeName = this.decodeNodeName(url.hash ? url.hash.slice(1) : 'VLESS节点');
 
       return {
         id: this.generateId(),
@@ -617,27 +578,7 @@ export class SubscriptionManager {
       const url = new URL(link);
 
       // 处理节点名称
-      let nodeName = 'Trojan节点';
-      if (url.hash) {
-        try {
-          const hashContent = url.hash.slice(1);
-          // 尝试多种解码方式
-          try {
-            nodeName = decodeURIComponent(hashContent);
-          } catch (error) {
-            // 如果URL解码失败，尝试Base64解码
-            if (this.isBase64(hashContent)) {
-              const decoded = atob(hashContent);
-              // 直接使用解码结果，不进行额外的UTF-8处理
-              nodeName = decoded;
-            } else {
-              nodeName = hashContent;
-            }
-          }
-        } catch (error) {
-          nodeName = url.hash.slice(1);
-        }
-      }
+      const nodeName = this.decodeNodeName(url.hash ? url.hash.slice(1) : 'Trojan节点');
 
       return {
         id: this.generateId(),
@@ -664,27 +605,7 @@ export class SubscriptionManager {
       const password = url.username.split(':')[1];
 
       // 处理节点名称
-      let nodeName = 'Shadowsocks节点';
-      if (url.hash) {
-        try {
-          const hashContent = url.hash.slice(1);
-          // 尝试多种解码方式
-          try {
-            nodeName = decodeURIComponent(hashContent);
-          } catch (error) {
-            // 如果URL解码失败，尝试Base64解码
-            if (this.isBase64(hashContent)) {
-              const decoded = atob(hashContent);
-              // 直接使用解码结果，不进行额外的UTF-8处理
-              nodeName = decoded;
-            } else {
-              nodeName = hashContent;
-            }
-          }
-        } catch (error) {
-          nodeName = url.hash.slice(1);
-        }
-      }
+      const nodeName = this.decodeNodeName(url.hash ? url.hash.slice(1) : 'Shadowsocks节点');
 
       return {
         id: this.generateId(),
@@ -707,26 +628,7 @@ export class SubscriptionManager {
   private convertClashProxy(proxy: any): ProxyServer | null {
     try {
       // 处理节点名称
-      let nodeName = proxy.name || 'Clash节点';
-      if (proxy.name) {
-        try {
-          // 尝试URL解码
-          nodeName = decodeURIComponent(proxy.name);
-        } catch (error) {
-          // 如果URL解码失败，尝试Base64解码
-          if (this.isBase64(proxy.name)) {
-            try {
-              const decoded = atob(proxy.name);
-              // 直接使用解码结果，不进行额外的UTF-8处理
-              nodeName = decoded;
-            } catch (error) {
-              nodeName = proxy.name;
-            }
-          } else {
-            nodeName = proxy.name;
-          }
-        }
-      }
+      const nodeName = this.decodeNodeName(proxy.name || 'Clash节点');
 
       return {
         id: this.generateId(),
@@ -839,10 +741,70 @@ export class SubscriptionManager {
    */
   private isBase64(str: string): boolean {
     try {
+      // 增加长度和字符集检查，提高准确性
+      if (str.length % 4 !== 0 || !/^[A-Za-z0-9+/=]+$/.test(str)) {
+        return false;
+      }
       return btoa(atob(str)) === str;
     } catch (error) {
       return false;
     }
+  }
+
+  /**
+   * [核心修复] 使用 js-base64 库进行解码
+   */
+  private base64ToUtf8(str: string): string {
+    try {
+      return Base64.decode(str);
+    } catch (e) {
+      log.warn('Base64 to UTF-8 decoding failed, falling back to raw atob', { input: str, error: e }, 'SubscriptionManager');
+      // 如果UTF-8解码失败，回退到原始的atob，以兼容非UTF8编码的内容
+      return atob(str);
+    }
+  }
+
+  /**
+   * [核心修复] 使用 js-base64 库进行解码
+   */
+  private decodeNodeName(encodedName: string): string {
+    if (!encodedName) {
+      return '未知节点';
+    }
+
+    log.debug('开始解码节点名称', { input: encodedName }, 'SubscriptionManager');
+    let decodedName = encodedName;
+
+    // 尝试URL解码
+    try {
+      // 替换+号为空格是URL解码标准的一部分
+      decodedName = decodeURIComponent(encodedName.replace(/\+/g, ' '));
+       // 如果解码结果没有变化，且包含乱码符号，可能解码不正确，继续尝试其他方法
+      if (decodedName === encodedName && /[%]/.test(decodedName)) {
+        throw new Error("URL decoding didn't change the string, but it contains URL-encoded characters.");
+      }
+      log.debug('节点名称URL解码成功', { input: encodedName, output: decodedName }, 'SubscriptionManager');
+      // 检查解码后是否仍然像Base64，如果是，则可能需要进一步解码
+      if (!this.isBase64(decodedName)) {
+        return decodedName;
+      }
+    } catch (e) {
+      log.debug('URL解码失败或不适用，继续尝试', { input: encodedName }, 'SubscriptionManager');
+    }
+
+    // 尝试Base64解码
+    try {
+      if (this.isBase64(encodedName)) {
+        decodedName = Base64.decode(encodedName);
+        log.debug('节点名称Base64解码成功', { input: encodedName, output: decodedName }, 'SubscriptionManager');
+        return decodedName;
+      }
+    } catch (e) {
+      log.warn('节点名称Base64解码失败', { input: encodedName, error: e }, 'SubscriptionManager');
+    }
+
+    log.debug('所有解码尝试均未改变原始值，返回原始名称', { input: encodedName }, 'SubscriptionManager');
+    return encodedName; // 如果所有方法都失败，返回原始字符串
   }
 
   /**
