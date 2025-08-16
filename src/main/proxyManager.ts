@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { coreDownloader } from './coreDownloader';
 
 interface ProxyProcess {
   id: string;
@@ -193,39 +194,30 @@ export class ProxyManager {
    * 获取Sing-box可执行文件路径
    */
   private async getSingboxPath(): Promise<string> {
-    // 在实际应用中，这里应该下载或检查Sing-box可执行文件
-    // 简化示例，假设已安装
-    if (process.platform === 'win32') {
-      return join(this.binDir, 'sing-box.exe');
-    } else {
-      return join(this.binDir, 'sing-box');
+    if (!coreDownloader.isCoreInstalled('singbox')) {
+      throw new Error('Sing-box 核心未安装，请先下载安装');
     }
+    return coreDownloader.getCorePath('singbox');
   }
 
   /**
    * 获取Xray可执行文件路径
    */
   private async getXrayPath(): Promise<string> {
-    // 在实际应用中，这里应该下载或检查Xray可执行文件
-    // 简化示例，假设已安装
-    if (process.platform === 'win32') {
-      return join(this.binDir, 'xray.exe');
-    } else {
-      return join(this.binDir, 'xray');
+    if (!coreDownloader.isCoreInstalled('xray')) {
+      throw new Error('Xray 核心未安装，请先下载安装');
     }
+    return coreDownloader.getCorePath('xray');
   }
 
   /**
    * 获取Clash可执行文件路径
    */
   private async getClashPath(): Promise<string> {
-    // 在实际应用中，这里应该下载或检查Clash可执行文件
-    // 简化示例，假设已安装
-    if (process.platform === 'win32') {
-      return join(this.binDir, 'clash.exe');
-    } else {
-      return join(this.binDir, 'clash');
+    if (!coreDownloader.isCoreInstalled('clash')) {
+      throw new Error('Clash 核心未安装，请先下载安装');
     }
+    return coreDownloader.getCorePath('clash');
   }
 
   /**

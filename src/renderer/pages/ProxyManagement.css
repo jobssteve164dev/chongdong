@@ -1,5 +1,26 @@
-.proxy-management-page {
+.proxy-management {
   padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.proxy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 0 4px;
+}
+
+.proxy-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.dark .proxy-header h2 {
+  color: #ffffff;
 }
 
 .page-header {
@@ -7,6 +28,34 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+}
+
+/* 配置卡片样式 */
+.config-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 24px;
+  transition: all 0.3s ease;
+}
+
+.config-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.config-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 16px 20px;
+}
+
+.config-card .ant-card-head-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.config-card .ant-card-body {
+  padding: 0;
 }
 
 /* 表格样式 */
@@ -20,19 +69,107 @@
   background: #1f1f1f;
 }
 
-/* 统计卡片样式 */
-.ant-statistic-title {
-  font-size: 14px;
-  color: #666;
+/* 深色主题适配 */
+.dark .config-card {
+  background: #1f1f1f;
+  border-color: #303030;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.dark .ant-statistic-title {
-  color: #999;
+.dark .config-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
-.ant-statistic-content {
-  font-size: 24px;
+.dark .config-card .ant-card-head {
+  border-bottom-color: #303030;
+}
+
+.dark .config-card .ant-card-head-title {
+  color: #ffffff;
+}
+
+/* 状态卡片样式 */
+.status-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.status-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+}
+
+.status-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.status-card .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 16px 20px;
+}
+
+.status-card .ant-card-head-title {
+  font-size: 16px;
   font-weight: 600;
+  color: #262626;
+}
+
+.status-card .ant-card-body {
+  padding: 20px;
+}
+
+.status-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.status-item span:first-child {
+  font-weight: 500;
+  color: #595959;
+}
+
+.status-item span:last-child {
+  font-weight: 600;
+  color: #262626;
+}
+
+/* 深色主题适配 */
+.dark .status-card {
+  background: #1f1f1f;
+  border-color: #303030;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.dark .status-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.dark .status-card .ant-card-head {
+  border-bottom-color: #303030;
+}
+
+.dark .status-card .ant-card-head-title {
+  color: #ffffff;
+}
+
+.dark .status-item span:first-child {
+  color: #a6a6a6;
+}
+
+.dark .status-item span:last-child {
+  color: #ffffff;
 }
 
 /* 标签样式 */

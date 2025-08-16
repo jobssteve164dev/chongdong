@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Table, Tag, Switch, Modal, Form, Input, Select, message, Space, Tooltip, Progress } from 'antd';
-import { PlayCircleOutlined, StopOutlined, SettingOutlined, PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { Button, Card, Table, Tag, Switch, Modal, Form, Input, Select, message, Space, Tooltip, Progress, Tabs } from 'antd';
+import { PlayCircleOutlined, StopOutlined, SettingOutlined, PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined, LinkOutlined } from '@ant-design/icons';
 import { proxyEngine, ProxyConfig, ProxyStatus } from '../utils/proxyEngine';
 import { systemProxy, ProxySettings } from '../utils/systemProxy';
 import { chainProxyManager, ChainConfig } from '../utils/chainProxy';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
+import ProxyChainBuilder from '../components/ProxyChainBuilder';
+import CoreManager from '../components/CoreManager';
+import { CoreStatus, CoreManager as CoreManagerUtil } from '../utils/coreManager';
 import './ProxyManagement.css';
 
 const { Option } = Select;
@@ -20,11 +23,9 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
   const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [chainModalVisible, setChainModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ProxyConfig | null>(null);
-  const [editingChain, setEditingChain] = useState<ChainConfig | null>(null);
   const [form] = Form.useForm();
-  const [chainForm] = Form.useForm();
+  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ singbox: false, xray: false, clash: false });
 
   // 加载配置
   useEffect(() => {
@@ -148,14 +149,34 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
 
   // 代理配置管理
   const handleStartProxy = async (config: ProxyConfig) => {
+    // 检查对应的核心是否已安装
+    const coreName = config.type;
+    if (!coresStatus[coreName as keyof CoreStatus]) {
+      Modal.confirm({
+        title: '核心未安装',
+        content: `${CoreManagerUtil.getCoreDisplayName(coreName)} 核心未安装，是否现在下载安装？`,
+        okText: '下载安装',
+        cancelText: '取消',
+        onOk: () => {
+          // 这里可以触发下载，或者引导用户到核心管理页面
+          message.info('请先下载安装对应的代理核心');
+        }
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       await proxyEngine.start(config);
-      await systemProxy.setSystemProxy('127.0.0.1', 7890);
-      message.success('代理启动成功');
+      // 更新配置状态
+      const updatedConfigs = proxyConfigs.map(c => 
+        c.id === config.id ? { ...c, enabled: true, updatedAt: new Date() } : c
+      );
+      saveProxyConfigs(updatedConfigs);
+      message.success('代理引擎启动成功');
       loadSystemProxy();
     } catch (error) {
-      message.error(`启动失败: ${error.message}`);
+      message.error(`启动失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setLoading(false);
     }
@@ -165,11 +186,13 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     setLoading(true);
     try {
       await proxyEngine.stop();
-      await systemProxy.clearSystemProxy();
-      message.success('代理已停止');
+      // 更新所有配置状态为禁用
+      const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
+      saveProxyConfigs(updatedConfigs);
+      message.success('代理引擎已停止');
       loadSystemProxy();
     } catch (error) {
-      message.error(`停止失败: ${error.message}`);
+      message.error(`停止失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setLoading(false);
     }
@@ -205,7 +228,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     }
   };
 
-  const handleDeleteConfig = (id: string) => {
+  const handleDeleteProxyConfig = (id: string) => {
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这个代理配置吗？',
@@ -217,49 +240,53 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     });
   };
 
-  // 代理链管理
-  const handleSaveChain = async (values: any) => {
+  // 处理拖拽式代理链构建器保存
+  const handleChainBuilderSave = (chainData: { name: string; description: string; nodes: any[] }) => {
     try {
       const chain: ChainConfig = {
-        id: editingChain?.id || `chain_${Date.now()}`,
-        name: values.name,
-        description: values.description,
-        proxies: values.proxies || [],
-        rules: values.rules || [],
+        id: `chain_${Date.now()}`,
+        name: chainData.name,
+        description: chainData.description,
+        proxies: chainData.nodes.map(node => node.server.id),
+        rules: [],
         enabled: false,
-        createdAt: editingChain?.createdAt || new Date(),
+        createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      if (editingChain) {
-        // 更新代理链
-        const updatedChains = chainConfigs.map(c => c.id === chain.id ? chain : c);
-        saveChainConfigs(updatedChains);
-      } else {
-        // 添加新代理链
-        saveChainConfigs([...chainConfigs, chain]);
-      }
-
-      setChainModalVisible(false);
-      setEditingChain(null);
-      chainForm.resetFields();
+      saveChainConfigs([...chainConfigs, chain]);
       message.success('代理链保存成功');
     } catch (error) {
       message.error('保存失败');
     }
   };
 
-  const handleDeleteChain = (id: string) => {
+  // 删除代理链
+  const handleDeleteChain = (chainId: string) => {
     Modal.confirm({
       title: '确认删除',
-      content: '确定要删除这个代理链吗？',
+      content: '确定要删除这个代理链吗？此操作不可恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
       onOk: () => {
-        const updatedChains = chainConfigs.filter(c => c.id !== id);
+        const updatedChains = chainConfigs.filter(chain => chain.id !== chainId);
         saveChainConfigs(updatedChains);
         message.success('代理链已删除');
       }
     });
   };
+
+  // 切换代理链启用状态
+  const handleToggleChainStatus = (chainId: string, enabled: boolean) => {
+    const updatedChains = chainConfigs.map(chain => 
+      chain.id === chainId ? { ...chain, enabled, updatedAt: new Date() } : chain
+    );
+    saveChainConfigs(updatedChains);
+    message.success(`代理链已${enabled ? '启用' : '禁用'}`);
+  };
+
+
 
   // 表格列定义
   const proxyColumns = [
@@ -281,7 +308,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     {
       title: '状态',
       key: 'status',
-      render: (_, record: ProxyConfig) => (
+      render: (_: any, record: ProxyConfig) => (
         <Switch
           checked={currentStatus?.running && record.enabled}
           onChange={(checked) => {
@@ -298,7 +325,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     {
       title: '操作',
       key: 'actions',
-      render: (_, record: ProxyConfig) => (
+      render: (_: any, record: ProxyConfig) => (
         <Space>
           <Tooltip title="编辑">
             <Button
@@ -331,7 +358,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
               type="text"
               danger
               icon={<DeleteOutlined />}
-              onClick={() => handleDeleteConfig(record.id)}
+              onClick={() => handleDeleteProxyConfig(record.id)}
             />
           </Tooltip>
         </Space>
@@ -339,70 +366,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     },
   ];
 
-  const chainColumns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-    },
-    {
-      title: '代理数量',
-      key: 'proxyCount',
-      render: (_, record: ChainConfig) => record.proxies.length,
-    },
-    {
-      title: '规则数量',
-      key: 'ruleCount',
-      render: (_, record: ChainConfig) => record.rules.length,
-    },
-    {
-      title: '状态',
-      key: 'status',
-      render: (_, record: ChainConfig) => (
-        <Switch
-          checked={record.enabled}
-          onChange={(checked) => {
-            const updatedChains = chainConfigs.map(c =>
-              c.id === record.id ? { ...c, enabled: checked } : c
-            );
-            saveChainConfigs(updatedChains);
-          }}
-        />
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_, record: ChainConfig) => (
-        <Space>
-          <Tooltip title="编辑">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setEditingChain(record);
-                chainForm.setFieldsValue(record);
-                setChainModalVisible(true);
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="删除">
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteChain(record.id)}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
+
 
   return (
     <div className="proxy-management">
@@ -420,18 +384,11 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
           >
             添加代理
           </Button>
-          <Button
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditingChain(null);
-              chainForm.resetFields();
-              setChainModalVisible(true);
-            }}
-          >
-            添加代理链
-          </Button>
         </Space>
       </div>
+
+      {/* 核心管理 */}
+      <CoreManager onCoreStatusChange={setCoresStatus} />
 
       {/* 状态卡片 */}
       <div className="status-cards">
@@ -480,6 +437,28 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
                 <span>{systemProxySettings.host}:{systemProxySettings.port}</span>
               </div>
             )}
+            <div className="status-item" style={{ marginTop: '12px' }}>
+              <Button
+                type={systemProxySettings?.enabled ? 'default' : 'primary'}
+                size="small"
+                onClick={async () => {
+                  try {
+                    if (systemProxySettings?.enabled) {
+                      await systemProxy.clearSystemProxy();
+                      message.success('系统代理已关闭');
+                    } else {
+                      await systemProxy.setSystemProxy('127.0.0.1', 7890);
+                      message.success('系统代理已启用');
+                    }
+                    loadSystemProxy();
+                  } catch (error) {
+                    message.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
+                  }
+                }}
+              >
+                {systemProxySettings?.enabled ? '关闭系统代理' : '启用系统代理'}
+              </Button>
+            </div>
           </div>
         </Card>
       </div>
@@ -494,13 +473,13 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         />
       </Card>
 
-      {/* 代理链表格 */}
+      {/* 拖拽式代理链构建器 */}
       <Card title="代理链配置" className="config-card">
-        <Table
-          dataSource={chainConfigs}
-          columns={chainColumns}
-          rowKey="id"
-          pagination={false}
+        <ProxyChainBuilder 
+          onSave={handleChainBuilderSave} 
+          existingChains={chainConfigs}
+          onDeleteChain={handleDeleteChain}
+          onToggleChainStatus={handleToggleChainStatus}
         />
       </Card>
 
@@ -569,69 +548,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         </Form>
       </Modal>
 
-      {/* 代理链配置模态框 */}
-      <Modal
-        title={editingChain ? '编辑代理链' : '添加代理链'}
-        open={chainModalVisible}
-        onCancel={() => {
-          setChainModalVisible(false);
-          setEditingChain(null);
-          chainForm.resetFields();
-        }}
-        footer={null}
-        width={600}
-      >
-        <Form
-          form={chainForm}
-          layout="vertical"
-          onFinish={handleSaveChain}
-        >
-          <Form.Item
-            name="name"
-            label="链名称"
-            rules={[{ required: true, message: '请输入链名称' }]}
-          >
-            <Input placeholder="请输入链名称" />
-          </Form.Item>
 
-          <Form.Item
-            name="description"
-            label="描述"
-          >
-            <Input.TextArea
-              rows={3}
-              placeholder="请输入描述信息"
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="proxies"
-            label="代理列表"
-            rules={[{ required: true, message: '请选择代理' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="请选择代理"
-              options={proxyConfigs.map(p => ({ label: p.name, value: p.id }))}
-            />
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
-                保存
-              </Button>
-              <Button onClick={() => {
-                setChainModalVisible(false);
-                setEditingChain(null);
-                chainForm.resetFields();
-              }}>
-                取消
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 };

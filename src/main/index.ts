@@ -149,6 +149,7 @@ app.on('window-all-closed', () => {
 // 导入管理器
 import { proxyManager } from './proxyManager';
 import { systemProxyManager } from './systemProxyManager';
+import { coreDownloader } from './coreDownloader';
 
 // 基础IPC处理程序
 ipcMain.handle('get-app-version', () => {
@@ -161,6 +162,25 @@ ipcMain.handle('get-app-name', () => {
 
 ipcMain.handle('get-app-path', () => {
   return app.getAppPath();
+});
+
+// 核心下载IPC处理程序
+ipcMain.handle('core:getStatus', () => {
+  return coreDownloader.getCoresStatus();
+});
+
+ipcMain.handle('core:download', async (_, { coreName }) => {
+  try {
+    await coreDownloader.downloadCore(coreName);
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to download core ${coreName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('core:isInstalled', (_, coreName) => {
+  return coreDownloader.isCoreInstalled(coreName);
 });
 
 // 代理引擎IPC处理程序

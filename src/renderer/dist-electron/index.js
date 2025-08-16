@@ -3,6 +3,7 @@ const electron = require("electron");
 const path = require("path");
 const child_process = require("child_process");
 const fs = require("fs");
+const https = require("https");
 const util = require("util");
 const os = require("os");
 const is = {
@@ -98,6 +99,235 @@ const optimizer = {
     });
   }
 };
+class CoreDownloader {
+  constructor() {
+    this.binDir = path.join(electron.app.getPath("userData"), "bin");
+    this.coresDir = path.join(electron.app.getPath("userData"), "cores");
+    if (!fs.existsSync(this.binDir)) {
+      fs.mkdirSync(this.binDir, { recursive: true });
+    }
+    if (!fs.existsSync(this.coresDir)) {
+      fs.mkdirSync(this.coresDir, { recursive: true });
+    }
+  }
+  static getInstance() {
+    if (!CoreDownloader.instance) {
+      CoreDownloader.instance = new CoreDownloader();
+    }
+    return CoreDownloader.instance;
+  }
+  /**
+   * 获取当前平台信息
+   */
+  getPlatformInfo() {
+    const platform2 = process.platform;
+    const arch = process.arch;
+    let platformStr = "";
+    let archStr = "";
+    switch (platform2) {
+      case "win32":
+        platformStr = "windows";
+        break;
+      case "darwin":
+        platformStr = "darwin";
+        break;
+      case "linux":
+        platformStr = "linux";
+        break;
+      default:
+        platformStr = "linux";
+    }
+    switch (arch) {
+      case "x64":
+        archStr = "amd64";
+        break;
+      case "arm64":
+        archStr = "arm64";
+        break;
+      case "ia32":
+        archStr = "386";
+        break;
+      default:
+        archStr = "amd64";
+    }
+    return { platform: platformStr, arch: archStr };
+  }
+  /**
+   * 获取核心信息
+   */
+  getCoreInfo(coreName) {
+    const { platform: platform2, arch } = this.getPlatformInfo();
+    switch (coreName) {
+      case "singbox":
+        return {
+          name: "sing-box",
+          version: "1.8.0",
+          platform: platform2,
+          arch,
+          fileName: platform2 === "win32" ? "sing-box.exe" : "sing-box",
+          downloadUrl: `https://github.com/SagerNet/sing-box/releases/download/v1.8.0/sing-box-1.8.0-${platform2}-${arch}.tar.gz`
+        };
+      case "xray":
+        return {
+          name: "Xray",
+          version: "1.8.4",
+          platform: platform2,
+          arch,
+          fileName: platform2 === "win32" ? "xray.exe" : "xray",
+          downloadUrl: `https://github.com/XTLS/Xray-core/releases/download/v1.8.4/Xray-${platform2}-${arch}.zip`
+        };
+      case "clash":
+        return {
+          name: "clash",
+          version: "1.18.0",
+          platform: platform2,
+          arch,
+          fileName: platform2 === "win32" ? "clash.exe" : "clash",
+          downloadUrl: `https://github.com/Dreamacro/clash/releases/download/v1.18.0/clash-${platform2}-${arch}-v1.18.0.gz`
+        };
+      default:
+        throw new Error(`不支持的核心: ${coreName}`);
+    }
+  }
+  /**
+   * 检查核心是否已安装
+   */
+  isCoreInstalled(coreName) {
+    const coreInfo = this.getCoreInfo(coreName);
+    const corePath = path.join(this.binDir, coreInfo.fileName);
+    return fs.existsSync(corePath);
+  }
+  /**
+   * 获取核心路径
+   */
+  getCorePath(coreName) {
+    const coreInfo = this.getCoreInfo(coreName);
+    return path.join(this.binDir, coreInfo.fileName);
+  }
+  /**
+   * 下载文件
+   */
+  async downloadFile(url, filePath) {
+    return new Promise((resolve, reject) => {
+      let redirectCount = 0;
+      const maxRedirects = 5;
+      const makeRequest = (requestUrl) => {
+        if (redirectCount > maxRedirects) {
+          reject(new Error("重定向次数过多"));
+          return;
+        }
+        const fileStream = fs.createWriteStream(filePath);
+        https.get(requestUrl, (response) => {
+          if (response.statusCode === 301 || response.statusCode === 302) {
+            const location = response.headers.location;
+            if (location) {
+              console.log(`重定向到: ${location}`);
+              redirectCount++;
+              fileStream.close();
+              makeRequest(location);
+              return;
+            }
+          }
+          if (response.statusCode !== 200) {
+            fileStream.close();
+            reject(new Error(`下载失败: HTTP ${response.statusCode}`));
+            return;
+          }
+          response.pipe(fileStream);
+          fileStream.on("finish", () => {
+            fileStream.close();
+            resolve();
+          });
+          fileStream.on("error", (error) => {
+            fileStream.close();
+            reject(error);
+          });
+        }).on("error", (error) => {
+          reject(error);
+        });
+      };
+      makeRequest(url);
+    });
+  }
+  /**
+   * 解压文件
+   */
+  async extractFile(filePath, extractDir) {
+    return new Promise((resolve, reject) => {
+      const isGzip = filePath.endsWith(".gz");
+      const isZip = filePath.endsWith(".zip");
+      const isTarGz = filePath.endsWith(".tar.gz");
+      let command;
+      let args;
+      if (isTarGz) {
+        command = "tar";
+        args = ["-xzf", filePath, "-C", extractDir, "--strip-components=1"];
+      } else if (isGzip) {
+        command = "gunzip";
+        args = ["-f", filePath];
+      } else if (isZip) {
+        command = "unzip";
+        args = ["-o", filePath, "-d", extractDir];
+      } else {
+        resolve();
+        return;
+      }
+      const child = child_process.spawn(command, args);
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`解压失败: ${command} exited with code ${code}`));
+        }
+      });
+      child.on("error", (error) => {
+        reject(new Error(`解压失败: ${error.message}`));
+      });
+    });
+  }
+  /**
+   * 下载并安装核心
+   */
+  async downloadCore(coreName) {
+    try {
+      const coreInfo = this.getCoreInfo(coreName);
+      const downloadPath = path.join(this.coresDir, `${coreName}-${coreInfo.version}.${coreInfo.downloadUrl.split(".").pop()}`);
+      const corePath = path.join(this.binDir, coreInfo.fileName);
+      console.log(`开始下载 ${coreInfo.name} v${coreInfo.version}...`);
+      await this.downloadFile(coreInfo.downloadUrl, downloadPath);
+      console.log(`下载完成，开始解压...`);
+      await this.extractFile(downloadPath, this.binDir);
+      if (process.platform !== "win32") {
+        try {
+          fs.chmodSync(corePath, 493);
+        } catch (error) {
+          console.warn("设置执行权限失败:", error);
+        }
+      }
+      console.log(`${coreInfo.name} 安装完成: ${corePath}`);
+    } catch (error) {
+      console.error(`下载 ${coreName} 失败:`, error);
+      throw error;
+    }
+  }
+  /**
+   * 获取所有核心的安装状态
+   */
+  getCoresStatus() {
+    return {
+      singbox: this.isCoreInstalled("singbox"),
+      xray: this.isCoreInstalled("xray"),
+      clash: this.isCoreInstalled("clash")
+    };
+  }
+  /**
+   * 清理下载的临时文件
+   */
+  async cleanup() {
+    console.log("清理完成");
+  }
+}
+const coreDownloader = CoreDownloader.getInstance();
 class ProxyManager {
   constructor() {
     this.processes = /* @__PURE__ */ new Map();
@@ -231,31 +461,28 @@ class ProxyManager {
    * 获取Sing-box可执行文件路径
    */
   async getSingboxPath() {
-    if (process.platform === "win32") {
-      return path.join(this.binDir, "sing-box.exe");
-    } else {
-      return path.join(this.binDir, "sing-box");
+    if (!coreDownloader.isCoreInstalled("singbox")) {
+      throw new Error("Sing-box 核心未安装，请先下载安装");
     }
+    return coreDownloader.getCorePath("singbox");
   }
   /**
    * 获取Xray可执行文件路径
    */
   async getXrayPath() {
-    if (process.platform === "win32") {
-      return path.join(this.binDir, "xray.exe");
-    } else {
-      return path.join(this.binDir, "xray");
+    if (!coreDownloader.isCoreInstalled("xray")) {
+      throw new Error("Xray 核心未安装，请先下载安装");
     }
+    return coreDownloader.getCorePath("xray");
   }
   /**
    * 获取Clash可执行文件路径
    */
   async getClashPath() {
-    if (process.platform === "win32") {
-      return path.join(this.binDir, "clash.exe");
-    } else {
-      return path.join(this.binDir, "clash");
+    if (!coreDownloader.isCoreInstalled("clash")) {
+      throw new Error("Clash 核心未安装，请先下载安装");
     }
+    return coreDownloader.getCorePath("clash");
   }
   /**
    * 转换Clash配置为YAML格式
@@ -894,6 +1121,21 @@ electron.ipcMain.handle("get-app-name", () => {
 });
 electron.ipcMain.handle("get-app-path", () => {
   return electron.app.getAppPath();
+});
+electron.ipcMain.handle("core:getStatus", () => {
+  return coreDownloader.getCoresStatus();
+});
+electron.ipcMain.handle("core:download", async (_, { coreName }) => {
+  try {
+    await coreDownloader.downloadCore(coreName);
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to download core ${coreName}:`, error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("core:isInstalled", (_, coreName) => {
+  return coreDownloader.isCoreInstalled(coreName);
 });
 electron.ipcMain.handle("proxy:startSingbox", async (_, config) => {
   try {

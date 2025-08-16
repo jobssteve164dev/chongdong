@@ -1,0 +1,78 @@
+.core-manager {
+  margin-bottom: 24px;
+}
+
+.core-manager-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.core-card {
+  height: 100%;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  border: 1px solid #e8e8e8;
+}
+
+.core-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.core-card-content {
+  padding: 8px 0;
+}
+
+.core-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.core-description {
+  display: block;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.core-progress {
+  margin-top: 12px;
+}
+
+.core-progress .ant-progress {
+  margin-bottom: 4px;
+}
+
+.core-manager-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  text-align: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .core-card {
+    margin-bottom: 16px;
+  }
+  
+  .core-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* 暗色主题适配 */
+@media (prefers-color-scheme: dark) {
+  .core-card {
+    background-color: #1f1f1f;
+    border-color: #303030;
+  }
+  
+  .core-manager-footer {
+    border-top-color: #303030;
+  }
+}
