@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Button, Space, Typography, Card, Row, Col } from 'antd';
+import { Layout, Menu, Button, Space, Typography } from 'antd';
 import {
   DashboardOutlined,
   SettingOutlined,
@@ -7,19 +7,20 @@ import {
   BarChartOutlined,
   BulbOutlined,
   BulbFilled,
+  ClusterOutlined,
 } from '@ant-design/icons';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import LoadingSpinner from '@/components/LoadingSpinner';
 import Dashboard from '@/pages/Dashboard';
 import ProxyManagement from '@/pages/ProxyManagement';
 import SubscriptionManagement from '@/pages/SubscriptionManagement';
+import NodeManagement from './pages/NodeManagement';
 import Monitor from '@/pages/Monitor';
 import Settings from '@/pages/Settings';
 import './App.css';
 
-const { Header, Sider, Content } = Layout;
-const { Title, Text } = Typography;
+const { Sider, Content } = Layout;
+const { Title } = Typography;
 
 const AppContent: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -40,6 +41,11 @@ const AppContent: React.FC = () => {
       key: 'subscription',
       icon: <CloudOutlined />,
       label: '订阅管理',
+    },
+    {
+      key: 'nodes',
+      icon: <ClusterOutlined />,
+      label: '节点管理',
     },
     {
       key: 'monitor',
@@ -84,6 +90,7 @@ const AppContent: React.FC = () => {
             {selectedKey === 'dashboard' && <Dashboard />}
             {selectedKey === 'proxy' && <ProxyManagement />}
             {selectedKey === 'subscription' && <SubscriptionManagement />}
+            {selectedKey === 'nodes' && <NodeManagement />}
             {selectedKey === 'monitor' && <Monitor />}
             {selectedKey === 'settings' && <Settings />}
           </div>

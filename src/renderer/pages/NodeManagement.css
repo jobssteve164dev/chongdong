@@ -1,0 +1,192 @@
+.node-management-page {
+  padding: 24px;
+  min-height: 100vh;
+  background-color: var(--background-color);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  margin: 0;
+  color: var(--text-color);
+}
+
+/* 统计卡片样式 */
+.ant-statistic-title {
+  color: var(--text-secondary-color) !important;
+}
+
+.ant-statistic-content {
+  color: var(--text-color) !important;
+}
+
+/* 表格样式 */
+.ant-table {
+  background-color: var(--card-background-color);
+  border-radius: 8px;
+}
+
+.ant-table-thead > tr > th {
+  background-color: var(--table-header-background-color);
+  color: var(--text-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ant-table-tbody > tr > td {
+  background-color: var(--card-background-color);
+  color: var(--text-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ant-table-tbody > tr:hover > td {
+  background-color: var(--hover-background-color);
+}
+
+/* Tab样式 */
+.ant-tabs-tab {
+  color: var(--text-color);
+}
+
+.ant-tabs-tab-active {
+  color: var(--primary-color) !important;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--primary-color);
+}
+
+.ant-tabs-ink-bar {
+  background-color: var(--primary-color);
+}
+
+/* 卡片样式 */
+.ant-card {
+  background-color: var(--card-background-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.ant-card-head {
+  background-color: var(--card-background-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ant-card-head-title {
+  color: var(--text-color);
+}
+
+/* 按钮样式 */
+.ant-btn {
+  border-radius: 6px;
+}
+
+.ant-btn-primary {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.ant-btn-primary:hover {
+  background-color: var(--primary-hover-color);
+  border-color: var(--primary-hover-color);
+}
+
+/* 标签样式 */
+.ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* 空状态样式 */
+.ant-empty {
+  color: var(--text-secondary-color);
+}
+
+.ant-empty-description {
+  color: var(--text-secondary-color);
+}
+
+/* 徽章样式 */
+.ant-badge-count {
+  background-color: var(--primary-color);
+}
+
+/* 工具提示样式 */
+.ant-tooltip-inner {
+  background-color: var(--tooltip-background-color);
+  color: var(--text-color);
+}
+
+.ant-tooltip-arrow::before {
+  background-color: var(--tooltip-background-color);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .node-management-page {
+    padding: 16px;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .ant-table {
+    font-size: 12px;
+  }
+  
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 4px;
+  }
+}
+
+/* 深色主题适配 */
+[data-theme='dark'] .node-management-page {
+  background-color: #141414;
+}
+
+[data-theme='dark'] .ant-card {
+  background-color: #1f1f1f;
+  border-color: #303030;
+}
+
+[data-theme='dark'] .ant-table {
+  background-color: #1f1f1f;
+}
+
+[data-theme='dark'] .ant-table-thead > tr > th {
+  background-color: #262626;
+  border-bottom-color: #303030;
+}
+
+[data-theme='dark'] .ant-table-tbody > tr > td {
+  background-color: #1f1f1f;
+  border-bottom-color: #303030;
+}
+
+[data-theme='dark'] .ant-table-tbody > tr:hover > td {
+  background-color: #262626;
+}
+
+[data-theme='dark'] .ant-tabs-tab {
+  color: #d9d9d9;
+}
+
+[data-theme='dark'] .ant-tabs-tab-active {
+  color: #1890ff !important;
+}
+
+[data-theme='dark'] .ant-empty {
+  color: #8c8c8c;
+}
+
+[data-theme='dark'] .ant-empty-description {
+  color: #8c8c8c;
+}

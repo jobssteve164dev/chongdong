@@ -13,6 +13,7 @@ export interface SubscriptionUpdateResult {
   groups?: ProxyGroup[];
   error?: string;
   timestamp: number;
+  updatedSubscription?: Subscription;
 }
 
 export class SubscriptionManager {
@@ -27,6 +28,26 @@ export class SubscriptionManager {
       SubscriptionManager.instance = new SubscriptionManager();
     }
     return SubscriptionManager.instance;
+  }
+
+  /**
+   * 初始化订阅管理器，从存储加载数据
+   */
+  public initialize(subscriptions: Subscription[]): void {
+    // 清除现有数据
+    this.subscriptions.clear();
+    
+    // 加载订阅数据
+    subscriptions.forEach(subscription => {
+      this.subscriptions.set(subscription.id, subscription);
+      
+      // 如果订阅启用且设置了自动更新，调度更新
+      if (subscription.enabled && subscription.autoUpdate) {
+        this.scheduleUpdate(subscription);
+      }
+    });
+    
+    log.info('订阅管理器初始化完成', { count: subscriptions.length }, 'SubscriptionManager');
   }
 
   /**
@@ -175,7 +196,8 @@ export class SubscriptionManager {
         success: true,
         servers: parseResult.servers,
         groups: parseResult.groups,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        updatedSubscription: updatedSubscription
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
@@ -492,9 +514,34 @@ export class SubscriptionManager {
       const decoded = atob(vmessContent);
       const config = JSON.parse(decoded);
 
+      // 处理节点名称，确保正确解码
+      let nodeName = 'VMess节点';
+      if (config.ps) {
+        try {
+          // 尝试解码Base64编码的名称
+          if (this.isBase64(config.ps)) {
+            const decoded = atob(config.ps);
+            // 直接使用解码结果，不进行额外的UTF-8处理
+            nodeName = decoded;
+          } else {
+            // 尝试URL解码
+            nodeName = decodeURIComponent(config.ps);
+          }
+        } catch (error) {
+          // 如果解码失败，使用原始名称
+          nodeName = config.ps;
+        }
+      } else if (config.name) {
+        try {
+          nodeName = decodeURIComponent(config.name);
+        } catch (error) {
+          nodeName = config.name;
+        }
+      }
+
       return {
         id: this.generateId(),
-        name: config.ps || config.name || 'VMess节点',
+        name: nodeName,
         protocol: 'vmess' as ProxyProtocol,
         host: config.add || config.host,
         port: parseInt(config.port),
@@ -520,9 +567,32 @@ export class SubscriptionManager {
       const url = new URL(link);
       const params = new URLSearchParams(url.search);
 
+      // 处理节点名称
+      let nodeName = 'VLESS节点';
+      if (url.hash) {
+        try {
+          const hashContent = url.hash.slice(1);
+          // 尝试多种解码方式
+          try {
+            nodeName = decodeURIComponent(hashContent);
+          } catch (error) {
+            // 如果URL解码失败，尝试Base64解码
+            if (this.isBase64(hashContent)) {
+              const decoded = atob(hashContent);
+              // 直接使用解码结果，不进行额外的UTF-8处理
+              nodeName = decoded;
+            } else {
+              nodeName = hashContent;
+            }
+          }
+        } catch (error) {
+          nodeName = url.hash.slice(1);
+        }
+      }
+
       return {
         id: this.generateId(),
-        name: url.hash ? decodeURIComponent(url.hash.slice(1)) : 'VLESS节点',
+        name: nodeName,
         protocol: 'vless' as ProxyProtocol,
         host: url.hostname,
         port: parseInt(url.port),
@@ -546,16 +616,38 @@ export class SubscriptionManager {
     try {
       const url = new URL(link);
 
+      // 处理节点名称
+      let nodeName = 'Trojan节点';
+      if (url.hash) {
+        try {
+          const hashContent = url.hash.slice(1);
+          // 尝试多种解码方式
+          try {
+            nodeName = decodeURIComponent(hashContent);
+          } catch (error) {
+            // 如果URL解码失败，尝试Base64解码
+            if (this.isBase64(hashContent)) {
+              const decoded = atob(hashContent);
+              // 直接使用解码结果，不进行额外的UTF-8处理
+              nodeName = decoded;
+            } else {
+              nodeName = hashContent;
+            }
+          }
+        } catch (error) {
+          nodeName = url.hash.slice(1);
+        }
+      }
+
       return {
         id: this.generateId(),
-        name: url.hash ? decodeURIComponent(url.hash.slice(1)) : 'Trojan节点',
-        type: 'trojan',
-        server: url.hostname,
+        name: nodeName,
+        protocol: 'trojan' as ProxyProtocol,
+        host: url.hostname,
         port: parseInt(url.port),
         password: url.username,
         sni: url.searchParams.get('sni') || url.hostname,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        enabled: true
       };
     } catch (error) {
       return null;
@@ -571,16 +663,38 @@ export class SubscriptionManager {
       const method = url.username.split(':')[0];
       const password = url.username.split(':')[1];
 
+      // 处理节点名称
+      let nodeName = 'Shadowsocks节点';
+      if (url.hash) {
+        try {
+          const hashContent = url.hash.slice(1);
+          // 尝试多种解码方式
+          try {
+            nodeName = decodeURIComponent(hashContent);
+          } catch (error) {
+            // 如果URL解码失败，尝试Base64解码
+            if (this.isBase64(hashContent)) {
+              const decoded = atob(hashContent);
+              // 直接使用解码结果，不进行额外的UTF-8处理
+              nodeName = decoded;
+            } else {
+              nodeName = hashContent;
+            }
+          }
+        } catch (error) {
+          nodeName = url.hash.slice(1);
+        }
+      }
+
       return {
         id: this.generateId(),
-        name: url.hash ? decodeURIComponent(url.hash.slice(1)) : 'Shadowsocks节点',
-        type: 'shadowsocks',
-        server: url.hostname,
+        name: nodeName,
+        protocol: 'shadowsocks' as ProxyProtocol,
+        host: url.hostname,
         port: parseInt(url.port),
-        method: method,
+        encryption: method,
         password: password,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        enabled: true
       };
     } catch (error) {
       return null;
@@ -592,23 +706,44 @@ export class SubscriptionManager {
    */
   private convertClashProxy(proxy: any): ProxyServer | null {
     try {
+      // 处理节点名称
+      let nodeName = proxy.name || 'Clash节点';
+      if (proxy.name) {
+        try {
+          // 尝试URL解码
+          nodeName = decodeURIComponent(proxy.name);
+        } catch (error) {
+          // 如果URL解码失败，尝试Base64解码
+          if (this.isBase64(proxy.name)) {
+            try {
+              const decoded = atob(proxy.name);
+              // 直接使用解码结果，不进行额外的UTF-8处理
+              nodeName = decoded;
+            } catch (error) {
+              nodeName = proxy.name;
+            }
+          } else {
+            nodeName = proxy.name;
+          }
+        }
+      }
+
       return {
         id: this.generateId(),
-        name: proxy.name,
-        type: proxy.type,
-        server: proxy.server,
+        name: nodeName,
+        protocol: proxy.type as ProxyProtocol,
+        host: proxy.server,
         port: proxy.port,
         uuid: proxy.uuid,
         alterId: proxy.alterId,
         network: proxy.network,
-        security: proxy.tls ? 'tls' : 'none',
+        tls: proxy.tls,
         sni: proxy.servername,
-        path: proxy.path,
-        host: proxy.host,
-        method: proxy.cipher,
+        wsPath: proxy.path,
+        wsHeaders: proxy.host ? { Host: proxy.host } : undefined,
+        encryption: proxy.cipher,
         password: proxy.password,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        enabled: true
       };
     } catch (error) {
       return null;
@@ -644,18 +779,17 @@ export class SubscriptionManager {
         return {
           id: this.generateId(),
           name: outbound.tag || 'VMess节点',
-          type: 'vmess',
-          server: outbound.server,
+          protocol: 'vmess' as ProxyProtocol,
+          host: outbound.server,
           port: outbound.server_port,
           uuid: outbound.uuid,
           alterId: outbound.alter_id || 0,
           network: outbound.transport?.type || 'tcp',
-          security: outbound.tls?.enabled ? 'tls' : 'none',
+          tls: outbound.tls?.enabled,
           sni: outbound.tls?.server_name,
-          path: outbound.transport?.path,
-          host: outbound.transport?.host,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          wsPath: outbound.transport?.path,
+          wsHeaders: outbound.transport?.host ? { Host: outbound.transport.host } : undefined,
+          enabled: true
         };
       }
       // 可以添加其他协议的支持
@@ -679,18 +813,17 @@ export class SubscriptionManager {
           return {
             id: this.generateId(),
             name: outbound.tag || 'VMess节点',
-            type: 'vmess',
-            server: settings.vnext[0].address,
+            protocol: 'vmess' as ProxyProtocol,
+            host: settings.vnext[0].address,
             port: settings.vnext[0].port,
             uuid: server.id,
             alterId: server.alterId || 0,
             network: outbound.streamSettings?.network || 'tcp',
-            security: outbound.streamSettings?.security || 'none',
+            tls: outbound.streamSettings?.security === 'tls',
             sni: outbound.streamSettings?.tlsSettings?.serverName,
-            path: outbound.streamSettings?.wsSettings?.path,
-            host: outbound.streamSettings?.wsSettings?.headers?.Host,
-            createdAt: new Date(),
-            updatedAt: new Date()
+            wsPath: outbound.streamSettings?.wsSettings?.path,
+            wsHeaders: outbound.streamSettings?.wsSettings?.headers?.Host ? { Host: outbound.streamSettings.wsSettings.headers.Host } : undefined,
+            enabled: true
           };
         }
       }

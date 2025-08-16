@@ -92,6 +92,13 @@ const SubscriptionManagement: React.FC = () => {
     loadSubscriptions();
   }, []);
 
+  // 初始化订阅管理器
+  useEffect(() => {
+    if (subscriptions.length > 0) {
+      subscriptionManager.initialize(subscriptions);
+    }
+  }, [subscriptions.length]);
+
   const loadSubscriptions = () => {
     try {
       // 从存储中加载订阅配置
@@ -179,15 +186,14 @@ const SubscriptionManagement: React.FC = () => {
     setLoading(true);
     try {
       const result = await subscriptionManager.updateSubscription(subscription);
-      if (result.success) {
-        // 更新本地状态
-        setSubscriptions(prev =>
-          prev.map(sub =>
-            sub.id === subscription.id 
-              ? { ...sub, servers: result.servers || [], groups: result.groups || [], lastUpdate: result.timestamp }
-              : sub
-          )
+      if (result.success && result.updatedSubscription) {
+        // 更新本地状态并保存到存储
+        const updatedSubscriptions = subscriptions.map(sub =>
+          sub.id === subscription.id 
+            ? result.updatedSubscription!
+            : sub
         );
+        saveSubscriptions(updatedSubscriptions);
         message.success('订阅更新成功');
         log.info('更新订阅成功', { subscription: subscription.name, serverCount: result.servers?.length }, 'SubscriptionManagement');
       } else {
