@@ -231,7 +231,8 @@ export class ProxyEngine {
         final: 'default'
       } : undefined,
       inbounds: [
-        {
+        // 只在启用 TUN 时添加 TUN inbound
+        ...(networkSettings?.enableTun ? [{
           type: 'tun',
           tag: 'tun-in',
           interface_name: networkSettings?.tunDevice || 'utun0',
@@ -239,9 +240,8 @@ export class ProxyEngine {
           stack: 'system',
           auto_route: true,
           inet4_address: networkSettings?.enableFakeIp ? [networkSettings.fakeIpRange || '198.18.0.1/16'] : ['172.19.0.1/28'],
-          inet6_address: networkSettings?.enableIpv6 ? ['fdfe:dcba:9876::1/126'] : undefined,
-          ...(networkSettings?.enableTun ? {} : { disabled: true })
-        },
+          inet6_address: networkSettings?.enableIpv6 ? ['fdfe:dcba:9876::1/126'] : undefined
+        }] : []),
         {
           type: 'socks',
           tag: 'socks-in',
@@ -283,11 +283,26 @@ export class ProxyEngine {
 
     // 根据具体配置添加代理出站
     if (config.config.outbounds) {
-      // 修复网络类型
+      // 修复网络类型和字段名
       const fixedOutbounds = config.config.outbounds.map((outbound: any) => {
+        const fixedOutbound = { ...outbound };
+        
+        // 修复 vmess 配置字段
+        if (outbound.type === 'vmess') {
+          // 在新版本的 Sing-box 中，vmess 不再使用 alterId 字段
+          // 移除 alter_id 和 alterId 字段
+          delete fixedOutbound.alter_id;
+          delete fixedOutbound.alterId;
+          
+          // 确保使用正确的安全设置
+          if (fixedOutbound.security === 'auto') {
+            fixedOutbound.security = 'auto';
+          }
+        }
+        
+        // 修复 WebSocket 配置
         if (outbound.network === 'ws') {
           // 在 Sing-box 中，WebSocket 使用 transport 字段
-          const fixedOutbound = { ...outbound };
           delete fixedOutbound.network;
           delete fixedOutbound.ws_opts;
           fixedOutbound.transport = {
@@ -295,17 +310,32 @@ export class ProxyEngine {
             path: outbound.ws_opts?.path || "/",
             headers: outbound.ws_opts?.headers || {}
           };
-          return fixedOutbound;
         }
-        return outbound;
+        
+        return fixedOutbound;
       });
       
-      singboxConfig.outbounds.unshift(...fixedOutbounds);
-      // 如果有代理出站，将 final 改为第一个代理出站的 tag
-      if (fixedOutbounds.length > 0 && fixedOutbounds[0].tag) {
-        singboxConfig.route.final = fixedOutbounds[0].tag;
+      // 检查是否有重复的标签，避免冲突
+      const existingTags = new Set(singboxConfig.outbounds.map((o: any) => o.tag));
+      const uniqueOutbounds = fixedOutbounds.filter((outbound: any) => {
+        if (existingTags.has(outbound.tag)) {
+          console.warn(`跳过重复的 outbound 标签: ${outbound.tag}`);
+          return false;
+        }
+        existingTags.add(outbound.tag);
+        return true;
+      });
+      
+      // 只有当有有效的用户配置时才添加到 outbounds
+      if (uniqueOutbounds.length > 0) {
+        singboxConfig.outbounds.unshift(...uniqueOutbounds);
+        // 将 final 改为第一个用户配置的 tag
+        singboxConfig.route.final = uniqueOutbounds[0].tag;
       }
     }
+
+    // 添加调试日志
+    console.log('Generated Sing-box config:', JSON.stringify(singboxConfig, null, 2));
 
     return singboxConfig;
   }

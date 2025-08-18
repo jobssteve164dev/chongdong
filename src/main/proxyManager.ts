@@ -139,6 +139,9 @@ export class ProxyManager {
     console.log(`配置文件路径: ${configPath}`);
     console.log(`网络设置:`, networkSettings);
     
+    // 在启动新进程前，先清理所有现有的 sing-box 进程
+    await this.cleanupExistingProcesses('singbox');
+    
     // 应用网络设置到配置
     const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
     console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
@@ -184,29 +187,43 @@ export class ProxyManager {
         
         // 检测端口占用错误
         if (errorMessage.includes('bind: address already in use')) {
-          console.log('检测到端口占用，发送端口占用通知');
-          // 通过 IPC 发送端口占用通知到渲染进程
-          const { BrowserWindow } = require('electron');
-          const windows = BrowserWindow.getAllWindows();
-          console.log(`找到 ${windows.length} 个窗口`);
-          if (windows.length > 0) {
-            const port = finalConfig.inbounds?.[0]?.listen_port || 7890;
-            const notificationData = {
-              port: port,
-              processId: processId
-            };
-            console.log('发送端口占用通知:', notificationData);
-            windows[0].webContents.send('proxy:portInUse', notificationData);
-            console.log('端口占用通知已发送');
-          } else {
-            console.log('没有找到窗口，无法发送通知');
-          }
+          console.log('检测到端口占用错误，进行详细诊断...');
+          
+          // 先检查是否真的是端口占用
+          this.checkPortStatus(finalConfig.inbounds?.[0]?.listen_port || 1080).then(isPortInUse => {
+            if (isPortInUse) {
+              console.log('确认端口被占用，发送端口占用通知');
+              this.sendPortInUseNotification(finalConfig.inbounds?.[0]?.listen_port || 1080, processId);
+            } else {
+              console.log('端口未被占用，可能是 Sing-box 配置问题');
+              console.log('当前配置:', JSON.stringify(finalConfig, null, 2));
+              // 这可能是配置问题，不是端口占用
+            }
+          }).catch(error => {
+            console.error('端口检查失败:', error);
+          });
           
           // 终止子进程
           childProcess.kill();
           
           // 使用 reject 而不是 throw，避免未捕获的异常
-          reject(new Error(`端口 ${finalConfig.inbounds?.[0]?.listen_port || 1080} 已被占用，无法启动代理服务`));
+          reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
+          return;
+        }
+        
+        // 检测其他常见错误
+        if (errorMessage.includes('decode config')) {
+          console.error('Sing-box 配置解析错误，请检查配置文件格式');
+          console.log('当前配置:', JSON.stringify(finalConfig, null, 2));
+          childProcess.kill();
+          reject(new Error(`Sing-box 配置错误: ${errorMessage}`));
+          return;
+        }
+        
+        if (errorMessage.includes('FATAL')) {
+          console.error('Sing-box 致命错误:', errorMessage);
+          childProcess.kill();
+          reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
           return;
         }
       });
@@ -587,6 +604,76 @@ export class ProxyManager {
     }
 
     return finalConfig;
+  }
+
+  /**
+   * 清理指定类型的所有现有进程
+   */
+  private async cleanupExistingProcesses(type: 'singbox' | 'xray' | 'clash'): Promise<void> {
+    const existingProcesses = Array.from(this.processes.values()).filter(p => p.type === type);
+    for (const process of existingProcesses) {
+      try {
+        process.process.kill('SIGTERM');
+        console.log(`清理旧 ${type} 进程: ${process.id}`);
+      } catch (error) {
+        console.error(`清理旧 ${type} 进程失败: ${process.id}`, error);
+      }
+    }
+    
+    // 逐个删除进程，而不是传递数组
+    for (const process of existingProcesses) {
+      this.processes.delete(process.id);
+    }
+    
+    // 等待一段时间确保进程完全退出
+    if (existingProcesses.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  /**
+   * 检查指定端口是否被占用
+   */
+  private async checkPortStatus(port: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const net = require('net');
+      const server = net.createServer();
+
+      server.on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+
+      server.on('listening', () => {
+        server.close();
+        resolve(false);
+      });
+
+      server.listen(port);
+    });
+  }
+
+  /**
+   * 发送端口占用通知
+   */
+  private sendPortInUseNotification(port: number, processId: string): void {
+    const { BrowserWindow } = require('electron');
+    const windows = BrowserWindow.getAllWindows();
+    console.log(`找到 ${windows.length} 个窗口`);
+    if (windows.length > 0) {
+      const notificationData = {
+        port: port,
+        processId: processId
+      };
+      console.log('发送端口占用通知:', notificationData);
+      windows[0].webContents.send('proxy:portInUse', notificationData);
+      console.log('端口占用通知已发送');
+    } else {
+      console.log('没有找到窗口，无法发送通知');
+    }
   }
 }
 

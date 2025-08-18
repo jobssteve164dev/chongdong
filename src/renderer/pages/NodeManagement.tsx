@@ -32,6 +32,8 @@ import {
   ClockCircleOutlined,
   ClusterOutlined,
   SyncOutlined,
+  SortAscendingOutlined,
+  SortDescendingOutlined,
 } from '@ant-design/icons';
 import { ProxyServer, Subscription } from '../../shared/types/index';
 import { log } from '../utils/logger';
@@ -48,11 +50,17 @@ interface NodeWithSubscription extends ProxyServer {
   subscriptionId: string;
 }
 
+// 排序类型定义
+type SortOrder = 'ascend' | 'descend' | null;
+
 const NodeManagement: React.FC = () => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [allNodes, setAllNodes] = useState<NodeWithSubscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('all');
+  // 添加排序状态
+  const [sortField, setSortField] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<SortOrder>(null);
 
   // 加载订阅和节点数据
   useEffect(() => {
@@ -232,11 +240,57 @@ const NodeManagement: React.FC = () => {
     return date.toLocaleString('zh-CN');
   };
 
+  // 添加排序处理函数
+  const handleTableChange = (pagination: any, filters: any, sorter: any) => {
+    setSortField(sorter.field || '');
+    setSortOrder(sorter.order || null);
+  };
+
+  // 获取排序后的节点数据
+  const getSortedNodes = (nodes: NodeWithSubscription[]) => {
+    if (!sortField || !sortOrder) {
+      return nodes;
+    }
+
+    return [...nodes].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortField) {
+        case 'latency':
+          aValue = a.latency || Number.MAX_SAFE_INTEGER;
+          bValue = b.latency || Number.MAX_SAFE_INTEGER;
+          break;
+        case 'name':
+          aValue = a.name || '';
+          bValue = b.name || '';
+          break;
+        case 'protocol':
+          aValue = a.protocol || '';
+          bValue = b.protocol || '';
+          break;
+        case 'enabled':
+          aValue = a.enabled ? 1 : 0;
+          bValue = b.enabled ? 1 : 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (sortOrder === 'ascend') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+  };
+
   const nodeColumns = [
     {
       title: '节点名称',
       dataIndex: 'name',
       key: 'name',
+      sorter: true,
       render: (text: string, record: NodeWithSubscription) => (
         <div>
           <Text strong>{text}</Text>
@@ -251,6 +305,7 @@ const NodeManagement: React.FC = () => {
       title: '协议',
       dataIndex: 'protocol',
       key: 'protocol',
+      sorter: true,
       render: (protocol: string) => (
         <Tag color={getProtocolColor(protocol)}>
           {protocol.toUpperCase()}
@@ -261,6 +316,8 @@ const NodeManagement: React.FC = () => {
       title: '延迟',
       dataIndex: 'latency',
       key: 'latency',
+      sorter: true,
+      defaultSortOrder: 'ascend' as SortOrder,
       render: (latency?: number) => (
         <Tag color={getLatencyColor(latency)}>
           {formatLatency(latency)}
@@ -281,6 +338,7 @@ const NodeManagement: React.FC = () => {
       title: '状态',
       dataIndex: 'enabled',
       key: 'enabled',
+      sorter: true,
       render: (enabled: boolean) => (
         <Tag color={enabled ? 'success' : 'default'}>
           {enabled ? '启用' : '禁用'}
@@ -443,7 +501,7 @@ const NodeManagement: React.FC = () => {
       children: (
         <Table
           columns={nodeColumns}
-          dataSource={allNodes}
+          dataSource={getSortedNodes(allNodes)}
           rowKey="id"
           pagination={{
             pageSize: 20,
@@ -452,6 +510,7 @@ const NodeManagement: React.FC = () => {
             showTotal: (total, range) =>
               `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
           }}
+          onChange={handleTableChange}
         />
       ),
     });
@@ -471,7 +530,7 @@ const NodeManagement: React.FC = () => {
           children: (
             <Table
               columns={nodeColumns}
-              dataSource={subscriptionNodes}
+              dataSource={getSortedNodes(subscriptionNodes)}
               rowKey="id"
               pagination={{
                 pageSize: 20,
@@ -480,6 +539,7 @@ const NodeManagement: React.FC = () => {
                 showTotal: (total, range) =>
                   `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
               }}
+              onChange={handleTableChange}
             />
           ),
         });

@@ -496,18 +496,64 @@ ipcMain.handle('proxy:killProcessOnPort', async (_, port) => {
     const util = require('util');
     const execAsync = util.promisify(exec);
     
-    // 查找占用端口的进程
-    const { stdout } = await execAsync(`lsof -ti:${port}`);
-    if (stdout.trim()) {
-      const pids = stdout.trim().split('\n');
-      for (const pid of pids) {
-        console.log(`终止进程 ${pid} (占用端口 ${port})`);
-        await execAsync(`kill -9 ${pid}`);
+    console.log(`尝试终止占用端口 ${port} 的进程...`);
+    
+    // 方法1: 使用 lsof 查找进程
+    try {
+      const { stdout } = await execAsync(`lsof -ti:${port}`);
+      if (stdout.trim()) {
+        const pids = stdout.trim().split('\n');
+        for (const pid of pids) {
+          console.log(`终止进程 ${pid} (占用端口 ${port})`);
+          await execAsync(`kill -9 ${pid}`);
+        }
+        return { success: true, message: `已终止占用端口 ${port} 的进程` };
       }
-      return { success: true, message: `已终止占用端口 ${port} 的进程` };
-    } else {
-      return { success: false, message: `未找到占用端口 ${port} 的进程` };
+    } catch (lsofError) {
+      console.log('lsof 命令未找到进程，尝试其他方法...');
     }
+    
+    // 方法2: 使用 netstat 查找进程 (macOS 备用方案)
+    try {
+      const { stdout } = await execAsync(`netstat -anv | grep ${port}`);
+      if (stdout.includes('LISTEN')) {
+        // 提取 PID
+        const match = stdout.match(/\s+(\d+)\s+/);
+        if (match && match[1]) {
+          const pid = match[1];
+          console.log(`通过 netstat 找到进程 ${pid}，尝试终止...`);
+          await execAsync(`kill -9 ${pid}`);
+          return { success: true, message: `已终止占用端口 ${port} 的进程` };
+        }
+      }
+    } catch (netstatError) {
+      console.log('netstat 命令也失败，尝试强制清理...');
+    }
+    
+    // 方法3: 强制清理所有可能的 sing-box 进程
+    try {
+      console.log('强制清理所有 sing-box 进程...');
+      await execAsync('pkill -f sing-box');
+      await execAsync('pkill -f "sing-box run"');
+      
+      // 等待一段时间让进程完全退出
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // 再次检查端口是否释放
+      try {
+        const { stdout } = await execAsync(`lsof -ti:${port}`);
+        if (!stdout.trim()) {
+          return { success: true, message: `已清理所有相关进程，端口 ${port} 已释放` };
+        }
+      } catch (finalCheckError) {
+        // 如果 lsof 失败，假设清理成功
+        return { success: true, message: `已清理所有相关进程` };
+      }
+    } catch (pkillError) {
+      console.log('pkill 命令失败:', pkillError);
+    }
+    
+    return { success: false, message: `无法终止占用端口 ${port} 的进程，请手动检查` };
   } catch (error) {
     console.error('Failed to kill process on port:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

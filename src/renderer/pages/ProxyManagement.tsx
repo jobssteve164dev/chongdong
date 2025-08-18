@@ -119,27 +119,11 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         const defaultConfigs: ProxyConfig[] = [
           {
             id: '1',
-            name: 'Sing-box 代理',
+            name: 'Sing-box 基础测试',
             type: 'singbox',
             config: {
-              outbounds: [
-                {
-                  type: 'vmess',
-                  tag: 'proxy-1',
-                  server: 'example.com',
-                  server_port: 443,
-                  uuid: '12345678-1234-1234-1234-123456789012',
-                  security: 'auto',
-                  alter_id: 0,
-                  network: 'ws',
-                  ws_opts: {
-                    path: '/path',
-                    headers: {
-                      Host: 'example.com'
-                    }
-                  }
-                }
-              ]
+              // 空的 outbounds，让基础配置处理
+              outbounds: []
             },
             enabled: false,
             createdAt: new Date(),
@@ -175,6 +159,23 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         setProxyConfigs(defaultConfigs);
         setChainConfigs(defaultChains);
       } else {
+        // 检查是否有旧的 vmess 配置，如果有则强制重置
+        const hasOldConfig = savedProxyConfigs.some(config => 
+          config.config?.outbounds?.some((outbound: any) => 
+            outbound.type === 'vmess' && outbound.server === 'example.com'
+          )
+        );
+        
+        if (hasOldConfig) {
+          console.log('检测到旧的 vmess 配置，强制重置为默认配置');
+          // 清除旧配置
+          Storage.remove('proxy_configs');
+          Storage.remove('chain_configs');
+          // 重新加载
+          loadConfigs();
+          return;
+        }
+        
         setProxyConfigs(savedProxyConfigs);
         setChainConfigs(savedChainConfigs);
       }
@@ -311,24 +312,121 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     }
   };
 
-  const handleSaveConfig = async (values: any) => {
+  // 自动生成代理配置
+  const generateProxyConfig = (type: string, settings: any) => {
+    const { serverAddress, serverPort, protocol, uuid, security, network, wsPath, wsHost } = settings;
+    
+    switch (type) {
+      case 'singbox':
+        const outbound: any = {
+          type: protocol,
+          tag: 'proxy',
+          server: serverAddress,
+          server_port: parseInt(serverPort),
+          uuid: uuid,
+          security: security || 'auto'
+        };
+
+        // 添加传输协议配置
+        if (network === 'ws') {
+          outbound.transport = {
+            type: 'ws',
+            path: wsPath || '/',
+            headers: wsHost ? { Host: wsHost } : {}
+          };
+        } else if (network === 'grpc') {
+          outbound.transport = {
+            type: 'grpc',
+            service_name: wsPath || 'grpc'
+          };
+        }
+
+        return {
+          outbounds: [outbound]
+        };
+
+      case 'xray':
+        const xrayOutbound: any = {
+          protocol: protocol,
+          tag: 'proxy',
+          settings: {
+            vnext: [{
+              address: serverAddress,
+              port: parseInt(serverPort),
+              users: [{
+                id: uuid,
+                security: security || 'auto'
+              }]
+            }]
+          }
+        };
+
+        if (network === 'ws') {
+          xrayOutbound.streamSettings = {
+            network: 'ws',
+            wsSettings: {
+              path: wsPath || '/',
+              headers: wsHost ? { Host: wsHost } : {}
+            }
+          };
+        }
+
+        return {
+          outbounds: [xrayOutbound]
+        };
+
+      case 'clash':
+        return {
+          port: 7890,
+          'socks-port': 7891,
+          'mixed-port': 7890,
+          'allow-lan': false,
+          mode: 'rule',
+          proxies: [{
+            name: 'proxy',
+            type: protocol,
+            server: serverAddress,
+            port: parseInt(serverPort),
+            uuid: uuid,
+            cipher: security || 'auto',
+            network: network || 'tcp',
+            'ws-path': wsPath || '/',
+            'ws-headers': wsHost ? { Host: wsHost } : {}
+          }]
+        };
+
+      default:
+        return {
+          outbounds: [
+            {
+              type: 'direct',
+              tag: 'direct'
+            }
+          ]
+        };
+    }
+  };
+
+  // 简化的配置保存
+  const handleSaveSimpleConfig = async (values: any) => {
     try {
+      // 根据类型和设置自动生成配置
+      const autoConfig = generateProxyConfig(values.type, values);
+      
       const config: ProxyConfig = {
         id: editingConfig?.id || `config_${Date.now()}`,
         name: values.name,
         type: values.type,
-        config: values.config,
+        config: autoConfig,
         enabled: false,
         createdAt: editingConfig?.createdAt || new Date(),
         updatedAt: new Date()
       };
 
       if (editingConfig) {
-        // 更新配置
         const updatedConfigs = proxyConfigs.map(c => c.id === config.id ? config : c);
         saveProxyConfigs(updatedConfigs);
       } else {
-        // 添加新配置
         saveProxyConfigs([...proxyConfigs, config]);
       }
 
@@ -349,6 +447,31 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         const updatedConfigs = proxyConfigs.filter(c => c.id !== id);
         saveProxyConfigs(updatedConfigs);
         message.success('配置已删除');
+      }
+    });
+  };
+
+  // 重置配置到默认状态
+  const handleResetConfigs = () => {
+    Modal.confirm({
+      title: '重置配置',
+      content: '确定要重置所有代理配置到默认状态吗？这将清除所有自定义配置。',
+      okText: '重置',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        try {
+          // 清除所有配置
+          Storage.remove('proxy_configs');
+          Storage.remove('chain_configs');
+          
+          // 重新加载默认配置
+          loadConfigs();
+          
+          message.success('配置已重置为默认状态');
+        } catch (error) {
+          message.error('重置配置失败');
+        }
       }
     });
   };
@@ -455,7 +578,12 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
               icon={<EditOutlined />}
               onClick={() => {
                 setEditingConfig(record);
-                form.setFieldsValue(record);
+                // 将配置对象序列化为 JSON 字符串
+                const formData = {
+                  ...record,
+                  config: JSON.stringify(record.config, null, 2)
+                };
+                form.setFieldsValue(formData);
                 setModalVisible(true);
               }}
             />
@@ -505,6 +633,13 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
             }}
           >
             添加代理
+          </Button>
+          <Button
+            type="default"
+            icon={<SettingOutlined />}
+            onClick={handleResetConfigs}
+          >
+            重置配置
           </Button>
         </Space>
       </div>
@@ -617,7 +752,7 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
         <Form
           form={form}
           layout="vertical"
-          onFinish={handleSaveConfig}
+          onFinish={handleSaveSimpleConfig}
         >
           <Form.Item
             name="name"
@@ -639,15 +774,93 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
             </Select>
           </Form.Item>
 
+          {/* 简化的配置表单 */}
           <Form.Item
-            name="config"
-            label="配置内容"
-            rules={[{ required: true, message: '请输入配置内容' }]}
+            name="serverAddress"
+            label="服务器地址"
+            rules={[{ required: true, message: '请输入服务器地址' }]}
           >
-            <Input.TextArea
-              rows={10}
-              placeholder="请输入JSON格式的配置内容"
-            />
+            <Input placeholder="例如: example.com" />
+          </Form.Item>
+
+          <Form.Item
+            name="serverPort"
+            label="服务器端口"
+            rules={[{ required: true, message: '请输入服务器端口' }]}
+          >
+            <Input placeholder="例如: 443" />
+          </Form.Item>
+
+          <Form.Item
+            name="protocol"
+            label="协议类型"
+            rules={[{ required: true, message: '请选择协议类型' }]}
+          >
+            <Select placeholder="请选择协议类型">
+              <Option value="vmess">VMess</Option>
+              <Option value="vless">VLESS</Option>
+              <Option value="trojan">Trojan</Option>
+              <Option value="shadowsocks">Shadowsocks</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="uuid"
+            label="UUID/密码"
+            rules={[{ required: true, message: '请输入UUID或密码' }]}
+          >
+            <Input placeholder="请输入UUID或密码" />
+          </Form.Item>
+
+          <Form.Item
+            name="security"
+            label="加密方式"
+          >
+            <Select placeholder="请选择加密方式" defaultValue="auto">
+              <Option value="auto">自动</Option>
+              <Option value="none">无</Option>
+              <Option value="aes-128-gcm">AES-128-GCM</Option>
+              <Option value="chacha20-poly1305">ChaCha20-Poly1305</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="network"
+            label="传输协议"
+          >
+            <Select placeholder="请选择传输协议" defaultValue="tcp">
+              <Option value="tcp">TCP</Option>
+              <Option value="ws">WebSocket</Option>
+              <Option value="grpc">gRPC</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.network !== currentValues.network}
+          >
+            {({ getFieldValue }) => {
+              const network = getFieldValue('network');
+              if (network === 'ws') {
+                return (
+                  <>
+                    <Form.Item
+                      name="wsPath"
+                      label="WebSocket 路径"
+                    >
+                      <Input placeholder="例如: /path" />
+                    </Form.Item>
+                    <Form.Item
+                      name="wsHost"
+                      label="WebSocket Host"
+                    >
+                      <Input placeholder="例如: example.com" />
+                    </Form.Item>
+                  </>
+                );
+              }
+              return null;
+            }}
           </Form.Item>
 
           <Form.Item>
