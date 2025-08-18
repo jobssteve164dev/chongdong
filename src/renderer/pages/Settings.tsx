@@ -404,6 +404,94 @@ const Settings: React.FC = () => {
     }
   };
 
+  // 通知相关处理函数
+  const handleTestNotification = async () => {
+    try {
+      const result = await window.api.notification.test();
+      if (result.success) {
+        message.success('测试通知发送成功');
+      } else {
+        message.error(`测试通知失败: ${result.error}`);
+      }
+    } catch (error) {
+      message.error('测试通知失败');
+      log.error('测试通知失败', error, 'Settings');
+    }
+  };
+
+  const handleCheckNotificationPermission = async () => {
+    try {
+      const result = await window.api.notification.checkPermission();
+      if (result.hasPermission) {
+        message.success('通知权限正常');
+      } else {
+        message.warning('没有通知权限，请在系统设置中启用');
+      }
+    } catch (error) {
+      message.error('检查通知权限失败');
+      log.error('检查通知权限失败', error, 'Settings');
+    }
+  };
+
+  // 快捷键相关处理函数
+  const handleTestHotkeys = async () => {
+    try {
+      const hotkeys = preferencesForm.getFieldValue('hotkeys');
+      if (!hotkeys) {
+        message.warning('请先设置快捷键');
+        return;
+      }
+
+      const result = await window.api.hotkeys.register(hotkeys);
+      if (result.success) {
+        message.success('快捷键注册成功，请尝试使用快捷键');
+      } else {
+        if (result.conflicts && result.conflicts.length > 0) {
+          message.error(`快捷键冲突: ${result.conflicts.join(', ')}`);
+        } else {
+          message.error(`快捷键注册失败: ${result.error}`);
+        }
+      }
+    } catch (error) {
+      message.error('测试快捷键失败');
+      log.error('测试快捷键失败', error, 'Settings');
+    }
+  };
+
+  const handleValidateHotkeys = async () => {
+    try {
+      const hotkeys = preferencesForm.getFieldValue('hotkeys');
+      if (!hotkeys) {
+        message.warning('请先设置快捷键');
+        return;
+      }
+
+      const validationResults = [];
+      for (const [action, shortcut] of Object.entries(hotkeys)) {
+        if (shortcut) {
+          const result = await window.api.hotkeys.validate(shortcut);
+          validationResults.push({
+            action,
+            shortcut,
+            valid: result.valid,
+            error: result.error
+          });
+        }
+      }
+
+      const invalidHotkeys = validationResults.filter(r => !r.valid);
+      if (invalidHotkeys.length > 0) {
+        const errorMessages = invalidHotkeys.map(h => `${h.action}: ${h.error}`).join(', ');
+        message.error(`快捷键格式错误: ${errorMessages}`);
+      } else {
+        message.success('所有快捷键格式正确');
+      }
+    } catch (error) {
+      message.error('验证快捷键失败');
+      log.error('验证快捷键失败', error, 'Settings');
+    }
+  };
+
   return (
     <div className="settings-page">
       <div className="page-header">
@@ -720,20 +808,25 @@ const Settings: React.FC = () => {
                   </Form.Item>
                 </Col>
               </Row>
-
-              <Divider />
-
-              <Title level={4}>通知设置</Title>
+              
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="enableNotifications" label="启用通知" valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
+                  <Button 
+                    type="dashed" 
+                    onClick={handleTestNotification}
+                    icon={<InfoCircleOutlined />}
+                  >
+                    测试通知
+                  </Button>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="notificationSound" label="声音提醒" valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
+                  <Button 
+                    type="dashed" 
+                    onClick={handleCheckNotificationPermission}
+                    icon={<SecurityScanOutlined />}
+                  >
+                    检查权限
+                  </Button>
                 </Col>
               </Row>
 
@@ -763,6 +856,27 @@ const Settings: React.FC = () => {
                   <Form.Item name={['hotkeys', 'quickSwitch']} label="快速切换">
                     <Input placeholder="Ctrl+Shift+S" />
                   </Form.Item>
+                </Col>
+              </Row>
+              
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Button 
+                    type="dashed" 
+                    onClick={handleTestHotkeys}
+                    icon={<KeyOutlined />}
+                  >
+                    测试快捷键
+                  </Button>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Button 
+                    type="dashed" 
+                    onClick={handleValidateHotkeys}
+                    icon={<CheckCircleOutlined />}
+                  >
+                    验证快捷键
+                  </Button>
                 </Col>
               </Row>
             </Form>

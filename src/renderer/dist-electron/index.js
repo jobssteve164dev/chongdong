@@ -117,6 +117,390 @@ const optimizer = {
     });
   }
 };
+class GlobalShortcutManager {
+  constructor(mainWindow2) {
+    this.registeredShortcuts = /* @__PURE__ */ new Map();
+    this.mainWindow = null;
+    this.mainWindow = mainWindow2;
+  }
+  /**
+   * 设置主窗口引用
+   */
+  setMainWindow(window) {
+    this.mainWindow = window;
+  }
+  /**
+   * 注册全局快捷键
+   */
+  registerHotkeys(hotkeys) {
+    const conflicts = [];
+    const results = {};
+    this.unregisterAllHotcuts();
+    Object.entries(hotkeys).forEach(([action, shortcut]) => {
+      if (shortcut && shortcut.trim()) {
+        const success = this.registerSingleHotkey(shortcut, () => {
+          this.handleHotkeyAction(action);
+        });
+        results[action] = success;
+        if (!success) {
+          conflicts.push(shortcut);
+        }
+      }
+    });
+    console.log("全局快捷键注册结果:", results);
+    return { success: Object.values(results).every(Boolean), conflicts };
+  }
+  /**
+   * 注册单个快捷键
+   */
+  registerSingleHotkey(shortcut, callback) {
+    try {
+      if (electron.globalShortcut.isRegistered(shortcut)) {
+        console.warn(`快捷键 ${shortcut} 已被注册`);
+        return false;
+      }
+      const success = electron.globalShortcut.register(shortcut, callback);
+      if (success) {
+        this.registeredShortcuts.set(shortcut, callback);
+        console.log(`快捷键 ${shortcut} 注册成功`);
+      } else {
+        console.error(`快捷键 ${shortcut} 注册失败`);
+      }
+      return success;
+    } catch (error) {
+      console.error(`注册快捷键 ${shortcut} 时出错:`, error);
+      return false;
+    }
+  }
+  /**
+   * 处理快捷键动作
+   */
+  handleHotkeyAction(action) {
+    console.log(`触发快捷键动作: ${action}`);
+    switch (action) {
+      case "toggleProxy":
+        this.toggleProxy();
+        break;
+      case "showMainWindow":
+        this.showMainWindow();
+        break;
+      case "quickSwitch":
+        this.quickSwitch();
+        break;
+      default:
+        console.warn(`未知的快捷键动作: ${action}`);
+    }
+  }
+  /**
+   * 切换代理状态
+   */
+  toggleProxy() {
+    var _a;
+    try {
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("hotkey-toggle-proxy");
+      console.log("发送代理切换快捷键事件");
+    } catch (error) {
+      console.error("发送代理切换事件失败:", error);
+    }
+  }
+  /**
+   * 显示主窗口
+   */
+  showMainWindow() {
+    try {
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore();
+        }
+        if (!this.mainWindow.isVisible()) {
+          this.mainWindow.show();
+        }
+        this.mainWindow.focus();
+        console.log("主窗口已显示并聚焦");
+      }
+    } catch (error) {
+      console.error("显示主窗口失败:", error);
+    }
+  }
+  /**
+   * 快速切换功能
+   */
+  quickSwitch() {
+    var _a;
+    try {
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.send("hotkey-quick-switch");
+      console.log("发送快速切换快捷键事件");
+    } catch (error) {
+      console.error("发送快速切换事件失败:", error);
+    }
+  }
+  /**
+   * 注销所有快捷键
+   */
+  unregisterAllHotcuts() {
+    try {
+      electron.globalShortcut.unregisterAll();
+      this.registeredShortcuts.clear();
+      console.log("所有全局快捷键已注销");
+    } catch (error) {
+      console.error("注销全局快捷键失败:", error);
+    }
+  }
+  /**
+   * 注销单个快捷键
+   */
+  unregisterHotkey(shortcut) {
+    try {
+      electron.globalShortcut.unregister(shortcut);
+      this.registeredShortcuts.delete(shortcut);
+      console.log(`快捷键 ${shortcut} 已注销`);
+      return true;
+    } catch (error) {
+      console.error(`注销快捷键 ${shortcut} 失败:`, error);
+      return false;
+    }
+  }
+  /**
+   * 检查快捷键是否可用
+   */
+  isShortcutAvailable(shortcut) {
+    try {
+      return !electron.globalShortcut.isRegistered(shortcut);
+    } catch (error) {
+      console.error(`检查快捷键 ${shortcut} 可用性失败:`, error);
+      return false;
+    }
+  }
+  /**
+   * 获取已注册的快捷键列表
+   */
+  getRegisteredShortcuts() {
+    return Array.from(this.registeredShortcuts.keys());
+  }
+  /**
+   * 验证快捷键格式
+   */
+  validateShortcut(shortcut) {
+    if (!shortcut || !shortcut.trim()) {
+      return { valid: false, error: "快捷键不能为空" };
+    }
+    const shortcutPattern = /^(Ctrl\+|Cmd\+|Alt\+|Shift\+|Meta\+)*([A-Za-z0-9]|F[1-9][0-2]?)$/;
+    if (!shortcutPattern.test(shortcut)) {
+      return { valid: false, error: "快捷键格式不正确" };
+    }
+    return { valid: true };
+  }
+}
+let globalShortcutManager$1 = null;
+function createGlobalShortcutManager(mainWindow2) {
+  globalShortcutManager$1 = new GlobalShortcutManager(mainWindow2);
+  return globalShortcutManager$1;
+}
+class NotificationManager {
+  constructor(config) {
+    this.config = config;
+    this.isSupported = electron.Notification.isSupported();
+    if (!this.isSupported) {
+      console.warn("当前系统不支持通知功能");
+    }
+  }
+  /**
+   * 更新通知配置
+   */
+  updateConfig(config) {
+    this.config = { ...this.config, ...config };
+    console.log("通知配置已更新:", this.config);
+  }
+  /**
+   * 检查通知权限
+   */
+  async checkPermission() {
+    if (!this.isSupported) {
+      return false;
+    }
+    try {
+      if (process.platform === "darwin") {
+        return true;
+      }
+      return true;
+    } catch (error) {
+      console.error("检查通知权限失败:", error);
+      return false;
+    }
+  }
+  /**
+   * 发送通知
+   */
+  async sendNotification(options) {
+    if (!this.config.enableNotifications) {
+      console.log("通知功能已禁用");
+      return false;
+    }
+    if (!this.isSupported) {
+      console.warn("当前系统不支持通知功能");
+      return false;
+    }
+    try {
+      const hasPermission = await this.checkPermission();
+      if (!hasPermission) {
+        console.warn("没有通知权限");
+        return false;
+      }
+      let icon;
+      if (options.icon) {
+        try {
+          icon = electron.nativeImage.createFromPath(options.icon);
+        } catch (error) {
+          console.warn("加载通知图标失败:", error);
+        }
+      }
+      if (!icon) {
+        try {
+          const appIconPath = path.join(__dirname, "../renderer/assets/icon.png");
+          icon = electron.nativeImage.createFromPath(appIconPath);
+        } catch (error) {
+          console.warn("加载应用图标失败:", error);
+        }
+      }
+      const notificationOptions = {
+        title: options.title,
+        body: options.body,
+        silent: options.silent ?? !this.config.notificationSound,
+        timeoutType: options.timeoutType ?? "default"
+      };
+      if (icon) {
+        notificationOptions.icon = icon;
+      }
+      const notification = new electron.Notification(notificationOptions);
+      notification.on("click", () => {
+        console.log("通知被点击");
+        this.handleNotificationClick();
+      });
+      notification.on("close", () => {
+        console.log("通知已关闭");
+      });
+      notification.on("show", () => {
+        console.log("通知已显示");
+      });
+      notification.on("reply", (_event, reply) => {
+        console.log("收到通知回复:", reply);
+      });
+      notification.show();
+      console.log("通知已发送:", options);
+      return true;
+    } catch (error) {
+      console.error("发送通知失败:", error);
+      return false;
+    }
+  }
+  /**
+   * 发送代理状态变更通知
+   */
+  async sendProxyStatusNotification(isEnabled) {
+    const title = "虫洞代理";
+    const body = isEnabled ? "代理已启用" : "代理已禁用";
+    return this.sendNotification({
+      title,
+      body,
+      timeoutType: "default"
+    });
+  }
+  /**
+   * 发送连接状态通知
+   */
+  async sendConnectionNotification(isConnected, serverName) {
+    const title = "虫洞代理";
+    const body = isConnected ? `已连接到服务器${serverName ? `: ${serverName}` : ""}` : "连接已断开";
+    return this.sendNotification({
+      title,
+      body,
+      timeoutType: "default"
+    });
+  }
+  /**
+   * 发送错误通知
+   */
+  async sendErrorNotification(error) {
+    const title = "虫洞代理 - 错误";
+    const body = error;
+    return this.sendNotification({
+      title,
+      body,
+      timeoutType: "never"
+    });
+  }
+  /**
+   * 发送更新通知
+   */
+  async sendUpdateNotification(version) {
+    const title = "虫洞代理 - 更新";
+    const body = `发现新版本: ${version}`;
+    return this.sendNotification({
+      title,
+      body,
+      timeoutType: "default"
+    });
+  }
+  /**
+   * 处理通知点击事件
+   */
+  handleNotificationClick() {
+    try {
+      console.log("处理通知点击事件");
+    } catch (error) {
+      console.error("处理通知点击事件失败:", error);
+    }
+  }
+  /**
+   * 播放通知声音
+   */
+  playNotificationSound() {
+    if (!this.config.notificationSound) {
+      return;
+    }
+    try {
+      if (process.platform === "darwin") {
+        const { exec } = require("child_process");
+        exec("afplay /System/Library/Sounds/Glass.aiff", (error) => {
+          if (error) {
+            console.warn("播放通知声音失败:", error);
+          }
+        });
+      } else {
+        console.log("播放通知声音");
+      }
+    } catch (error) {
+      console.error("播放通知声音失败:", error);
+    }
+  }
+  /**
+   * 测试通知功能
+   */
+  async testNotification() {
+    return this.sendNotification({
+      title: "虫洞代理 - 测试",
+      body: "这是一条测试通知",
+      timeoutType: "default"
+    });
+  }
+  /**
+   * 获取通知支持状态
+   */
+  isNotificationSupported() {
+    return this.isSupported;
+  }
+  /**
+   * 获取当前配置
+   */
+  getConfig() {
+    return { ...this.config };
+  }
+}
+let notificationManager$1 = null;
+function createNotificationManager(config) {
+  notificationManager$1 = new NotificationManager(config);
+  return notificationManager$1;
+}
 class CoreDownloader {
   constructor() {
     this.binDir = path.join(electron.app.getPath("userData"), "bin");
@@ -1392,6 +1776,8 @@ try {
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+let globalShortcutManager = null;
+let notificationManager = null;
 function showMainWindow() {
   try {
     if (!mainWindow) {
@@ -1420,10 +1806,21 @@ function getUserPreferences() {
   } catch (error) {
     console.error("Failed to read user preferences:", error);
     return {
-      startMinimized: false,
-      alwaysOnTop: false,
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
       autoHideMenuBar: true,
-      minimizeToTray: true
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: "Ctrl+Shift+P",
+        showMainWindow: "Ctrl+Shift+M",
+        quickSwitch: "Ctrl+Shift+S"
+      }
     };
   }
 }
@@ -1513,7 +1910,13 @@ function createWindow() {
   };
   mainWindow.on("ready-to-show", () => {
     createTray();
+    globalShortcutManager = createGlobalShortcutManager(mainWindow);
     const prefs = getUserPreferences();
+    const notificationConfig = {
+      enableNotifications: prefs.enableNotifications ?? true,
+      notificationSound: prefs.notificationSound ?? true
+    };
+    notificationManager = createNotificationManager(notificationConfig);
     if (prefs.startMinimized) {
       console.log("应用启动时最小化（不显示窗口）");
     } else {
@@ -1919,6 +2322,27 @@ electron.ipcMain.handle("settings:updated", async (_, settings) => {
         console.log("菜单栏自动隐藏设置已更新:", autoHideMenuBar);
       }
     }
+    if (settings.preferences && globalShortcutManager) {
+      const { enableHotkeys, hotkeys } = settings.preferences;
+      if (enableHotkeys && hotkeys) {
+        const result = globalShortcutManager.registerHotkeys(hotkeys);
+        console.log("全局快捷键设置已更新:", result);
+        if (!result.success && result.conflicts.length > 0) {
+          console.warn("快捷键冲突:", result.conflicts);
+        }
+      } else if (!enableHotkeys) {
+        globalShortcutManager.unregisterAllHotcuts();
+        console.log("全局快捷键已禁用");
+      }
+    }
+    if (settings.preferences && notificationManager) {
+      const { enableNotifications, notificationSound } = settings.preferences;
+      notificationManager.updateConfig({
+        enableNotifications,
+        notificationSound
+      });
+      console.log("通知设置已更新:", { enableNotifications, notificationSound });
+    }
     return { success: true };
   } catch (error) {
     console.error("Failed to apply settings:", error);
@@ -1985,5 +2409,125 @@ electron.ipcMain.handle("network:getStatus", async () => {
   } catch (error) {
     console.error("Failed to get network status:", error);
     return { connected: false, type: "unknown", interface: "", ip: "" };
+  }
+});
+electron.ipcMain.handle("hotkeys:register", async (_, hotkeys) => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: "全局快捷键管理器未初始化" };
+    }
+    const result = globalShortcutManager.registerHotkeys(hotkeys);
+    console.log("全局快捷键注册结果:", result);
+    return result;
+  } catch (error) {
+    console.error("注册全局快捷键失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("hotkeys:unregister", async (_, shortcut) => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: "全局快捷键管理器未初始化" };
+    }
+    const success = globalShortcutManager.unregisterHotkey(shortcut);
+    return { success };
+  } catch (error) {
+    console.error("注销全局快捷键失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("hotkeys:unregister-all", async () => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: "全局快捷键管理器未初始化" };
+    }
+    globalShortcutManager.unregisterAllHotcuts();
+    return { success: true };
+  } catch (error) {
+    console.error("注销所有全局快捷键失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("hotkeys:validate", async (_, shortcut) => {
+  try {
+    if (!globalShortcutManager) {
+      return { valid: false, error: "全局快捷键管理器未初始化" };
+    }
+    return globalShortcutManager.validateShortcut(shortcut);
+  } catch (error) {
+    console.error("验证快捷键失败:", error);
+    return { valid: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("hotkeys:check-availability", async (_, shortcut) => {
+  try {
+    if (!globalShortcutManager) {
+      return { available: false, error: "全局快捷键管理器未初始化" };
+    }
+    const available = globalShortcutManager.isShortcutAvailable(shortcut);
+    return { available };
+  } catch (error) {
+    console.error("检查快捷键可用性失败:", error);
+    return { available: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("notification:send", async (_, options) => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: "通知管理器未初始化" };
+    }
+    const success = await notificationManager.sendNotification(options);
+    return { success };
+  } catch (error) {
+    console.error("发送通知失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("notification:test", async () => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: "通知管理器未初始化" };
+    }
+    const success = await notificationManager.testNotification();
+    return { success };
+  } catch (error) {
+    console.error("测试通知失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("notification:check-permission", async () => {
+  try {
+    if (!notificationManager) {
+      return { hasPermission: false, error: "通知管理器未初始化" };
+    }
+    const hasPermission = await notificationManager.checkPermission();
+    return { hasPermission };
+  } catch (error) {
+    console.error("检查通知权限失败:", error);
+    return { hasPermission: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("notification:update-config", async (_, config) => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: "通知管理器未初始化" };
+    }
+    notificationManager.updateConfig(config);
+    return { success: true };
+  } catch (error) {
+    console.error("更新通知配置失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("notification:is-supported", async () => {
+  try {
+    if (!notificationManager) {
+      return { supported: false, error: "通知管理器未初始化" };
+    }
+    const supported = notificationManager.isNotificationSupported();
+    return { supported };
+  } catch (error) {
+    console.error("检查通知支持失败:", error);
+    return { supported: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });

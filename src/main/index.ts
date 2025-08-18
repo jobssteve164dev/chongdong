@@ -1,6 +1,8 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, Tray, nativeImage } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
+import { createGlobalShortcutManager, HotkeyConfig } from './globalShortcutManager';
+import { createNotificationManager, NotificationConfig } from './notificationManager';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -14,6 +16,10 @@ try {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+
+// 全局快捷键和通知管理器
+let globalShortcutManager: ReturnType<typeof createGlobalShortcutManager> | null = null;
+let notificationManager: ReturnType<typeof createNotificationManager> | null = null;
 
 // 统一的显示主窗口函数
 function showMainWindow(): void {
@@ -53,10 +59,21 @@ function getUserPreferences() {
   } catch (error) {
     console.error('Failed to read user preferences:', error);
     return {
-      startMinimized: false,
-      alwaysOnTop: false,
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
       autoHideMenuBar: true,
-      minimizeToTray: true
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: 'Ctrl+Shift+P',
+        showMainWindow: 'Ctrl+Shift+M',
+        quickSwitch: 'Ctrl+Shift+S'
+      }
     };
   }
 }
@@ -170,8 +187,19 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     // 始终创建托盘
     createTray();
-    // 根据用户偏好决定是否启动时最小化
+    
+    // 初始化全局快捷键管理器
+    globalShortcutManager = createGlobalShortcutManager(mainWindow);
+    
+    // 初始化通知管理器
     const prefs = getUserPreferences();
+    const notificationConfig: NotificationConfig = {
+      enableNotifications: prefs.enableNotifications ?? true,
+      notificationSound: prefs.notificationSound ?? true
+    };
+    notificationManager = createNotificationManager(notificationConfig);
+    
+    // 根据用户偏好决定是否启动时最小化
     if (prefs.startMinimized) {
       console.log('应用启动时最小化（不显示窗口）');
       // 保持窗口隐藏，由托盘/激活事件唤起
@@ -179,15 +207,6 @@ function createWindow(): void {
       console.log('应用启动时显示窗口');
       showMainWindow();
     }
-    
-    // 注释掉启动时最小化逻辑，等托盘功能修复后再启用
-    // if (preferences.startMinimized) {
-    //   console.log('应用启动时最小化');
-    //   // 不显示窗口，但保持应用运行
-    // } else {
-    //   console.log('应用启动时显示窗口');
-    //   mainWindow?.show();
-    // }
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -683,6 +702,34 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
       }
     }
     
+    // 应用全局快捷键设置
+    if (settings.preferences && globalShortcutManager) {
+      const { enableHotkeys, hotkeys } = settings.preferences;
+      
+      if (enableHotkeys && hotkeys) {
+        const result = globalShortcutManager.registerHotkeys(hotkeys);
+        console.log('全局快捷键设置已更新:', result);
+        
+        if (!result.success && result.conflicts.length > 0) {
+          console.warn('快捷键冲突:', result.conflicts);
+        }
+      } else if (!enableHotkeys) {
+        globalShortcutManager.unregisterAllHotcuts();
+        console.log('全局快捷键已禁用');
+      }
+    }
+    
+    // 应用通知设置
+    if (settings.preferences && notificationManager) {
+      const { enableNotifications, notificationSound } = settings.preferences;
+      
+      notificationManager.updateConfig({
+        enableNotifications,
+        notificationSound
+      });
+      console.log('通知设置已更新:', { enableNotifications, notificationSound });
+    }
+    
     return { success: true };
   } catch (error) {
     console.error('Failed to apply settings:', error);
@@ -758,5 +805,147 @@ ipcMain.handle('network:getStatus', async () => {
   } catch (error) {
     console.error('Failed to get network status:', error);
     return { connected: false, type: 'unknown', interface: '', ip: '' };
+  }
+});
+
+// 全局快捷键IPC处理程序
+ipcMain.handle('hotkeys:register', async (_, hotkeys: HotkeyConfig) => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: '全局快捷键管理器未初始化' };
+    }
+
+    const result = globalShortcutManager.registerHotkeys(hotkeys);
+    console.log('全局快捷键注册结果:', result);
+    return result;
+  } catch (error) {
+    console.error('注册全局快捷键失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('hotkeys:unregister', async (_, shortcut: string) => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: '全局快捷键管理器未初始化' };
+    }
+
+    const success = globalShortcutManager.unregisterHotkey(shortcut);
+    return { success };
+  } catch (error) {
+    console.error('注销全局快捷键失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('hotkeys:unregister-all', async () => {
+  try {
+    if (!globalShortcutManager) {
+      return { success: false, error: '全局快捷键管理器未初始化' };
+    }
+
+    globalShortcutManager.unregisterAllHotcuts();
+    return { success: true };
+  } catch (error) {
+    console.error('注销所有全局快捷键失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('hotkeys:validate', async (_, shortcut: string) => {
+  try {
+    if (!globalShortcutManager) {
+      return { valid: false, error: '全局快捷键管理器未初始化' };
+    }
+
+    return globalShortcutManager.validateShortcut(shortcut);
+  } catch (error) {
+    console.error('验证快捷键失败:', error);
+    return { valid: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('hotkeys:check-availability', async (_, shortcut: string) => {
+  try {
+    if (!globalShortcutManager) {
+      return { available: false, error: '全局快捷键管理器未初始化' };
+    }
+
+    const available = globalShortcutManager.isShortcutAvailable(shortcut);
+    return { available };
+  } catch (error) {
+    console.error('检查快捷键可用性失败:', error);
+    return { available: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 通知IPC处理程序
+ipcMain.handle('notification:send', async (_, options: { title: string; body: string; icon?: string; silent?: boolean; timeoutType?: 'default' | 'never' }) => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: '通知管理器未初始化' };
+    }
+
+    const success = await notificationManager.sendNotification(options);
+    return { success };
+  } catch (error) {
+    console.error('发送通知失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('notification:test', async () => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: '通知管理器未初始化' };
+    }
+
+    const success = await notificationManager.testNotification();
+    return { success };
+  } catch (error) {
+    console.error('测试通知失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('notification:check-permission', async () => {
+  try {
+    if (!notificationManager) {
+      return { hasPermission: false, error: '通知管理器未初始化' };
+    }
+
+    const hasPermission = await notificationManager.checkPermission();
+    return { hasPermission };
+  } catch (error) {
+    console.error('检查通知权限失败:', error);
+    return { hasPermission: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('notification:update-config', async (_, config: Partial<NotificationConfig>) => {
+  try {
+    if (!notificationManager) {
+      return { success: false, error: '通知管理器未初始化' };
+    }
+
+    notificationManager.updateConfig(config);
+    return { success: true };
+  } catch (error) {
+    console.error('更新通知配置失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('notification:is-supported', async () => {
+  try {
+    if (!notificationManager) {
+      return { supported: false, error: '通知管理器未初始化' };
+    }
+
+    const supported = notificationManager.isNotificationSupported();
+    return { supported };
+  } catch (error) {
+    console.error('检查通知支持失败:', error);
+    return { supported: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

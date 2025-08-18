@@ -4,7 +4,23 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
 // Custom APIs for renderer
 const api = {
-  // ... any other APIs you want to expose
+  // 全局快捷键API
+  hotkeys: {
+    register: (hotkeys: any) => ipcRenderer.invoke('hotkeys:register', hotkeys),
+    unregister: (shortcut: string) => ipcRenderer.invoke('hotkeys:unregister', shortcut),
+    unregisterAll: () => ipcRenderer.invoke('hotkeys:unregister-all'),
+    validate: (shortcut: string) => ipcRenderer.invoke('hotkeys:validate', shortcut),
+    checkAvailability: (shortcut: string) => ipcRenderer.invoke('hotkeys:check-availability', shortcut)
+  },
+  
+  // 通知API
+  notification: {
+    send: (options: any) => ipcRenderer.invoke('notification:send', options),
+    test: () => ipcRenderer.invoke('notification:test'),
+    checkPermission: () => ipcRenderer.invoke('notification:check-permission'),
+    updateConfig: (config: any) => ipcRenderer.invoke('notification:update-config', config),
+    isSupported: () => ipcRenderer.invoke('notification:is-supported')
+  }
 }
 
 // Use `contextBridge` to securely expose Node.js APIs to the renderer process
