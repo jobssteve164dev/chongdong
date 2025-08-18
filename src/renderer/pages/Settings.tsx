@@ -64,6 +64,8 @@ import { AppSettings, UserPreferences } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import ConfigApi from '../utils/configApi';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
+import CoreManager from '../components/CoreManager';
+import { CoreStatus } from '../utils/coreManager';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -74,6 +76,13 @@ const Settings: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
+    singbox: false, 
+    xray: false, 
+    clash: false,
+    geoip: false,
+    geosite: false
+  });
   const [settings, setSettings] = useState<AppSettings>({
     theme: 'auto',
     language: 'zh-CN',
@@ -745,6 +754,18 @@ const Settings: React.FC = () => {
               </Descriptions>
             </Card>
           </Card>
+        </TabPane>
+
+        <TabPane
+          tab={
+            <span>
+              <CloudOutlined />
+              核心管理
+            </span>
+          }
+          key="core"
+        >
+          <CoreManager onCoreStatusChange={setCoresStatus} />
         </TabPane>
       </Tabs>
     </div>

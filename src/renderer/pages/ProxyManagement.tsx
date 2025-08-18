@@ -6,8 +6,7 @@ import { systemProxy, ProxySettings } from '../utils/systemProxy';
 import { chainProxyManager, ChainConfig } from '../utils/chainProxy';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import ProxyChainBuilder from '../components/ProxyChainBuilder';
-import CoreManager from '../components/CoreManager';
-import { CoreStatus, CoreManager as CoreManagerUtil } from '../utils/coreManager';
+import { CoreManager as CoreManagerUtil } from '../utils/coreManager';
 import './ProxyManagement.css';
 
 const { Option } = Select;
@@ -21,13 +20,6 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
   const [currentStatus, setCurrentStatus] = useState<ProxyStatus | null>(null);
   const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
-  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
-    singbox: false, 
-    xray: false, 
-    clash: false,
-    geoip: false,
-    geosite: false
-  });
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ProxyConfig | null>(null);
@@ -233,7 +225,8 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
   const handleStartProxy = async (config: ProxyConfig) => {
     // 检查对应的核心是否已安装
     const coreName = config.type;
-    if (!coresStatus[coreName as keyof CoreStatus]) {
+    const isInstalled = await CoreManagerUtil.isCoreInstalled(coreName);
+    if (!isInstalled) {
       Modal.confirm({
         title: '核心未安装',
         content: `${CoreManagerUtil.getCoreDisplayName(coreName)} 核心未安装，是否现在下载安装？`,
@@ -493,9 +486,6 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
           </Button>
         </Space>
       </div>
-
-      {/* 核心管理 */}
-      <CoreManager onCoreStatusChange={setCoresStatus} />
 
       {/* 状态卡片 */}
       <div className="status-cards">
