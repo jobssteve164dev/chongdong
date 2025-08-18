@@ -37,6 +37,7 @@ import { ProxyServer, Subscription } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
+import { latencyTester, LatencyTestResult } from '../utils/latencyTester';
 import './NodeManagement.css';
 
 const { Title, Text } = Typography;
@@ -314,14 +315,116 @@ const NodeManagement: React.FC = () => {
     },
   ];
 
-  const handleTestLatency = async (node: NodeWithSubscription) => {
-    // TODO: 实现延迟测试功能
-    message.info('延迟测试功能开发中');
+  // 批量延迟测试
+  const handleBatchTestLatency = async () => {
+    setLoading(true);
+    try {
+      const nodesToTest = allNodes.filter(node => !node.latency || node.latency === 0);
+      if (nodesToTest.length === 0) {
+        message.info('没有需要测试的节点');
+        return;
+      }
+
+      message.info(`开始测试 ${nodesToTest.length} 个节点的延迟...`);
+      
+      // 使用真实的延迟测试功能
+      const results = await latencyTester.testNodesLatencyViaMainProcess(nodesToTest);
+      
+      // 更新节点延迟信息
+      const updatedNodes = [...allNodes];
+      results.forEach((result, nodeId) => {
+        const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
+        if (nodeIndex !== -1) {
+          updatedNodes[nodeIndex] = {
+            ...updatedNodes[nodeIndex],
+            latency: result.success ? result.latency : undefined,
+            lastTest: result.timestamp
+          };
+        }
+      });
+
+      setAllNodes(updatedNodes);
+      
+      // 保存到存储
+      const updatedSubscriptions = subscriptions.map(sub => {
+        const subscriptionNodes = updatedNodes.filter(node => node.subscriptionId === sub.id);
+        return {
+          ...sub,
+          servers: subscriptionNodes
+        };
+      });
+      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, updatedSubscriptions);
+      
+      const successCount = Array.from(results.values()).filter(r => r.success).length;
+      message.success(`延迟测试完成！成功测试 ${successCount}/${nodesToTest.length} 个节点`);
+      
+    } catch (error) {
+      message.error('批量延迟测试失败');
+      log.error('批量延迟测试失败', error, 'NodeManagement');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleToggleNode = (node: NodeWithSubscription) => {
-    // TODO: 实现节点启用/禁用功能
-    message.info('节点状态切换功能开发中');
+  // 节点启用/禁用功能
+  const handleToggleNode = async (node: NodeWithSubscription) => {
+    try {
+      const updatedNodes = allNodes.map(n => 
+        n.id === node.id ? { ...n, enabled: !n.enabled } : n
+      );
+      setAllNodes(updatedNodes);
+      
+      // 保存到存储
+      const updatedSubscriptions = subscriptions.map(sub => {
+        const subscriptionNodes = updatedNodes.filter(n => n.subscriptionId === sub.id);
+        return {
+          ...sub,
+          servers: subscriptionNodes
+        };
+      });
+      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, updatedSubscriptions);
+      
+      message.success(`${node.enabled ? '禁用' : '启用'}节点成功`);
+    } catch (error) {
+      message.error('节点状态切换失败');
+      log.error('节点状态切换失败', error, 'NodeManagement');
+    }
+  };
+
+  // 单个节点延迟测试
+  const handleTestLatency = async (node: NodeWithSubscription) => {
+    try {
+      // 使用真实的延迟测试功能
+      const result = await latencyTester.testNodeLatencyViaMainProcess(node);
+      
+      const updatedNodes = allNodes.map(n => 
+        n.id === node.id ? { 
+          ...n, 
+          latency: result.success ? result.latency : undefined,
+          lastTest: result.timestamp
+        } : n
+      );
+      setAllNodes(updatedNodes);
+      
+      // 保存到存储
+      const updatedSubscriptions = subscriptions.map(sub => {
+        const subscriptionNodes = updatedNodes.filter(node => node.subscriptionId === sub.id);
+        return {
+          ...sub,
+          servers: subscriptionNodes
+        };
+      });
+      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, updatedSubscriptions);
+      
+      if (result.success) {
+        message.success(`延迟测试完成：${result.latency}ms`);
+      } else {
+        message.error(`延迟测试失败：${result.error}`);
+      }
+    } catch (error) {
+      message.error('延迟测试失败');
+      log.error('延迟测试失败', error, 'NodeManagement');
+    }
   };
 
   // 生成tab配置
@@ -394,14 +497,23 @@ const NodeManagement: React.FC = () => {
     <div className="node-management-page">
       <div className="page-header">
         <Title level={2}>节点管理</Title>
-        <Button 
-          type="primary" 
-          icon={<SyncOutlined />} 
-          onClick={handleRefreshNodes}
-          loading={loading}
-        >
-          刷新节点
-        </Button>
+        <Space>
+          <Button 
+            icon={<ThunderboltOutlined />} 
+            onClick={handleBatchTestLatency}
+            loading={loading}
+          >
+            批量延迟测试
+          </Button>
+          <Button 
+            type="primary" 
+            icon={<SyncOutlined />} 
+            onClick={handleRefreshNodes}
+            loading={loading}
+          >
+            刷新节点
+          </Button>
+        </Space>
       </div>
 
       {/* 统计信息 */}

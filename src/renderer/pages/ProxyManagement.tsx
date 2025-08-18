@@ -213,9 +213,31 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
   };
 
   const startStatusPolling = () => {
-    const interval = setInterval(() => {
-      const status = proxyEngine.getStatus();
-      setCurrentStatus(status);
+    const interval = setInterval(async () => {
+      try {
+        const status = proxyEngine.getStatus();
+        setCurrentStatus(status);
+        
+        // 如果代理引擎状态与配置状态不一致，同步状态
+        const runningConfig = proxyConfigs.find(c => c.enabled);
+        if (status.running && !runningConfig) {
+          // 代理引擎在运行但没有启用的配置，重置状态
+          setCurrentStatus({
+            running: false,
+            uptime: 0,
+            connections: 0,
+            upload: 0,
+            download: 0,
+            error: '状态不一致'
+          });
+        } else if (!status.running && runningConfig) {
+          // 有启用的配置但代理引擎未运行，更新配置状态
+          const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
+          saveProxyConfigs(updatedConfigs);
+        }
+      } catch (error) {
+        console.error('状态轮询错误:', error);
+      }
     }, 2000);
 
     return () => clearInterval(interval);

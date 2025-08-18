@@ -62,7 +62,15 @@ export class ConfigManager {
         enableDns: true,
         dnsServer: '8.8.8.8',
         enableDoh: false,
-        dohServer: 'https://dns.google/dns-query'
+        dohServer: 'https://dns.google/dns-query',
+        // 延迟测试默认设置
+        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+        latencyTestTimeout: 10000,
+        latencyTestRetries: 3,
+        latencyTestInterval: 10,
+        enableAutoLatencyTest: false,
+        latencyTestConcurrency: 3,
+        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
       },
       preferences: {
         windowSize: { width: 1200, height: 800 },

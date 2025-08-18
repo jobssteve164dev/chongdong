@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Card,
   Form,
@@ -80,6 +80,7 @@ const Settings: React.FC = () => {
   const [networkForm] = Form.useForm();
   const [securityForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const networkSettingsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
     singbox: false, 
     xray: false, 
@@ -109,7 +110,15 @@ const Settings: React.FC = () => {
     enableDns: true,
     dnsServer: '8.8.8.8',
     enableDoh: false,
-    dohServer: 'https://dns.google/dns-query'
+    dohServer: 'https://dns.google/dns-query',
+    // 延迟测试设置
+    latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+    latencyTestTimeout: 10000,
+    latencyTestRetries: 3,
+    latencyTestInterval: 10,
+    enableAutoLatencyTest: false,
+    latencyTestConcurrency: 3,
+    latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
   });
 
   const [preferences, setPreferences] = useState<UserPreferences>({
@@ -242,18 +251,15 @@ const Settings: React.FC = () => {
           log.info('设置已成功保存到主进程', null, 'Settings');
         } else {
           log.warn('主进程保存设置失败', result.error, 'Settings');
+          message.warning('部分设置应用失败，请检查代理状态');
         }
       } catch (error) {
         log.warn('通知主进程设置更新失败', error, 'Settings');
+        message.warning('设置保存成功，但应用失败，请检查代理状态');
       }
       
       message.success('所有设置已保存');
-      log.info('保存所有设置', { 
-        settings: settingsValues, 
-        preferences: preferencesValues,
-        network: networkValues,
-        security: securityValues
-      }, 'Settings');
+      log.info('保存所有设置', { settings: allSettings, preferences: newPreferences }, 'Settings');
     } catch (error) {
       message.error('保存设置失败');
       log.error('保存设置失败', error, 'Settings');
@@ -261,6 +267,82 @@ const Settings: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // 网络设置变更处理
+  const handleNetworkSettingsChange = async (changedValues: any, allValues: any) => {
+    try {
+      // 检查是否是网络相关的设置变更
+      const networkKeys = [
+        'enableDns', 'dnsServer', 'enableDoh', 'dohServer',
+        'enableTun', 'tunDevice', 'enableFakeIp', 'fakeIpRange',
+        'enableUdp', 'enableIpv6', 'logLevel', 'enableLog', 'logFile',
+        // 延迟测试相关设置
+        'latencyTestUrl', 'latencyTestTimeout', 'latencyTestRetries', 
+        'latencyTestInterval', 'enableAutoLatencyTest', 'latencyTestConcurrency', 'latencyTestUrls'
+      ];
+      
+      const hasNetworkChanges = Object.keys(changedValues).some(key => networkKeys.includes(key));
+      
+      if (hasNetworkChanges) {
+        // 更新本地设置
+        const newSettings = { ...settings, ...allValues };
+        setSettings(newSettings);
+        
+        // 如果是延迟测试配置变更，更新延迟测试器配置
+        const latencyTestKeys = [
+          'latencyTestUrl', 'latencyTestTimeout', 'latencyTestRetries', 
+          'latencyTestInterval', 'latencyTestConcurrency'
+        ];
+        const hasLatencyTestChanges = Object.keys(changedValues).some(key => latencyTestKeys.includes(key));
+        
+        if (hasLatencyTestChanges) {
+          const { latencyTester } = await import('../utils/latencyTester');
+          latencyTester.updateConfig({
+            testUrl: allValues.latencyTestUrl || 'http://connectivitycheck.gstatic.com/generate_204',
+            timeout: allValues.latencyTestTimeout || 10000,
+            retries: allValues.latencyTestRetries || 3,
+            testInterval: (allValues.latencyTestInterval || 10) * 60 * 1000 // 转换为毫秒
+          });
+        }
+        
+        // 使用防抖机制，避免频繁调用
+        if (networkSettingsTimeoutRef.current) {
+          clearTimeout(networkSettingsTimeoutRef.current);
+        }
+        
+        networkSettingsTimeoutRef.current = setTimeout(async () => {
+          try {
+            // 通知主进程网络设置已更新
+            const result = await window.electron.ipcRenderer.invoke('settings:updated', {
+              settings: newSettings,
+              preferences: preferences
+            });
+            
+            if (result.success) {
+              log.info('网络设置已实时应用', changedValues, 'Settings');
+            } else {
+              log.warn('网络设置应用失败', result.error, 'Settings');
+              message.warning('网络设置应用失败，请检查代理状态');
+            }
+          } catch (error) {
+            log.warn('网络设置应用失败', error, 'Settings');
+            message.warning('网络设置应用失败，请检查代理状态');
+          }
+        }, 1000); // 1秒防抖
+      }
+    } catch (error) {
+      log.error('处理网络设置变更失败', error, 'Settings');
+    }
+  };
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (networkSettingsTimeoutRef.current) {
+        clearTimeout(networkSettingsTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 应用窗口设置
   const applyWindowSettings = async (preferences: UserPreferences) => {
@@ -321,7 +403,15 @@ const Settings: React.FC = () => {
       enableDns: true,
       dnsServer: '8.8.8.8',
       enableDoh: false,
-      dohServer: 'https://dns.google/dns-query'
+      dohServer: 'https://dns.google/dns-query',
+      // 延迟测试设置
+      latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+      latencyTestTimeout: 10000,
+      latencyTestRetries: 3,
+      latencyTestInterval: 10,
+      enableAutoLatencyTest: false,
+      latencyTestConcurrency: 3,
+      latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
     });
     setPreferences({
       windowSize: { width: 1200, height: 800 },
@@ -407,7 +497,7 @@ const Settings: React.FC = () => {
   // 通知相关处理函数
   const handleTestNotification = async () => {
     try {
-      const result = await window.api.notification.test();
+      const result = await window.electron.ipcRenderer.invoke('notification:test');
       if (result.success) {
         message.success('测试通知发送成功');
       } else {
@@ -421,7 +511,7 @@ const Settings: React.FC = () => {
 
   const handleCheckNotificationPermission = async () => {
     try {
-      const result = await window.api.notification.checkPermission();
+      const result = await window.electron.ipcRenderer.invoke('notification:checkPermission');
       if (result.hasPermission) {
         message.success('通知权限正常');
       } else {
@@ -442,7 +532,7 @@ const Settings: React.FC = () => {
         return;
       }
 
-      const result = await window.api.hotkeys.register(hotkeys);
+      const result = await window.electron.ipcRenderer.invoke('hotkeys:register', hotkeys);
       if (result.success) {
         message.success('快捷键注册成功，请尝试使用快捷键');
       } else {
@@ -469,7 +559,7 @@ const Settings: React.FC = () => {
       const validationResults = [];
       for (const [action, shortcut] of Object.entries(hotkeys)) {
         if (shortcut) {
-          const result = await window.api.hotkeys.validate(shortcut);
+          const result = await window.electron.ipcRenderer.invoke('hotkeys:validate', shortcut);
           validationResults.push({
             action,
             shortcut,
@@ -491,6 +581,53 @@ const Settings: React.FC = () => {
       log.error('验证快捷键失败', error, 'Settings');
     }
   };
+
+  // 延迟测试相关处理函数
+  const handleTestLatencyConfig = async () => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('latency:test');
+      if (result.success) {
+        message.success('延迟测试配置已应用，请检查日志');
+      } else {
+        message.error(`延迟测试配置应用失败: ${result.error}`);
+      }
+    } catch (error) {
+      message.error('延迟测试配置应用失败');
+      log.error('延迟测试配置应用失败', error, 'Settings');
+    }
+  };
+
+  const handleResetLatencyConfig = async () => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('latency:reset');
+      if (result.success) {
+        message.success('延迟测试配置已重置为默认值');
+        // 重新加载设置
+        const newSettings = ConfigApi.getSettings();
+        setSettings(newSettings);
+      } else {
+        message.error(`延迟测试配置重置失败: ${result.error}`);
+      }
+    } catch (error) {
+      message.error('延迟测试配置重置失败');
+      log.error('延迟测试配置重置失败', error, 'Settings');
+    }
+  };
+
+  // 监听代理重启失败事件
+  useEffect(() => {
+    const handleProxyRestartFailed = (data: { error: string }) => {
+      message.error(`代理重启失败: ${data.error}`);
+      log.error('代理重启失败', { error: data.error }, 'Settings');
+    };
+
+    window.electron.ipcRenderer.on('proxy:restartFailed', handleProxyRestartFailed);
+
+    return () => {
+      // 移除事件监听器
+      window.electron.ipcRenderer.on('proxy:restartFailed', () => {});
+    };
+  }, []);
 
   return (
     <div className="settings-page">
@@ -624,7 +761,11 @@ const Settings: React.FC = () => {
               style={{ marginBottom: 24 }}
             />
 
-            <Form form={securityForm} layout="vertical">
+            <Form 
+              form={securityForm} 
+              layout="vertical"
+              onValuesChange={handleNetworkSettingsChange}
+            >
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
                   <Form.Item name="enableUdp" label="启用UDP" valuePropName="checked">
@@ -670,7 +811,11 @@ const Settings: React.FC = () => {
         >
           <Card title="网络配置">
             <Title level={4}>DNS设置</Title>
-            <Form form={networkForm} layout="vertical">
+            <Form 
+              form={networkForm} 
+              layout="vertical"
+              onValuesChange={handleNetworkSettingsChange}
+            >
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
                   <Form.Item name="enableDns" label="启用DNS" valuePropName="checked">
@@ -719,6 +864,111 @@ const Settings: React.FC = () => {
                 <Form.Item name="fakeIpRange" label="FakeIP范围">
                   <Input placeholder="198.18.0.1/16" />
                 </Form.Item>
+              </Col>
+            </Row>
+
+            <Divider />
+
+            <Title level={4}>延迟测试设置</Title>
+            <Alert
+              message="延迟测试说明"
+              description="配置节点延迟测试的相关参数，用于评估代理节点的网络性能。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestUrl" label="连接测试网址">
+                  <Input placeholder="http://connectivitycheck.gstatic.com/generate_204" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestTimeout" label="测试超时时间(毫秒)">
+                  <InputNumber 
+                    min={1000} 
+                    max={30000} 
+                    step={1000}
+                    placeholder="10000"
+                    style={{ width: '100%' }} 
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestRetries" label="测试重试次数">
+                  <InputNumber 
+                    min={1} 
+                    max={5} 
+                    step={1}
+                    placeholder="3"
+                    style={{ width: '100%' }} 
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestInterval" label="自动测试间隔(分钟)">
+                  <InputNumber 
+                    min={1} 
+                    max={60} 
+                    step={1}
+                    placeholder="10"
+                    style={{ width: '100%' }} 
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="enableAutoLatencyTest" label="启用自动延迟测试" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestConcurrency" label="并发测试数量">
+                  <InputNumber 
+                    min={1} 
+                    max={10} 
+                    step={1}
+                    placeholder="3"
+                    style={{ width: '100%' }} 
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24}>
+                <Form.Item name="latencyTestUrls" label="备用测试网址(每行一个)">
+                  <Input.TextArea 
+                    rows={3}
+                    placeholder="http://connectivitycheck.gstatic.com/generate_204&#10;http://www.google.com/generate_204&#10;http://www.baidu.com"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24}>
+                <Space>
+                  <Button 
+                    type="primary" 
+                    icon={<ThunderboltOutlined />}
+                    onClick={handleTestLatencyConfig}
+                  >
+                    测试延迟配置
+                  </Button>
+                  <Button 
+                    icon={<ReloadOutlined />}
+                    onClick={handleResetLatencyConfig}
+                  >
+                    重置为默认值
+                  </Button>
+                </Space>
               </Col>
             </Row>
           </Card>

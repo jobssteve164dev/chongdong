@@ -10,6 +10,24 @@ interface ProxyProcess {
   process: ChildProcess;
   config: any;
   port: number;
+  networkSettings?: any;
+}
+
+// 添加网络设置接口
+export interface NetworkSettings {
+  enableDns: boolean;
+  dnsServer: string;
+  enableDoh: boolean;
+  dohServer: string;
+  enableTun: boolean;
+  tunDevice: string;
+  enableFakeIp: boolean;
+  fakeIpRange: string;
+  enableUdp: boolean;
+  enableIpv6: boolean;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  enableLog: boolean;
+  logFile: string;
 }
 
 export class ProxyManager {
@@ -17,6 +35,7 @@ export class ProxyManager {
   private processes: Map<string, ProxyProcess> = new Map();
   private configDir: string;
   private binDir: string;
+  private currentNetworkSettings?: NetworkSettings;
 
   private constructor() {
     this.configDir = join(app.getPath('userData'), 'proxy-configs');
@@ -39,18 +58,93 @@ export class ProxyManager {
   }
 
   /**
+   * 更新网络设置
+   */
+  public updateNetworkSettings(settings: NetworkSettings): void {
+    this.currentNetworkSettings = settings;
+    console.log('网络设置已更新:', settings);
+  }
+
+  /**
+   * 重启所有代理进程
+   */
+  public async restartAllProcesses(): Promise<void> {
+    console.log('开始重启所有代理进程...');
+    
+    const processesToRestart = Array.from(this.processes.values());
+    
+    if (processesToRestart.length === 0) {
+      console.log('没有正在运行的代理进程，无需重启');
+      return;
+    }
+    
+    // 停止所有进程
+    for (const process of processesToRestart) {
+      try {
+        await this.stopProcess(process.id);
+      } catch (error) {
+        console.error(`停止进程 ${process.id} 失败:`, error);
+      }
+    }
+    
+    // 等待一段时间确保进程完全停止
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // 重新启动所有进程
+    for (const process of processesToRestart) {
+      try {
+        switch (process.type) {
+          case 'singbox':
+            await this.startSingbox(process.config, this.currentNetworkSettings);
+            break;
+          case 'xray':
+            await this.startXray(process.config, this.currentNetworkSettings);
+            break;
+          case 'clash':
+            await this.startClash(process.config, this.currentNetworkSettings);
+            break;
+        }
+      } catch (error) {
+        console.error(`重启 ${process.type} 进程失败:`, error);
+      }
+    }
+    
+    console.log('所有代理进程重启完成');
+  }
+
+  /**
+   * 停止指定进程
+   */
+  private async stopProcess(processId: string): Promise<void> {
+    const process = this.processes.get(processId);
+    if (process) {
+      try {
+        process.process.kill();
+        this.processes.delete(processId);
+        console.log(`进程 ${processId} 已停止`);
+      } catch (error) {
+        console.error(`停止进程 ${processId} 失败:`, error);
+      }
+    }
+  }
+
+  /**
    * 启动Sing-box引擎
    */
-  public async startSingbox(config: any): Promise<void> {
+  public async startSingbox(config: any, networkSettings?: NetworkSettings): Promise<void> {
     const processId = `singbox_${Date.now()}`;
     const configPath = join(this.configDir, `${processId}.json`);
     
     console.log(`准备启动 Sing-box 进程: ${processId}`);
     console.log(`配置文件路径: ${configPath}`);
-    console.log(`配置文件内容:`, JSON.stringify(config, null, 2));
+    console.log(`网络设置:`, networkSettings);
+    
+    // 应用网络设置到配置
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
     
     // 写入配置文件
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     
     // 获取Sing-box可执行文件路径
     const singboxPath = await this.getSingboxPath();
@@ -96,7 +190,7 @@ export class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = config.inbounds?.[0]?.listen_port || 7890;
+            const port = finalConfig.inbounds?.[0]?.listen_port || 7890;
             const notificationData = {
               port: port,
               processId: processId
@@ -112,7 +206,7 @@ export class ProxyManager {
           childProcess.kill();
           
           // 使用 reject 而不是 throw，避免未捕获的异常
-          reject(new Error(`端口 ${config.inbounds?.[0]?.listen_port || 7890} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${finalConfig.inbounds?.[0]?.listen_port || 1080} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -122,8 +216,9 @@ export class ProxyManager {
         id: processId,
         type: 'singbox',
         process: childProcess,
-        config,
-        port: config.inbounds?.[0]?.listen_port || 7890
+        config: finalConfig,
+        port: finalConfig.inbounds?.[0]?.listen_port || 1080,
+        networkSettings
       });
 
       console.log(`Started Sing-box process: ${processId}`);
@@ -138,15 +233,24 @@ export class ProxyManager {
   /**
    * 启动Xray引擎
    */
-  public async startXray(config: any): Promise<void> {
+  public async startXray(config: any, networkSettings?: NetworkSettings): Promise<void> {
     const processId = `xray_${Date.now()}`;
     const configPath = join(this.configDir, `${processId}.json`);
     
+    console.log(`准备启动 Xray 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`网络设置:`, networkSettings);
+    
+    // 应用网络设置到配置
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    
     // 写入配置文件
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     
     // 获取Xray可执行文件路径
     const xrayPath = await this.getXrayPath();
+    console.log(`Xray 可执行文件路径: ${xrayPath}`);
     
     return new Promise<void>((resolve, reject) => {
       // 启动进程
@@ -187,7 +291,7 @@ export class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = config.inbounds?.[0]?.port || 1080;
+            const port = finalConfig.inbounds?.[0]?.port || 1080;
             const notificationData = {
               port: port,
               processId: processId
@@ -203,7 +307,7 @@ export class ProxyManager {
           childProcess.kill();
           
           // 使用 reject 而不是 throw，避免未捕获的异常
-          reject(new Error(`端口 ${config.inbounds?.[0]?.port || 1080} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${finalConfig.inbounds?.[0]?.port || 1080} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -213,8 +317,9 @@ export class ProxyManager {
         id: processId,
         type: 'xray',
         process: childProcess,
-        config,
-        port: config.inbounds?.[0]?.port || 1080
+        config: finalConfig,
+        port: finalConfig.inbounds?.[0]?.port || 1080,
+        networkSettings
       });
 
       console.log(`Started Xray process: ${processId}`);
@@ -229,12 +334,20 @@ export class ProxyManager {
   /**
    * 启动Clash引擎
    */
-  public async startClash(config: any): Promise<void> {
+  public async startClash(config: any, networkSettings?: NetworkSettings): Promise<void> {
     const processId = `clash_${Date.now()}`;
     const configPath = join(this.configDir, `${processId}.yaml`);
     
+    console.log(`准备启动 Clash 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`网络设置:`, networkSettings);
+    
+    // 应用网络设置到配置
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    
     // 写入配置文件
-    writeFileSync(configPath, this.convertClashConfigToYaml(config));
+    writeFileSync(configPath, this.convertClashConfigToYaml(finalConfig));
     
     // 获取Clash可执行文件路径
     const clashPath = await this.getClashPath();
@@ -278,7 +391,7 @@ export class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = config.port || 7890;
+            const port = finalConfig.port || 7890;
             const notificationData = {
               port: port,
               processId: processId
@@ -294,7 +407,7 @@ export class ProxyManager {
           childProcess.kill();
           
           // 使用 reject 而不是 throw，避免未捕获的异常
-          reject(new Error(`端口 ${config.port || 7890} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${finalConfig.port || 7890} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -304,8 +417,9 @@ export class ProxyManager {
         id: processId,
         type: 'clash',
         process: childProcess,
-        config,
-        port: config.port || 7890
+        config: finalConfig,
+        port: finalConfig.port || 7890,
+        networkSettings
       });
 
       console.log(`Started Clash process: ${processId}`);
@@ -423,6 +537,56 @@ export class ProxyManager {
     }
     
     return yaml;
+  }
+
+  /**
+   * 应用网络设置到配置
+   */
+  private applyNetworkSettingsToConfig(config: any, networkSettings?: NetworkSettings): any {
+    if (!networkSettings) {
+      return config;
+    }
+
+    const finalConfig = { ...config };
+
+    // 应用日志设置
+    if (finalConfig.log) {
+      finalConfig.log.level = networkSettings.logLevel || 'info';
+      if (networkSettings.enableLog) {
+        finalConfig.log.output = networkSettings.logFile || 'chongdong.log';
+      } else {
+        finalConfig.log.output = 'console';
+      }
+    }
+
+    // 应用DNS设置
+    if (networkSettings.enableDns && finalConfig.dns) {
+      finalConfig.dns.servers = [
+        networkSettings.dnsServer || '8.8.8.8',
+        ...(networkSettings.enableDoh ? [networkSettings.dohServer || 'https://dns.google/dns-query'] : [])
+      ];
+    }
+
+    // 应用TUN设置
+    if (finalConfig.inbounds) {
+      const tunInbound = finalConfig.inbounds.find((inbound: any) => inbound.type === 'tun');
+      if (tunInbound) {
+        if (networkSettings.enableTun) {
+          tunInbound.disabled = false;
+          tunInbound.interface_name = networkSettings.tunDevice || 'utun0';
+          if (networkSettings.enableFakeIp) {
+            tunInbound.inet4_address = [networkSettings.fakeIpRange || '198.18.0.1/16'];
+          }
+          if (networkSettings.enableIpv6) {
+            tunInbound.inet6_address = ['fdfe:dcba:9876::1/126'];
+          }
+        } else {
+          tunInbound.disabled = true;
+        }
+      }
+    }
+
+    return finalConfig;
   }
 }
 

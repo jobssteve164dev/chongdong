@@ -90,6 +90,14 @@ export interface AppSettings {
   dnsServer: string;
   enableDoh: boolean;
   dohServer: string;
+  // 延迟测试设置
+  latencyTestUrl: string;
+  latencyTestTimeout: number;
+  latencyTestRetries: number;
+  latencyTestInterval: number;
+  enableAutoLatencyTest: boolean;
+  latencyTestConcurrency: number;
+  latencyTestUrls: string;
 }
 
 // 用户偏好设置

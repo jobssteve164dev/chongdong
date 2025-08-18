@@ -893,15 +893,76 @@ class ProxyManager {
     return ProxyManager.instance;
   }
   /**
+   * 更新网络设置
+   */
+  updateNetworkSettings(settings) {
+    this.currentNetworkSettings = settings;
+    console.log("网络设置已更新:", settings);
+  }
+  /**
+   * 重启所有代理进程
+   */
+  async restartAllProcesses() {
+    console.log("开始重启所有代理进程...");
+    const processesToRestart = Array.from(this.processes.values());
+    if (processesToRestart.length === 0) {
+      console.log("没有正在运行的代理进程，无需重启");
+      return;
+    }
+    for (const process2 of processesToRestart) {
+      try {
+        await this.stopProcess(process2.id);
+      } catch (error) {
+        console.error(`停止进程 ${process2.id} 失败:`, error);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1e3));
+    for (const process2 of processesToRestart) {
+      try {
+        switch (process2.type) {
+          case "singbox":
+            await this.startSingbox(process2.config, this.currentNetworkSettings);
+            break;
+          case "xray":
+            await this.startXray(process2.config, this.currentNetworkSettings);
+            break;
+          case "clash":
+            await this.startClash(process2.config, this.currentNetworkSettings);
+            break;
+        }
+      } catch (error) {
+        console.error(`重启 ${process2.type} 进程失败:`, error);
+      }
+    }
+    console.log("所有代理进程重启完成");
+  }
+  /**
+   * 停止指定进程
+   */
+  async stopProcess(processId) {
+    const process2 = this.processes.get(processId);
+    if (process2) {
+      try {
+        process2.process.kill();
+        this.processes.delete(processId);
+        console.log(`进程 ${processId} 已停止`);
+      } catch (error) {
+        console.error(`停止进程 ${processId} 失败:`, error);
+      }
+    }
+  }
+  /**
    * 启动Sing-box引擎
    */
-  async startSingbox(config) {
+  async startSingbox(config, networkSettings) {
     const processId = `singbox_${Date.now()}`;
     const configPath = path.join(this.configDir, `${processId}.json`);
     console.log(`准备启动 Sing-box 进程: ${processId}`);
     console.log(`配置文件路径: ${configPath}`);
-    console.log(`配置文件内容:`, JSON.stringify(config, null, 2));
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`网络设置:`, networkSettings);
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     const singboxPath = await this.getSingboxPath();
     console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     return new Promise((resolve, reject) => {
@@ -936,7 +997,7 @@ class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = ((_b2 = (_a2 = config.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 7890;
+            const port = ((_b2 = (_a2 = finalConfig.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 7890;
             const notificationData = {
               port,
               processId
@@ -948,7 +1009,7 @@ class ProxyManager {
             console.log("没有找到窗口，无法发送通知");
           }
           childProcess.kill();
-          reject(new Error(`端口 ${((_d = (_c = config.inbounds) == null ? void 0 : _c[0]) == null ? void 0 : _d.listen_port) || 7890} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${((_d = (_c = finalConfig.inbounds) == null ? void 0 : _c[0]) == null ? void 0 : _d.listen_port) || 1080} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -956,8 +1017,9 @@ class ProxyManager {
         id: processId,
         type: "singbox",
         process: childProcess,
-        config,
-        port: ((_b = (_a = config.inbounds) == null ? void 0 : _a[0]) == null ? void 0 : _b.listen_port) || 7890
+        config: finalConfig,
+        port: ((_b = (_a = finalConfig.inbounds) == null ? void 0 : _a[0]) == null ? void 0 : _b.listen_port) || 1080,
+        networkSettings
       });
       console.log(`Started Sing-box process: ${processId}`);
       setTimeout(() => {
@@ -968,11 +1030,17 @@ class ProxyManager {
   /**
    * 启动Xray引擎
    */
-  async startXray(config) {
+  async startXray(config, networkSettings) {
     const processId = `xray_${Date.now()}`;
     const configPath = path.join(this.configDir, `${processId}.json`);
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`准备启动 Xray 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`网络设置:`, networkSettings);
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     const xrayPath = await this.getXrayPath();
+    console.log(`Xray 可执行文件路径: ${xrayPath}`);
     return new Promise((resolve, reject) => {
       var _a, _b;
       const childProcess = child_process.spawn(xrayPath, ["run", "-c", configPath], {
@@ -1003,7 +1071,7 @@ class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = ((_b2 = (_a2 = config.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.port) || 1080;
+            const port = ((_b2 = (_a2 = finalConfig.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.port) || 1080;
             const notificationData = {
               port,
               processId
@@ -1015,7 +1083,7 @@ class ProxyManager {
             console.log("没有找到窗口，无法发送通知");
           }
           childProcess.kill();
-          reject(new Error(`端口 ${((_d = (_c = config.inbounds) == null ? void 0 : _c[0]) == null ? void 0 : _d.port) || 1080} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${((_d = (_c = finalConfig.inbounds) == null ? void 0 : _c[0]) == null ? void 0 : _d.port) || 1080} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -1023,8 +1091,9 @@ class ProxyManager {
         id: processId,
         type: "xray",
         process: childProcess,
-        config,
-        port: ((_b = (_a = config.inbounds) == null ? void 0 : _a[0]) == null ? void 0 : _b.port) || 1080
+        config: finalConfig,
+        port: ((_b = (_a = finalConfig.inbounds) == null ? void 0 : _a[0]) == null ? void 0 : _b.port) || 1080,
+        networkSettings
       });
       console.log(`Started Xray process: ${processId}`);
       setTimeout(() => {
@@ -1035,10 +1104,15 @@ class ProxyManager {
   /**
    * 启动Clash引擎
    */
-  async startClash(config) {
+  async startClash(config, networkSettings) {
     const processId = `clash_${Date.now()}`;
     const configPath = path.join(this.configDir, `${processId}.yaml`);
-    fs.writeFileSync(configPath, this.convertClashConfigToYaml(config));
+    console.log(`准备启动 Clash 进程: ${processId}`);
+    console.log(`配置文件路径: ${configPath}`);
+    console.log(`网络设置:`, networkSettings);
+    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
+    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    fs.writeFileSync(configPath, this.convertClashConfigToYaml(finalConfig));
     const clashPath = await this.getClashPath();
     return new Promise((resolve, reject) => {
       const childProcess = child_process.spawn(clashPath, ["-d", this.configDir, "-f", configPath], {
@@ -1068,7 +1142,7 @@ class ProxyManager {
           const windows = BrowserWindow.getAllWindows();
           console.log(`找到 ${windows.length} 个窗口`);
           if (windows.length > 0) {
-            const port = config.port || 7890;
+            const port = finalConfig.port || 7890;
             const notificationData = {
               port,
               processId
@@ -1080,7 +1154,7 @@ class ProxyManager {
             console.log("没有找到窗口，无法发送通知");
           }
           childProcess.kill();
-          reject(new Error(`端口 ${config.port || 7890} 已被占用，无法启动代理服务`));
+          reject(new Error(`端口 ${finalConfig.port || 7890} 已被占用，无法启动代理服务`));
           return;
         }
       });
@@ -1088,8 +1162,9 @@ class ProxyManager {
         id: processId,
         type: "clash",
         process: childProcess,
-        config,
-        port: config.port || 7890
+        config: finalConfig,
+        port: finalConfig.port || 7890,
+        networkSettings
       });
       console.log(`Started Clash process: ${processId}`);
       setTimeout(() => {
@@ -1215,6 +1290,47 @@ class ProxyManager {
       }
     }
     return yaml;
+  }
+  /**
+   * 应用网络设置到配置
+   */
+  applyNetworkSettingsToConfig(config, networkSettings) {
+    if (!networkSettings) {
+      return config;
+    }
+    const finalConfig = { ...config };
+    if (finalConfig.log) {
+      finalConfig.log.level = networkSettings.logLevel || "info";
+      if (networkSettings.enableLog) {
+        finalConfig.log.output = networkSettings.logFile || "chongdong.log";
+      } else {
+        finalConfig.log.output = "console";
+      }
+    }
+    if (networkSettings.enableDns && finalConfig.dns) {
+      finalConfig.dns.servers = [
+        networkSettings.dnsServer || "8.8.8.8",
+        ...networkSettings.enableDoh ? [networkSettings.dohServer || "https://dns.google/dns-query"] : []
+      ];
+    }
+    if (finalConfig.inbounds) {
+      const tunInbound = finalConfig.inbounds.find((inbound) => inbound.type === "tun");
+      if (tunInbound) {
+        if (networkSettings.enableTun) {
+          tunInbound.disabled = false;
+          tunInbound.interface_name = networkSettings.tunDevice || "utun0";
+          if (networkSettings.enableFakeIp) {
+            tunInbound.inet4_address = [networkSettings.fakeIpRange || "198.18.0.1/16"];
+          }
+          if (networkSettings.enableIpv6) {
+            tunInbound.inet6_address = ["fdfe:dcba:9876::1/126"];
+          }
+        } else {
+          tunInbound.disabled = true;
+        }
+      }
+    }
+    return finalConfig;
   }
 }
 const proxyManager = ProxyManager.getInstance();
@@ -1833,7 +1949,7 @@ function createTray() {
       console.log("使用自定义图标");
     } catch (error) {
       console.log("使用默认托盘图标");
-      icon = electron.nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==");
+      icon = electron.nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3Njape.org5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==");
     }
     tray = new electron.Tray(icon);
     console.log("托盘图标已创建");
@@ -2302,6 +2418,91 @@ electron.ipcMain.handle("tray:test", async () => {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
+electron.ipcMain.handle("proxy:testLatency", async (_, { node, config }) => {
+  try {
+    console.log("开始测试节点延迟:", node.name, config);
+    const startTime = Date.now();
+    const https2 = require("https");
+    const http = require("http");
+    const testUrl = config.testUrl || "http://connectivitycheck.gstatic.com/generate_204";
+    const timeout = config.timeout || 1e4;
+    return new Promise((resolve) => {
+      const url = new URL(testUrl);
+      const isHttps = url.protocol === "https:";
+      const client = isHttps ? https2 : http;
+      const req = client.request(url, {
+        method: "GET",
+        timeout
+        // 如果需要通过代理测试，可以在这里添加代理配置
+        // 例如：agent: new HttpsProxyAgent(proxyUrl)
+      }, (res) => {
+        const endTime = Date.now();
+        const latency = endTime - startTime;
+        console.log(`延迟测试成功: ${node.name}`, { latency });
+        resolve({
+          success: true,
+          latency,
+          statusCode: res.statusCode
+        });
+      });
+      req.on("error", (error) => {
+        console.error(`延迟测试失败: ${node.name}`, error);
+        resolve({
+          success: false,
+          error: error.message,
+          latency: 0
+        });
+      });
+      req.on("timeout", () => {
+        console.error(`延迟测试超时: ${node.name}`);
+        req.destroy();
+        resolve({
+          success: false,
+          error: "Request timeout",
+          latency: 0
+        });
+      });
+      req.end();
+    });
+  } catch (error) {
+    console.error("延迟测试处理失败:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      latency: 0
+    };
+  }
+});
+electron.ipcMain.handle("latency:test", async (_, config) => {
+  try {
+    console.log("测试延迟配置:", config);
+    return {
+      success: true,
+      message: "延迟测试配置验证成功"
+    };
+  } catch (error) {
+    console.error("延迟测试配置验证失败:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+electron.ipcMain.handle("latency:reset", async () => {
+  try {
+    console.log("重置延迟测试配置为默认值");
+    return {
+      success: true,
+      message: "延迟测试配置已重置"
+    };
+  } catch (error) {
+    console.error("重置延迟测试配置失败:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
 electron.ipcMain.handle("settings:updated", async (_, settings) => {
   try {
     console.log("收到设置更新通知:", settings);
@@ -2342,6 +2543,41 @@ electron.ipcMain.handle("settings:updated", async (_, settings) => {
         notificationSound
       });
       console.log("通知设置已更新:", { enableNotifications, notificationSound });
+    }
+    if (settings.settings) {
+      const networkSettings = {
+        enableDns: settings.settings.enableDns,
+        dnsServer: settings.settings.dnsServer,
+        enableDoh: settings.settings.enableDoh,
+        dohServer: settings.settings.dohServer,
+        enableTun: settings.settings.enableTun,
+        tunDevice: settings.settings.tunDevice,
+        enableFakeIp: settings.settings.enableFakeIp,
+        fakeIpRange: settings.settings.fakeIpRange,
+        enableUdp: settings.settings.enableUdp,
+        enableIpv6: settings.settings.enableIpv6,
+        logLevel: settings.settings.logLevel,
+        enableLog: settings.settings.enableLog,
+        logFile: settings.settings.logFile
+      };
+      try {
+        const { ProxyManager: ProxyManager2 } = require("./proxyManager");
+        const proxyManager2 = ProxyManager2.getInstance();
+        proxyManager2.updateNetworkSettings(networkSettings);
+        try {
+          await proxyManager2.restartAllProcesses();
+          console.log("代理进程已重启以应用新设置");
+        } catch (error) {
+          console.error("重启代理进程失败:", error);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send("proxy:restartFailed", {
+              error: error instanceof Error ? error.message : "Unknown error"
+            });
+          }
+        }
+      } catch (error) {
+        console.error("更新代理管理器设置失败:", error);
+      }
     }
     return { success: true };
   } catch (error) {

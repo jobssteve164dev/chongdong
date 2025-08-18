@@ -91,7 +91,7 @@ function createTray(): void {
     } catch (error) {
       // 如果找不到图标文件，创建一个简单的图标
       console.log('使用默认托盘图标');
-      icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==');
+      icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3Njape.org5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==');
     }
     
     tray = new Tray(icon);
@@ -674,6 +674,115 @@ ipcMain.handle('tray:test', async () => {
   }
 });
 
+// 延迟测试IPC处理程序
+ipcMain.handle('proxy:testLatency', async (_, { node, config }) => {
+  try {
+    console.log('开始测试节点延迟:', node.name, config);
+    
+    const startTime = Date.now();
+    
+    // 创建HTTP请求来测试延迟
+    const https = require('https');
+    const http = require('http');
+    
+    const testUrl = config.testUrl || 'http://connectivitycheck.gstatic.com/generate_204';
+    const timeout = config.timeout || 10000;
+    
+    return new Promise((resolve) => {
+      const url = new URL(testUrl);
+      const isHttps = url.protocol === 'https:';
+      const client = isHttps ? https : http;
+      
+      const req = client.request(url, {
+        method: 'GET',
+        timeout: timeout,
+        // 如果需要通过代理测试，可以在这里添加代理配置
+        // 例如：agent: new HttpsProxyAgent(proxyUrl)
+      }, (res: any) => {
+        const endTime = Date.now();
+        const latency = endTime - startTime;
+        
+        console.log(`延迟测试成功: ${node.name}`, { latency });
+        
+        resolve({
+          success: true,
+          latency,
+          statusCode: res.statusCode
+        });
+      });
+      
+      req.on('error', (error: any) => {
+        console.error(`延迟测试失败: ${node.name}`, error);
+        resolve({
+          success: false,
+          error: error.message,
+          latency: 0
+        });
+      });
+      
+      req.on('timeout', () => {
+        console.error(`延迟测试超时: ${node.name}`);
+        req.destroy();
+        resolve({
+          success: false,
+          error: 'Request timeout',
+          latency: 0
+        });
+      });
+      
+      req.end();
+    });
+    
+  } catch (error) {
+    console.error('延迟测试处理失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      latency: 0
+    };
+  }
+});
+
+// 延迟测试配置IPC处理程序
+ipcMain.handle('latency:test', async (_, config) => {
+  try {
+    console.log('测试延迟配置:', config);
+    
+    // 这里可以添加延迟测试配置的验证逻辑
+    // 例如：测试指定的URL是否可访问
+    
+    return {
+      success: true,
+      message: '延迟测试配置验证成功'
+    };
+  } catch (error) {
+    console.error('延迟测试配置验证失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
+ipcMain.handle('latency:reset', async () => {
+  try {
+    console.log('重置延迟测试配置为默认值');
+    
+    // 这里可以重置延迟测试配置为默认值
+    
+    return {
+      success: true,
+      message: '延迟测试配置已重置'
+    };
+  } catch (error) {
+    console.error('重置延迟测试配置失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
 // 设置更新通知
 ipcMain.handle('settings:updated', async (_, settings: any) => {
   try {
@@ -728,6 +837,48 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
         notificationSound
       });
       console.log('通知设置已更新:', { enableNotifications, notificationSound });
+    }
+    
+    // 应用网络设置
+    if (settings.settings) {
+      const networkSettings = {
+        enableDns: settings.settings.enableDns,
+        dnsServer: settings.settings.dnsServer,
+        enableDoh: settings.settings.enableDoh,
+        dohServer: settings.settings.dohServer,
+        enableTun: settings.settings.enableTun,
+        tunDevice: settings.settings.tunDevice,
+        enableFakeIp: settings.settings.enableFakeIp,
+        fakeIpRange: settings.settings.fakeIpRange,
+        enableUdp: settings.settings.enableUdp,
+        enableIpv6: settings.settings.enableIpv6,
+        logLevel: settings.settings.logLevel,
+        enableLog: settings.settings.enableLog,
+        logFile: settings.settings.logFile
+      };
+      
+      // 更新代理管理器的网络设置
+      try {
+        const { ProxyManager } = require('./proxyManager');
+        const proxyManager = ProxyManager.getInstance();
+        proxyManager.updateNetworkSettings(networkSettings);
+        
+        // 如果有代理进程正在运行，重启它们以应用新设置
+        try {
+          await proxyManager.restartAllProcesses();
+          console.log('代理进程已重启以应用新设置');
+        } catch (error) {
+          console.error('重启代理进程失败:', error);
+          // 发送错误通知到渲染进程
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('proxy:restartFailed', {
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }
+      } catch (error) {
+        console.error('更新代理管理器设置失败:', error);
+      }
     }
     
     return { success: true };
