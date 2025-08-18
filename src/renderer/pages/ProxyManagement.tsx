@@ -80,6 +80,26 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
           } catch (error) {
             message.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
           }
+        },
+        onCancel: () => {
+          // 用户选择取消时，重置代理状态
+          console.log('用户取消端口占用处理，重置代理状态');
+          
+          // 重置代理状态卡片
+          setCurrentStatus({
+            running: false,
+            uptime: 0,
+            connections: 0,
+            upload: 0,
+            download: 0,
+            error: '端口被占用，启动失败'
+          });
+          
+          // 重置所有代理配置的启用状态
+          const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
+          saveProxyConfigs(updatedConfigs);
+          
+          message.info('已取消启动代理服务');
         }
       });
     };
