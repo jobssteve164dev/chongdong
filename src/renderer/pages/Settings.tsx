@@ -66,6 +66,7 @@ import ConfigApi from '../utils/configApi';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import CoreManager from '../components/CoreManager';
 import { CoreStatus } from '../utils/coreManager';
+import { windowManager } from '../utils/windowManager';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -75,6 +76,9 @@ const { TabPane } = Tabs;
 const Settings: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [form] = Form.useForm();
+  const [preferencesForm] = Form.useForm();
+  const [networkForm] = Form.useForm();
+  const [securityForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
     singbox: false, 
@@ -131,19 +135,25 @@ const Settings: React.FC = () => {
     loadSavedSettings();
   }, []);
 
-  const loadSavedSettings = () => {
+  const loadSavedSettings = async () => {
     try {
       // 加载应用设置
       const savedSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
       if (savedSettings) {
         setSettings(prev => ({ ...prev, ...savedSettings }));
         form.setFieldsValue(savedSettings);
+        networkForm.setFieldsValue(savedSettings);
+        securityForm.setFieldsValue(savedSettings);
       }
 
       // 加载用户偏好设置
       const savedPreferences = Storage.get<UserPreferences>(STORAGE_KEYS.USER_PREFERENCES);
       if (savedPreferences) {
         setPreferences(prev => ({ ...prev, ...savedPreferences }));
+        preferencesForm.setFieldsValue(savedPreferences);
+        
+        // 应用窗口设置
+        await applyWindowSettings(savedPreferences);
       }
 
       log.info('加载已保存的设置', { settings: savedSettings, preferences: savedPreferences }, 'Settings');
@@ -194,6 +204,91 @@ const Settings: React.FC = () => {
     }
   };
 
+  // 统一的保存处理函数
+  const handleSaveAll = async () => {
+    setLoading(true);
+    try {
+      // 获取所有表单的值
+      const settingsValues = await form.validateFields();
+      const preferencesValues = await preferencesForm.validateFields();
+      const networkValues = await networkForm.validateFields().catch(() => ({}));
+      const securityValues = await securityForm.validateFields().catch(() => ({}));
+      
+      // 保存应用设置
+      const newSettings = { ...settings, ...settingsValues };
+      Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
+      setSettings(newSettings);
+      
+      // 保存用户偏好设置
+      const newPreferences = { ...preferences, ...preferencesValues };
+      Storage.set(STORAGE_KEYS.USER_PREFERENCES, newPreferences);
+      setPreferences(newPreferences);
+      
+      // 保存网络和安全设置到应用设置中
+      const allSettings = { ...newSettings, ...networkValues, ...securityValues };
+      Storage.set(STORAGE_KEYS.SETTINGS, allSettings);
+      setSettings(allSettings);
+      
+      // 实时应用窗口设置
+      await applyWindowSettings(newPreferences);
+      
+      // 通知主进程设置已更新
+      try {
+        const result = await window.electron.ipcRenderer.invoke('settings:updated', {
+          settings: allSettings,
+          preferences: newPreferences
+        });
+        if (result.success) {
+          log.info('设置已成功保存到主进程', null, 'Settings');
+        } else {
+          log.warn('主进程保存设置失败', result.error, 'Settings');
+        }
+      } catch (error) {
+        log.warn('通知主进程设置更新失败', error, 'Settings');
+      }
+      
+      message.success('所有设置已保存');
+      log.info('保存所有设置', { 
+        settings: settingsValues, 
+        preferences: preferencesValues,
+        network: networkValues,
+        security: securityValues
+      }, 'Settings');
+    } catch (error) {
+      message.error('保存设置失败');
+      log.error('保存设置失败', error, 'Settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 应用窗口设置
+  const applyWindowSettings = async (preferences: UserPreferences) => {
+    try {
+      // 应用窗口置顶设置
+      if (preferences.alwaysOnTop !== undefined) {
+        const success = await windowManager.setAlwaysOnTop(preferences.alwaysOnTop);
+        if (success) {
+          log.info('窗口置顶设置已应用', { alwaysOnTop: preferences.alwaysOnTop }, 'Settings');
+        } else {
+          log.warn('窗口置顶设置应用失败', { alwaysOnTop: preferences.alwaysOnTop }, 'Settings');
+        }
+      }
+
+      // 应用菜单栏自动隐藏设置
+      if (preferences.autoHideMenuBar !== undefined) {
+        const success = await windowManager.setAutoHideMenuBar(preferences.autoHideMenuBar);
+        if (success) {
+          log.info('菜单栏自动隐藏设置已应用', { autoHideMenuBar: preferences.autoHideMenuBar }, 'Settings');
+        } else {
+          log.warn('菜单栏自动隐藏设置应用失败', { autoHideMenuBar: preferences.autoHideMenuBar }, 'Settings');
+        }
+      }
+    } catch (error) {
+      log.error('应用窗口设置失败', error, 'Settings');
+    }
+  };
+
   const handleResetSettings = () => {
     // 清除存储的设置
     Storage.remove(STORAGE_KEYS.SETTINGS);
@@ -201,6 +296,9 @@ const Settings: React.FC = () => {
     
     // 重置表单和状态
     form.resetFields();
+    preferencesForm.resetFields();
+    networkForm.resetFields();
+    securityForm.resetFields();
     setSettings({
       theme: 'auto',
       language: 'zh-CN',
@@ -317,7 +415,7 @@ const Settings: React.FC = () => {
           <Button
             type="primary"
             icon={<SaveOutlined />}
-            onClick={() => form.submit()}
+            onClick={handleSaveAll}
             loading={loading}
           >
             保存
@@ -359,7 +457,7 @@ const Settings: React.FC = () => {
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="ipv6" label="启用IPv6" valuePropName="checked">
+                  <Form.Item name="enableIpv6" label="启用IPv6" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
@@ -371,7 +469,7 @@ const Settings: React.FC = () => {
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={8}>
                   <Form.Item
-                    name="port"
+                    name="proxyPort"
                     label="HTTP端口"
                     rules={[{ required: true, message: '请输入HTTP端口' }]}
                   >
@@ -438,32 +536,37 @@ const Settings: React.FC = () => {
               style={{ marginBottom: 24 }}
             />
 
-            <Form layout="vertical">
+            <Form form={securityForm} layout="vertical">
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="tcpConcurrent" label="TCP并发" valuePropName="checked">
+                  <Form.Item name="enableUdp" label="启用UDP" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="findProcessMode" label="进程查找模式">
+                  <Form.Item name="logLevel" label="日志级别">
                     <Select>
-                      <Option value="strict">严格模式</Option>
-                      <Option value="normal">普通模式</Option>
-                      <Option value="off">关闭</Option>
+                      <Option value="debug">调试</Option>
+                      <Option value="info">信息</Option>
+                      <Option value="warn">警告</Option>
+                      <Option value="error">错误</Option>
                     </Select>
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Form.Item name="globalClientFingerprint" label="全局客户端指纹">
-                <Select>
-                  <Option value="chrome">Chrome</Option>
-                  <Option value="firefox">Firefox</Option>
-                  <Option value="safari">Safari</Option>
-                  <Option value="random">随机</Option>
-                </Select>
-              </Form.Item>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableLog" label="启用日志" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="logFile" label="日志文件">
+                    <Input placeholder="chongdong.log" />
+                  </Form.Item>
+                </Col>
+              </Row>
             </Form>
           </Card>
         </TabPane>
@@ -479,64 +582,57 @@ const Settings: React.FC = () => {
         >
           <Card title="网络配置">
             <Title level={4}>DNS设置</Title>
-            <Form layout="vertical">
+            <Form form={networkForm} layout="vertical">
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="dns.enable" label="启用DNS" valuePropName="checked">
+                  <Form.Item name="enableDns" label="启用DNS" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="dns.listen" label="DNS监听地址">
-                    <Input placeholder="0.0.0.0:53" />
+                  <Form.Item name="enableDoh" label="启用DoH" valuePropName="checked">
+                    <Switch />
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Form.Item name="dns.defaultNameserver" label="默认DNS服务器">
-                <Select mode="tags" placeholder="输入DNS服务器地址">
-                  <Option value="223.5.5.5">223.5.5.5</Option>
-                  <Option value="119.29.29.29">119.29.29.29</Option>
-                  <Option value="8.8.8.8">8.8.8.8</Option>
-                </Select>
+              <Form.Item name="dnsServer" label="DNS服务器">
+                <Input placeholder="8.8.8.8" />
               </Form.Item>
 
-              <Form.Item name="dns.nameserver" label="DNS服务器">
-                <Select mode="tags" placeholder="输入DNS服务器地址">
-                  <Option value="https://doh.pub/dns-query">https://doh.pub/dns-query</Option>
-                  <Option value="https://dns.alidns.com/dns-query">https://dns.alidns.com/dns-query</Option>
-                </Select>
+              <Form.Item name="dohServer" label="DoH服务器">
+                <Input placeholder="https://dns.google/dns-query" />
               </Form.Item>
             </Form>
 
             <Divider />
 
             <Title level={4}>TUN设置</Title>
-            <Form layout="vertical">
-              <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="tun.enable" label="启用TUN" valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="tun.device" label="TUN设备">
-                    <Input placeholder="utun0" />
-                  </Form.Item>
-                </Col>
-              </Row>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="enableTun" label="启用TUN" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="tunDevice" label="TUN设备">
+                  <Input placeholder="utun0" />
+                </Form.Item>
+              </Col>
+            </Row>
 
-              <Form.Item name="tun.stack" label="网络栈">
-                <Select>
-                  <Option value="system">系统</Option>
-                  <Option value="gvisor">gVisor</Option>
-                </Select>
-              </Form.Item>
-
-              <Form.Item name="tun.autoRoute" label="自动路由" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-            </Form>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="enableFakeIp" label="启用FakeIP" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="fakeIpRange" label="FakeIP范围">
+                  <Input placeholder="198.18.0.1/16" />
+                </Form.Item>
+              </Col>
+            </Row>
           </Card>
         </TabPane>
 
@@ -551,6 +647,7 @@ const Settings: React.FC = () => {
         >
           <Card title="界面偏好">
             <Form
+              form={preferencesForm}
               layout="vertical"
               onFinish={handleSavePreferences}
               initialValues={preferences}
@@ -561,6 +658,7 @@ const Settings: React.FC = () => {
                     <Select onChange={toggleTheme}>
                       <Option value="light">浅色主题</Option>
                       <Option value="dark">深色主题</Option>
+                      <Option value="auto">跟随系统</Option>
                     </Select>
                   </Form.Item>
                 </Col>
@@ -576,26 +674,23 @@ const Settings: React.FC = () => {
 
               <Divider />
 
-              <Title level={4}>通知设置</Title>
+              <Title level={4}>窗口设置</Title>
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="notifications" label="启用通知" valuePropName="checked">
+                  <Form.Item name="sidebarCollapsed" label="侧边栏折叠" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="soundEnabled" label="声音提醒" valuePropName="checked">
+                  <Form.Item name="autoHideMenuBar" label="自动隐藏菜单栏" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Divider />
-
-              <Title level={4}>托盘设置</Title>
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="showTrayIcon" label="显示托盘图标" valuePropName="checked">
+                  <Form.Item name="alwaysOnTop" label="窗口置顶" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
@@ -612,20 +707,61 @@ const Settings: React.FC = () => {
 
               <Divider />
 
-              <Title level={4}>更新设置</Title>
+              <Title level={4}>通知设置</Title>
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="autoUpdate" label="自动检查更新" valuePropName="checked">
+                  <Form.Item name="enableNotifications" label="启用通知" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item
-                    name="checkUpdateInterval"
-                    label="检查间隔（秒）"
-                    rules={[{ required: true, message: '请输入检查间隔' }]}
-                  >
-                    <InputNumber min={3600} max={86400} style={{ width: '100%' }} />
+                  <Form.Item name="notificationSound" label="声音提醒" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider />
+
+              <Title level={4}>通知设置</Title>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableNotifications" label="启用通知" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="notificationSound" label="声音提醒" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider />
+
+              <Title level={4}>快捷键设置</Title>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableHotkeys" label="启用快捷键" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name={['hotkeys', 'toggleProxy']} label="切换代理">
+                    <Input placeholder="Ctrl+Shift+P" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name={['hotkeys', 'showMainWindow']} label="显示主窗口">
+                    <Input placeholder="Ctrl+Shift+M" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name={['hotkeys', 'quickSwitch']} label="快速切换">
+                    <Input placeholder="Ctrl+Shift+S" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -773,3 +909,4 @@ const Settings: React.FC = () => {
 };
 
 export default Settings;
+

@@ -6,6 +6,24 @@ const fs = require("fs");
 const https = require("https");
 const util = require("util");
 const os = require("os");
+function _interopNamespaceDefault(e) {
+  const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
+  if (e) {
+    for (const k in e) {
+      if (k !== "default") {
+        const d = Object.getOwnPropertyDescriptor(e, k);
+        Object.defineProperty(n, k, d.get ? d : {
+          enumerable: true,
+          get: () => e[k]
+        });
+      }
+    }
+  }
+  n.default = e;
+  return Object.freeze(n);
+}
+const path__namespace = /* @__PURE__ */ _interopNamespaceDefault(path);
+const fs__namespace = /* @__PURE__ */ _interopNamespaceDefault(fs);
 const is = {
   dev: !electron.app.isPackaged
 };
@@ -1262,32 +1280,267 @@ class SystemProxyManager {
   }
 }
 const systemProxyManager = SystemProxyManager.getInstance();
+class SettingsManager {
+  constructor() {
+    const userDataPath = electron.app.getPath("userData");
+    this.settingsPath = path__namespace.join(userDataPath, "settings.json");
+    this.preferencesPath = path__namespace.join(userDataPath, "preferences.json");
+  }
+  static getInstance() {
+    if (!SettingsManager.instance) {
+      SettingsManager.instance = new SettingsManager();
+    }
+    return SettingsManager.instance;
+  }
+  /**
+   * 读取应用设置
+   */
+  getSettings() {
+    try {
+      if (fs__namespace.existsSync(this.settingsPath)) {
+        const data = fs__namespace.readFileSync(this.settingsPath, "utf8");
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      console.error("Failed to read settings:", error);
+    }
+    return {
+      theme: "auto",
+      language: "zh-CN",
+      autoStart: false,
+      systemProxy: true,
+      proxyPort: 7890,
+      socksPort: 7891,
+      mixedPort: 7890,
+      allowLan: false,
+      mode: "rule",
+      logLevel: "info",
+      enableLog: true,
+      logFile: "chongdong.log",
+      enableUdp: true,
+      enableIpv6: false,
+      enableTun: false,
+      tunDevice: "utun0",
+      enableFakeIp: true,
+      fakeIpRange: "198.18.0.1/16",
+      enableDns: true,
+      dnsServer: "8.8.8.8",
+      enableDoh: false,
+      dohServer: "https://dns.google/dns-query"
+    };
+  }
+  /**
+   * 读取用户偏好设置
+   */
+  getPreferences() {
+    try {
+      if (fs__namespace.existsSync(this.preferencesPath)) {
+        const data = fs__namespace.readFileSync(this.preferencesPath, "utf8");
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      console.error("Failed to read preferences:", error);
+    }
+    return {
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
+      autoHideMenuBar: true,
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: "Ctrl+Shift+P",
+        showMainWindow: "Ctrl+Shift+M",
+        quickSwitch: "Ctrl+Shift+S"
+      }
+    };
+  }
+  /**
+   * 保存应用设置
+   */
+  saveSettings(settings) {
+    try {
+      fs__namespace.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2));
+      console.log("Settings saved successfully");
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+    }
+  }
+  /**
+   * 保存用户偏好设置
+   */
+  savePreferences(preferences) {
+    try {
+      fs__namespace.writeFileSync(this.preferencesPath, JSON.stringify(preferences, null, 2));
+      console.log("Preferences saved successfully");
+    } catch (error) {
+      console.error("Failed to save preferences:", error);
+    }
+  }
+}
+const settingsManager = SettingsManager.getInstance();
+try {
+  electron.app.disableHardwareAcceleration();
+  console.log("已禁用硬件加速");
+} catch (err) {
+  console.warn("禁用硬件加速失败(可忽略):", err);
+}
+let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+function showMainWindow() {
+  try {
+    if (!mainWindow) {
+      console.warn("showMainWindow: mainWindow 不存在，尝试重新创建");
+      createWindow();
+    }
+    if (!mainWindow) {
+      console.error("showMainWindow: 无法创建主窗口");
+      return;
+    }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow.focus();
+    console.log("showMainWindow: 窗口已显示并聚焦");
+  } catch (error) {
+    console.error("showMainWindow: 显示窗口失败:", error);
+  }
+}
+function getUserPreferences() {
+  try {
+    return settingsManager.getPreferences();
+  } catch (error) {
+    console.error("Failed to read user preferences:", error);
+    return {
+      startMinimized: false,
+      alwaysOnTop: false,
+      autoHideMenuBar: true,
+      minimizeToTray: true
+    };
+  }
+}
+function createTray() {
+  try {
+    console.log("开始创建系统托盘...");
+    let icon;
+    try {
+      icon = electron.nativeImage.createFromPath(path.join(__dirname, "../renderer/assets/icon.png")).resize({ width: 16, height: 16 });
+      console.log("使用自定义图标");
+    } catch (error) {
+      console.log("使用默认托盘图标");
+      icon = electron.nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==");
+    }
+    tray = new electron.Tray(icon);
+    console.log("托盘图标已创建");
+    const contextMenu = electron.Menu.buildFromTemplate([
+      {
+        label: "显示所有窗口",
+        click: () => {
+          console.log("托盘菜单：显示所有窗口被点击");
+          showMainWindow();
+        }
+      },
+      {
+        label: "隐藏",
+        click: () => {
+          console.log("托盘菜单：隐藏被点击");
+          if (mainWindow) {
+            mainWindow.hide();
+          }
+        }
+      },
+      {
+        label: "退出",
+        click: () => {
+          console.log("托盘菜单：退出被点击");
+          isQuitting = true;
+          electron.app.quit();
+        }
+      }
+    ]);
+    tray.setContextMenu(contextMenu);
+    tray.setToolTip("虫洞代理");
+    console.log("托盘菜单已设置");
+    tray.on("click", () => {
+      console.log("=== 托盘图标被点击 ===");
+      console.log("mainWindow状态:", mainWindow ? "存在" : "null");
+      console.log("mainWindow是否可见:", mainWindow == null ? void 0 : mainWindow.isVisible());
+      console.log("mainWindow是否最小化:", mainWindow == null ? void 0 : mainWindow.isMinimized());
+      showMainWindow();
+    });
+    tray.on("right-click", () => {
+      console.log("托盘图标右键被点击");
+    });
+    tray.on("double-click", () => {
+      console.log("托盘图标被双击");
+      showMainWindow();
+    });
+    console.log("系统托盘已创建完成");
+  } catch (error) {
+    console.error("创建系统托盘失败:", error);
+  }
+}
 function createWindow() {
-  const mainWindow = new electron.BrowserWindow({
+  const preferences = getUserPreferences();
+  mainWindow = new electron.BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: preferences.autoHideMenuBar,
     // 暂时移除图标设置，避免找不到图标文件
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   });
+  const loadMainContents = () => {
+    if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+      mainWindow == null ? void 0 : mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    } else {
+      mainWindow == null ? void 0 : mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    }
+  };
   mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
+    createTray();
+    const prefs = getUserPreferences();
+    if (prefs.startMinimized) {
+      console.log("应用启动时最小化（不显示窗口）");
+    } else {
+      console.log("应用启动时显示窗口");
+      showMainWindow();
+    }
   });
   mainWindow.webContents.setWindowOpenHandler((details) => {
     electron.shell.openExternal(details.url);
     return { action: "deny" };
   });
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  mainWindow.webContents.on("did-fail-load", (_e, errorCode, errorDescription) => {
+    console.error("did-fail-load:", errorCode, errorDescription);
+    setTimeout(() => loadMainContents(), 300);
+  });
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    console.error("render-process-gone:", details);
+    setTimeout(() => loadMainContents(), 300);
+  });
+  mainWindow.on("close", (event) => {
+    const preferences2 = getUserPreferences();
+    if (preferences2.minimizeToTray && !isQuitting) {
+      event.preventDefault();
+      mainWindow == null ? void 0 : mainWindow.hide();
+    }
+  });
+  loadMainContents();
   const template = [
     {
       label: "文件",
@@ -1296,14 +1549,14 @@ function createWindow() {
           label: "新建配置",
           accelerator: "CmdOrCtrl+N",
           click: () => {
-            mainWindow.webContents.send("menu-new-config");
+            mainWindow == null ? void 0 : mainWindow.webContents.send("menu-new-config");
           }
         },
         {
           label: "导入配置",
           accelerator: "CmdOrCtrl+O",
           click: () => {
-            mainWindow.webContents.send("menu-import-config");
+            mainWindow == null ? void 0 : mainWindow.webContents.send("menu-import-config");
           }
         },
         { type: "separator" },
@@ -1354,7 +1607,7 @@ function createWindow() {
         {
           label: "关于虫洞",
           click: () => {
-            mainWindow.webContents.send("menu-about");
+            mainWindow == null ? void 0 : mainWindow.webContents.send("menu-about");
           }
         }
       ]
@@ -1370,7 +1623,11 @@ electron.app.whenReady().then(() => {
   });
   createWindow();
   electron.app.on("activate", function() {
-    if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (electron.BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else {
+      showMainWindow();
+    }
   });
 });
 electron.app.on("window-all-closed", () => {
@@ -1562,6 +1819,110 @@ electron.ipcMain.handle("subscription:parse", async (_event, _url) => {
   } catch (error) {
     console.error("Failed to parse subscription:", error);
     return { error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("window:setAlwaysOnTop", async (_, alwaysOnTop) => {
+  try {
+    if (mainWindow) {
+      mainWindow.setAlwaysOnTop(alwaysOnTop);
+      console.log(`窗口置顶设置已更新: ${alwaysOnTop}`);
+      return { success: true };
+    } else {
+      return { success: false, error: "主窗口未找到" };
+    }
+  } catch (error) {
+    console.error("Failed to set always on top:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("window:setAutoHideMenuBar", async (_, autoHideMenuBar) => {
+  try {
+    if (mainWindow) {
+      mainWindow.setAutoHideMenuBar(autoHideMenuBar);
+      console.log(`菜单栏自动隐藏设置已更新: ${autoHideMenuBar}`);
+      return { success: true };
+    } else {
+      return { success: false, error: "主窗口未找到" };
+    }
+  } catch (error) {
+    console.error("Failed to set auto hide menu bar:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("window:minimize", async () => {
+  try {
+    if (mainWindow) {
+      mainWindow.minimize();
+      return { success: true };
+    } else {
+      return { success: false, error: "主窗口未找到" };
+    }
+  } catch (error) {
+    console.error("Failed to minimize window:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("window:show", async () => {
+  try {
+    showMainWindow();
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to show window:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("window:showFromTray", async () => {
+  try {
+    showMainWindow();
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to show window from tray:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("tray:test", async () => {
+  try {
+    console.log("=== 测试托盘功能 ===");
+    console.log("托盘对象存在:", tray ? "是" : "否");
+    console.log("主窗口存在:", mainWindow ? "是" : "否");
+    console.log("主窗口是否可见:", mainWindow == null ? void 0 : mainWindow.isVisible());
+    console.log("主窗口是否最小化:", mainWindow == null ? void 0 : mainWindow.isMinimized());
+    if (tray) {
+      console.log("托盘图标已创建，尝试显示菜单");
+      tray.popUpContextMenu();
+      return { success: true, message: "托盘测试完成，请查看控制台日志" };
+    } else {
+      return { success: false, error: "托盘对象不存在" };
+    }
+  } catch (error) {
+    console.error("托盘测试失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("settings:updated", async (_, settings) => {
+  try {
+    console.log("收到设置更新通知:", settings);
+    if (settings.settings) {
+      settingsManager.saveSettings(settings.settings);
+    }
+    if (settings.preferences) {
+      settingsManager.savePreferences(settings.preferences);
+    }
+    if (mainWindow && settings.preferences) {
+      const { alwaysOnTop, autoHideMenuBar } = settings.preferences;
+      if (alwaysOnTop !== void 0) {
+        mainWindow.setAlwaysOnTop(alwaysOnTop);
+        console.log("窗口置顶设置已更新:", alwaysOnTop);
+      }
+      if (autoHideMenuBar !== void 0) {
+        mainWindow.setAutoHideMenuBar(autoHideMenuBar);
+        console.log("菜单栏自动隐藏设置已更新:", autoHideMenuBar);
+      }
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to apply settings:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
 electron.ipcMain.handle("subscription:update", async (_event, _subscription) => {
