@@ -85,6 +85,29 @@ export class ProxyEngine {
     try {
       const engineType = settings.proxyEngine || 'singbox';
       
+      // 规范化为引擎可消费的配置
+      const normalizedOutbound: any = {
+        // 将节点标准化成 Sing-box 期望的字段名
+        type: ((): string => {
+          const t = (node.type || '').toString().toLowerCase();
+          if (t === 'ss') return 'shadowsocks';
+          return t;
+        })(),
+        name: node.name,
+        server: (node as any).server || (node as any).host,
+        port: node.port,
+        uuid: (node as any).uuid,
+        password: (node as any).password,
+        security: (node as any).security,
+        network: (node as any).network,
+        wsPath: (node as any).wsPath,
+        wsHeaders: ((): any => {
+          const headers: any = (node as any).wsHeaders || {};
+          if ((node as any).wsHost && !headers.Host) headers.Host = (node as any).wsHost;
+          return headers;
+        })()
+      };
+
       const proxyConfig: ProxyConfig = {
         id: node.id,
         name: node.name,
@@ -92,7 +115,8 @@ export class ProxyEngine {
         enabled: true,
         createdAt: new Date(),
         updatedAt: new Date(),
-        config: { outbounds: [{...node}] } // 简化转换
+        // 将标准化后的出站传入，由 convertToSingboxConfig 进一步细化
+        config: { outbounds: [normalizedOutbound] }
       };
       
       // 根据配置类型选择引擎
@@ -376,9 +400,9 @@ export class ProxyEngine {
         // 只保留 Sing-box 需要的字段
         const fixedOutbound: any = {
           type: outbound.type,
-          tag: outbound.name || `proxy-${outbound.id || Date.now()}`,
-          server: outbound.server,
-          server_port: outbound.port
+          tag: outbound.tag || outbound.name || `proxy-${outbound.id || Date.now()}`,
+          server: outbound.server || outbound.host,
+          server_port: outbound.server_port || outbound.port
         };
         
         // 确保所有必需字段都有值
@@ -399,6 +423,10 @@ export class ProxyEngine {
               path: outbound.wsPath || "/",
               headers: outbound.wsHeaders || {}
             };
+            // 兼容 wsHost -> headers.Host
+            if ((outbound as any).wsHost && !fixedOutbound.transport.headers.Host) {
+              fixedOutbound.transport.headers.Host = (outbound as any).wsHost;
+            }
           }
           // 对于 tcp 连接，不需要设置 transport 字段，Sing-box 默认使用 tcp
         } else if (outbound.type === 'shadowsocks') {

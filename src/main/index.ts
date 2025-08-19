@@ -1290,140 +1290,304 @@ ipcMain.handle('notification:is-supported', async () => {
 ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
   try {
     console.log('开始通过代理测试IP地理位置:', proxyUrl);
-    
-    const https = require('https');
+
     const http = require('http');
+    const https = require('https');
+    const tls = require('tls');
     const { URL } = require('url');
-    
-    // 使用多个IP地理位置API服务，提高成功率
+    const { Buffer } = require('buffer');
+
+    // 使用多个IP地理位置API服务，提高成功率（均为 HTTPS）
     const apis = [
       'https://ipapi.co/json/',
       'https://ipinfo.io/json',
       'https://api.ipify.org?format=json'
     ];
 
-    for (const api of apis) {
+    const proxyUrlObj = new URL(proxyUrl);
+    const appSettings = settingsManager.getSettings();
+    const proxyHost = proxyUrlObj.hostname || '127.0.0.1';
+    const proxyPort = Number(appSettings?.proxyPort) || Number(proxyUrlObj.port) || 7890;
+    const socksPort = Number(appSettings?.socksPort) || 7891;
+
+    // 可能存在代理认证信息
+    const proxyAuthHeader = (proxyUrlObj.username || proxyUrlObj.password)
+      ? 'Basic ' + Buffer.from(`${decodeURIComponent(proxyUrlObj.username)}:${decodeURIComponent(proxyUrlObj.password)}`).toString('base64')
+      : undefined;
+
+    // 通过 HTTP CONNECT 访问
+    const tryViaHttpConnect = (api: string): Promise<any> => new Promise((resolve) => {
       try {
-        const url = new URL(api);
-        const isHttps = url.protocol === 'https:';
-        const client = isHttps ? https : http;
-        
-        // 解析代理URL
-        const proxyUrlObj = new URL(proxyUrl);
-        const proxyOptions = {
-          host: proxyUrlObj.hostname,
-          port: proxyUrlObj.port || (isHttps ? 443 : 80),
+        const targetUrl = new URL(api);
+        const targetIsHttps = targetUrl.protocol === 'https:';
+        const targetPort = Number(targetUrl.port) || (targetIsHttps ? 443 : 80);
+
+        // 1) 先用 HTTP 与代理建立 CONNECT 隧道
+        const connectReq = http.request({
+          host: proxyHost,
+          port: proxyPort,
           method: 'CONNECT',
-          path: `${url.hostname}:${url.port || (isHttps ? 443 : 80)}`,
+          path: `${targetUrl.hostname}:${targetPort}`,
           headers: {
-            'Host': url.hostname
+            Host: `${targetUrl.hostname}:${targetPort}`,
+            ...(proxyAuthHeader ? { 'Proxy-Authorization': proxyAuthHeader } : {})
           }
-        };
-
-        return new Promise((resolve) => {
-          const proxyReq = client.request(proxyOptions, (proxyRes: any) => {
-            if (proxyRes.statusCode === 200) {
-              // 代理连接成功，现在发送HTTP请求
-              const req = client.request({
-                host: '127.0.0.1',
-                port: proxyUrlObj.port || (isHttps ? 443 : 80),
-                method: 'GET',
-                path: url.pathname + url.search,
-                headers: {
-                  'Host': url.hostname,
-                  'Accept': 'application/json',
-                  'User-Agent': 'Chongdong/1.0'
-                }
-              }, (res: any) => {
-                let data = '';
-                res.on('data', (chunk: any) => {
-                  data += chunk;
-                });
-                res.on('end', () => {
-                  try {
-                    const jsonData = JSON.parse(data);
-                    
-                    // 处理不同的API响应格式
-                    let result: any;
-                    
-                    if (api.includes('ipapi.co')) {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip,
-                        country: jsonData.country_name,
-                        region: jsonData.region,
-                        city: jsonData.city,
-                        isp: jsonData.org,
-                        timezone: jsonData.timezone
-                      };
-                    } else if (api.includes('ipinfo.io')) {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip,
-                        country: jsonData.country,
-                        region: jsonData.region,
-                        city: jsonData.city,
-                        isp: jsonData.org,
-                        timezone: jsonData.timezone
-                      };
-                    } else {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip
-                      };
-                    }
-
-                    console.log('通过代理IP地理位置测试成功:', result);
-                    resolve(result);
-                  } catch (error) {
-                    console.error('解析IP地理位置数据失败:', error);
-                    resolve({
-                      success: false,
-                      error: 'Failed to parse response'
-                    });
-                  }
-                });
-              });
-              
-              req.on('error', (error: any) => {
-                console.error('HTTP请求失败:', error);
-                resolve({
-                  success: false,
-                  error: error.message
-                });
-              });
-              
-              req.end();
-            } else {
-              resolve({
-                success: false,
-                error: `Proxy connection failed: ${proxyRes.statusCode}`
-              });
-            }
-          });
-          
-          proxyReq.on('error', (error: any) => {
-            console.error('代理连接失败:', error);
-            resolve({
-              success: false,
-              error: error.message
-            });
-          });
-          
-          proxyReq.end();
         });
-        
-      } catch (error) {
-        console.warn(`IP地理位置API ${api} 通过代理测试失败:`, error);
-        continue; // 尝试下一个API
+
+        connectReq.setTimeout(10000, () => connectReq.destroy(new Error('Proxy CONNECT timeout')));
+
+        connectReq.on('connect', (_res: any, socket: any) => {
+          // 2) 隧道建立成功，基于 socket 访问目标
+          const onError = (err: any) => {
+            resolve({ success: false, error: err?.message || String(err) });
+          };
+
+          if (targetIsHttps) {
+            const tlsSocket = tls.connect({
+              socket,
+              servername: targetUrl.hostname,
+              rejectUnauthorized: false
+            });
+
+            tlsSocket.setTimeout(10000, () => tlsSocket.destroy(new Error('TLS request timeout')));
+
+            const req = https.request({
+              host: targetUrl.hostname,
+              port: targetPort,
+              method: 'GET',
+              path: targetUrl.pathname + targetUrl.search,
+              headers: {
+                Host: targetUrl.hostname,
+                Accept: 'application/json',
+                'User-Agent': 'Chongdong/1.0'
+              }
+            });
+
+            req.on('error', onError);
+
+            req.on('response', (res: any) => {
+              let data = '';
+              res.on('data', (chunk: any) => (data += chunk));
+              res.on('end', () => {
+                try {
+                  const jsonData = JSON.parse(data);
+                  let result: any;
+                  if (api.includes('ipapi.co')) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country_name,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else if (api.includes('ipinfo.io')) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else {
+                    result = { success: true, ip: jsonData.ip };
+                  }
+                  console.log('通过代理IP地理位置测试成功:', result);
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: 'Failed to parse response' });
+                }
+              });
+            });
+
+            // 关键：将请求通过 建好的 TLS 隧道发送
+            // 注意：上面的 https.request 未直接使用 tlsSocket 发送；因此我们改为直接在 tlsSocket 上写入原始 HTTP 报文
+
+            // 手动将请求写入 tlsSocket（在握手完成后再写入）
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              'Accept: application/json',
+              'User-Agent: Chongdong/1.0',
+              'Connection: close',
+              '',
+              ''
+            ].join('\r\n');
+            let data = '';
+            tlsSocket.once('secureConnect', () => {
+              tlsSocket.write(requestLines);
+            })
+              .on('data', (chunk: any) => (data += chunk.toString()))
+              .on('error', onError)
+              .on('end', () => {
+                try {
+                  const body = data.split('\r\n\r\n')[1] || '';
+                  const jsonData = JSON.parse(body);
+                  let result: any;
+                  if (api.includes('ipapi.co')) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country_name,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else if (api.includes('ipinfo.io')) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else {
+                    result = { success: true, ip: jsonData.ip };
+                  }
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: 'Failed to parse response' });
+                }
+              });
+
+          } else {
+            // 明文 HTTP
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              'Accept: application/json',
+              'User-Agent: Chongdong/1.0',
+              'Connection: close',
+              '',
+              ''
+            ].join('\r\n');
+            socket.write(requestLines);
+
+            let data = '';
+            socket.on('data', (chunk: any) => (data += chunk.toString()))
+              .on('error', onError)
+              .on('end', () => {
+                try {
+                  const body = data.split('\r\n\r\n')[1] || '';
+                  const jsonData = JSON.parse(body);
+                  const result = { success: true, ip: jsonData.ip };
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: 'Failed to parse response' });
+                }
+              });
+          }
+        });
+
+        connectReq.on('error', (err: any) => {
+          resolve({ success: false, error: err?.message || String(err) });
+        });
+
+        connectReq.end();
+      } catch (e) {
+        resolve({ success: false, error: (e as any)?.message || String(e) });
       }
+    });
+
+    // 通过 SOCKS5 访问
+    const tryViaSocks = (api: string): Promise<any> => new Promise((resolve) => {
+      try {
+        const { SocksClient } = require('socks');
+        const targetUrl = new URL(api);
+        const targetIsHttps = targetUrl.protocol === 'https:';
+        const targetPort = Number(targetUrl.port) || (targetIsHttps ? 443 : 80);
+        SocksClient.createConnection({
+          proxy: { host: proxyHost, port: socksPort, type: 5 },
+          command: 'connect',
+          destination: { host: targetUrl.hostname, port: targetPort },
+          timeout: 10000
+        }).then(({ socket }: any) => {
+          const onError = (err: any) => resolve({ success: false, error: err?.message || String(err) });
+          if (targetIsHttps) {
+            const tls = require('tls');
+            const tlsSocket = tls.connect({ socket, servername: targetUrl.hostname, rejectUnauthorized: false });
+            tlsSocket.setTimeout(10000, () => tlsSocket.destroy(new Error('TLS request timeout')));
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              'Accept: application/json',
+              'User-Agent: Chongdong/1.0',
+              'Connection: close',
+              '',
+              ''
+            ].join('\r\n');
+            let data = '';
+            tlsSocket
+              .once('secureConnect', () => tlsSocket.write(requestLines))
+              .on('data', (chunk: any) => (data += chunk.toString()))
+              .on('error', onError)
+              .on('end', () => {
+                try {
+                  const body = data.split('\r\n\r\n')[1] || '';
+                  const jsonData = JSON.parse(body);
+                  let result: any;
+                  if (api.includes('ipapi.co')) {
+                    result = { success: true, ip: jsonData.ip, country: jsonData.country_name, region: jsonData.region, city: jsonData.city, isp: jsonData.org, timezone: jsonData.timezone };
+                  } else if (api.includes('ipinfo.io')) {
+                    result = { success: true, ip: jsonData.ip, country: jsonData.country, region: jsonData.region, city: jsonData.city, isp: jsonData.org, timezone: jsonData.timezone };
+                  } else {
+                    result = { success: true, ip: jsonData.ip };
+                  }
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: 'Failed to parse response' });
+                }
+              });
+          } else {
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              'Accept: application/json',
+              'User-Agent: ' + 'Chongdong/1.0',
+              'Connection: close',
+              '',
+              ''
+            ].join('\r\n');
+            let data = '';
+            socket.write(requestLines);
+            socket
+              .on('data', (chunk: any) => (data += chunk.toString()))
+              .on('error', onError)
+              .on('end', () => {
+                try {
+                  const body = data.split('\r\n\r\n')[1] || '';
+                  const jsonData = JSON.parse(body);
+                  const result = { success: true, ip: jsonData.ip };
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: 'Failed to parse response' });
+                }
+              });
+          }
+        }).catch((err: any) => resolve({ success: false, error: err?.message || String(err) }));
+      } catch (e) {
+        resolve({ success: false, error: (e as any)?.message || String(e) });
+      }
+    });
+
+    for (const api of apis) {
+      let r = await tryViaHttpConnect(api);
+      if (!r || !r.success) {
+        r = await tryViaSocks(api);
+      }
+      if (r && r.success) {
+        return r;
+      }
+      console.warn(`IP地理位置API ${api} 通过代理测试失败:`, r?.error || r);
     }
 
-    // 所有API都失败了
-    return {
-      success: false,
-      error: '所有IP地理位置API都不可用'
-    };
+    return { success: false, error: '所有IP地理位置API都不可用' };
     
   } catch (error) {
     console.error('通过代理IP地理位置测试失败:', error);

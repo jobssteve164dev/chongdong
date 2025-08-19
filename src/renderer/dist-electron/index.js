@@ -3120,121 +3120,258 @@ electron.ipcMain.handle("notification:is-supported", async () => {
 electron.ipcMain.handle("geolocation:testViaProxy", async (_, { proxyUrl }) => {
   try {
     console.log("开始通过代理测试IP地理位置:", proxyUrl);
-    const https2 = require("https");
     const http = require("http");
+    const https2 = require("https");
+    const tls = require("tls");
     const { URL: URL2 } = require("url");
+    const { Buffer } = require("buffer");
     const apis = [
       "https://ipapi.co/json/",
       "https://ipinfo.io/json",
       "https://api.ipify.org?format=json"
     ];
-    for (const api of apis) {
+    const proxyUrlObj = new URL2(proxyUrl);
+    const appSettings = settingsManager.getSettings();
+    const proxyHost = proxyUrlObj.hostname || "127.0.0.1";
+    const proxyPort = Number(appSettings == null ? void 0 : appSettings.proxyPort) || Number(proxyUrlObj.port) || 7890;
+    const socksPort = Number(appSettings == null ? void 0 : appSettings.socksPort) || 7891;
+    const proxyAuthHeader = proxyUrlObj.username || proxyUrlObj.password ? "Basic " + Buffer.from(`${decodeURIComponent(proxyUrlObj.username)}:${decodeURIComponent(proxyUrlObj.password)}`).toString("base64") : void 0;
+    const tryViaHttpConnect = (api) => new Promise((resolve) => {
       try {
-        const url = new URL2(api);
-        const isHttps = url.protocol === "https:";
-        const client = isHttps ? https2 : http;
-        const proxyUrlObj = new URL2(proxyUrl);
-        const proxyOptions = {
-          host: proxyUrlObj.hostname,
-          port: proxyUrlObj.port || (isHttps ? 443 : 80),
+        const targetUrl = new URL2(api);
+        const targetIsHttps = targetUrl.protocol === "https:";
+        const targetPort = Number(targetUrl.port) || (targetIsHttps ? 443 : 80);
+        const connectReq = http.request({
+          host: proxyHost,
+          port: proxyPort,
           method: "CONNECT",
-          path: `${url.hostname}:${url.port || (isHttps ? 443 : 80)}`,
+          path: `${targetUrl.hostname}:${targetPort}`,
           headers: {
-            "Host": url.hostname
+            Host: `${targetUrl.hostname}:${targetPort}`,
+            ...proxyAuthHeader ? { "Proxy-Authorization": proxyAuthHeader } : {}
           }
-        };
-        return new Promise((resolve) => {
-          const proxyReq = client.request(proxyOptions, (proxyRes) => {
-            if (proxyRes.statusCode === 200) {
-              const req = client.request({
-                host: "127.0.0.1",
-                port: proxyUrlObj.port || (isHttps ? 443 : 80),
-                method: "GET",
-                path: url.pathname + url.search,
-                headers: {
-                  "Host": url.hostname,
-                  "Accept": "application/json",
-                  "User-Agent": "Chongdong/1.0"
-                }
-              }, (res) => {
-                let data = "";
-                res.on("data", (chunk) => {
-                  data += chunk;
-                });
-                res.on("end", () => {
-                  try {
-                    const jsonData = JSON.parse(data);
-                    let result;
-                    if (api.includes("ipapi.co")) {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip,
-                        country: jsonData.country_name,
-                        region: jsonData.region,
-                        city: jsonData.city,
-                        isp: jsonData.org,
-                        timezone: jsonData.timezone
-                      };
-                    } else if (api.includes("ipinfo.io")) {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip,
-                        country: jsonData.country,
-                        region: jsonData.region,
-                        city: jsonData.city,
-                        isp: jsonData.org,
-                        timezone: jsonData.timezone
-                      };
-                    } else {
-                      result = {
-                        success: true,
-                        ip: jsonData.ip
-                      };
-                    }
-                    console.log("通过代理IP地理位置测试成功:", result);
-                    resolve(result);
-                  } catch (error) {
-                    console.error("解析IP地理位置数据失败:", error);
-                    resolve({
-                      success: false,
-                      error: "Failed to parse response"
-                    });
-                  }
-                });
-              });
-              req.on("error", (error) => {
-                console.error("HTTP请求失败:", error);
-                resolve({
-                  success: false,
-                  error: error.message
-                });
-              });
-              req.end();
-            } else {
-              resolve({
-                success: false,
-                error: `Proxy connection failed: ${proxyRes.statusCode}`
-              });
-            }
-          });
-          proxyReq.on("error", (error) => {
-            console.error("代理连接失败:", error);
-            resolve({
-              success: false,
-              error: error.message
-            });
-          });
-          proxyReq.end();
         });
-      } catch (error) {
-        console.warn(`IP地理位置API ${api} 通过代理测试失败:`, error);
-        continue;
+        connectReq.setTimeout(1e4, () => connectReq.destroy(new Error("Proxy CONNECT timeout")));
+        connectReq.on("connect", (_res, socket) => {
+          const onError = (err) => {
+            resolve({ success: false, error: (err == null ? void 0 : err.message) || String(err) });
+          };
+          if (targetIsHttps) {
+            const tlsSocket = tls.connect({
+              socket,
+              servername: targetUrl.hostname,
+              rejectUnauthorized: false
+            });
+            tlsSocket.setTimeout(1e4, () => tlsSocket.destroy(new Error("TLS request timeout")));
+            const req = https2.request({
+              host: targetUrl.hostname,
+              port: targetPort,
+              method: "GET",
+              path: targetUrl.pathname + targetUrl.search,
+              headers: {
+                Host: targetUrl.hostname,
+                Accept: "application/json",
+                "User-Agent": "Chongdong/1.0"
+              }
+            });
+            req.on("error", onError);
+            req.on("response", (res) => {
+              let data2 = "";
+              res.on("data", (chunk) => data2 += chunk);
+              res.on("end", () => {
+                try {
+                  const jsonData = JSON.parse(data2);
+                  let result;
+                  if (api.includes("ipapi.co")) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country_name,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else if (api.includes("ipinfo.io")) {
+                    result = {
+                      success: true,
+                      ip: jsonData.ip,
+                      country: jsonData.country,
+                      region: jsonData.region,
+                      city: jsonData.city,
+                      isp: jsonData.org,
+                      timezone: jsonData.timezone
+                    };
+                  } else {
+                    result = { success: true, ip: jsonData.ip };
+                  }
+                  console.log("通过代理IP地理位置测试成功:", result);
+                  resolve(result);
+                } catch (e) {
+                  resolve({ success: false, error: "Failed to parse response" });
+                }
+              });
+            });
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              "Accept: application/json",
+              "User-Agent: Chongdong/1.0",
+              "Connection: close",
+              "",
+              ""
+            ].join("\r\n");
+            let data = "";
+            tlsSocket.once("secureConnect", () => {
+              tlsSocket.write(requestLines);
+            }).on("data", (chunk) => data += chunk.toString()).on("error", onError).on("end", () => {
+              try {
+                const body = data.split("\r\n\r\n")[1] || "";
+                const jsonData = JSON.parse(body);
+                let result;
+                if (api.includes("ipapi.co")) {
+                  result = {
+                    success: true,
+                    ip: jsonData.ip,
+                    country: jsonData.country_name,
+                    region: jsonData.region,
+                    city: jsonData.city,
+                    isp: jsonData.org,
+                    timezone: jsonData.timezone
+                  };
+                } else if (api.includes("ipinfo.io")) {
+                  result = {
+                    success: true,
+                    ip: jsonData.ip,
+                    country: jsonData.country,
+                    region: jsonData.region,
+                    city: jsonData.city,
+                    isp: jsonData.org,
+                    timezone: jsonData.timezone
+                  };
+                } else {
+                  result = { success: true, ip: jsonData.ip };
+                }
+                resolve(result);
+              } catch (e) {
+                resolve({ success: false, error: "Failed to parse response" });
+              }
+            });
+          } else {
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              "Accept: application/json",
+              "User-Agent: Chongdong/1.0",
+              "Connection: close",
+              "",
+              ""
+            ].join("\r\n");
+            socket.write(requestLines);
+            let data = "";
+            socket.on("data", (chunk) => data += chunk.toString()).on("error", onError).on("end", () => {
+              try {
+                const body = data.split("\r\n\r\n")[1] || "";
+                const jsonData = JSON.parse(body);
+                const result = { success: true, ip: jsonData.ip };
+                resolve(result);
+              } catch (e) {
+                resolve({ success: false, error: "Failed to parse response" });
+              }
+            });
+          }
+        });
+        connectReq.on("error", (err) => {
+          resolve({ success: false, error: (err == null ? void 0 : err.message) || String(err) });
+        });
+        connectReq.end();
+      } catch (e) {
+        resolve({ success: false, error: (e == null ? void 0 : e.message) || String(e) });
       }
+    });
+    const tryViaSocks = (api) => new Promise((resolve) => {
+      try {
+        const { SocksClient } = require("socks");
+        const targetUrl = new URL2(api);
+        const targetIsHttps = targetUrl.protocol === "https:";
+        const targetPort = Number(targetUrl.port) || (targetIsHttps ? 443 : 80);
+        SocksClient.createConnection({
+          proxy: { host: proxyHost, port: socksPort, type: 5 },
+          command: "connect",
+          destination: { host: targetUrl.hostname, port: targetPort },
+          timeout: 1e4
+        }).then(({ socket }) => {
+          const onError = (err) => resolve({ success: false, error: (err == null ? void 0 : err.message) || String(err) });
+          if (targetIsHttps) {
+            const tls2 = require("tls");
+            const tlsSocket = tls2.connect({ socket, servername: targetUrl.hostname, rejectUnauthorized: false });
+            tlsSocket.setTimeout(1e4, () => tlsSocket.destroy(new Error("TLS request timeout")));
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              "Accept: application/json",
+              "User-Agent: Chongdong/1.0",
+              "Connection: close",
+              "",
+              ""
+            ].join("\r\n");
+            let data = "";
+            tlsSocket.once("secureConnect", () => tlsSocket.write(requestLines)).on("data", (chunk) => data += chunk.toString()).on("error", onError).on("end", () => {
+              try {
+                const body = data.split("\r\n\r\n")[1] || "";
+                const jsonData = JSON.parse(body);
+                let result;
+                if (api.includes("ipapi.co")) {
+                  result = { success: true, ip: jsonData.ip, country: jsonData.country_name, region: jsonData.region, city: jsonData.city, isp: jsonData.org, timezone: jsonData.timezone };
+                } else if (api.includes("ipinfo.io")) {
+                  result = { success: true, ip: jsonData.ip, country: jsonData.country, region: jsonData.region, city: jsonData.city, isp: jsonData.org, timezone: jsonData.timezone };
+                } else {
+                  result = { success: true, ip: jsonData.ip };
+                }
+                resolve(result);
+              } catch (e) {
+                resolve({ success: false, error: "Failed to parse response" });
+              }
+            });
+          } else {
+            const requestLines = [
+              `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
+              `Host: ${targetUrl.hostname}`,
+              "Accept: application/json",
+              "User-Agent: Chongdong/1.0",
+              "Connection: close",
+              "",
+              ""
+            ].join("\r\n");
+            let data = "";
+            socket.write(requestLines);
+            socket.on("data", (chunk) => data += chunk.toString()).on("error", onError).on("end", () => {
+              try {
+                const body = data.split("\r\n\r\n")[1] || "";
+                const jsonData = JSON.parse(body);
+                const result = { success: true, ip: jsonData.ip };
+                resolve(result);
+              } catch (e) {
+                resolve({ success: false, error: "Failed to parse response" });
+              }
+            });
+          }
+        }).catch((err) => resolve({ success: false, error: (err == null ? void 0 : err.message) || String(err) }));
+      } catch (e) {
+        resolve({ success: false, error: (e == null ? void 0 : e.message) || String(e) });
+      }
+    });
+    for (const api of apis) {
+      let r = await tryViaHttpConnect(api);
+      if (!r || !r.success) {
+        r = await tryViaSocks(api);
+      }
+      if (r && r.success) {
+        return r;
+      }
+      console.warn(`IP地理位置API ${api} 通过代理测试失败:`, (r == null ? void 0 : r.error) || r);
     }
-    return {
-      success: false,
-      error: "所有IP地理位置API都不可用"
-    };
+    return { success: false, error: "所有IP地理位置API都不可用" };
   } catch (error) {
     console.error("通过代理IP地理位置测试失败:", error);
     return {
