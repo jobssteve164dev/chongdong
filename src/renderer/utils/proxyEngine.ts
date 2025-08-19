@@ -13,6 +13,8 @@ declare global {
 
 const { ipcRenderer } = window.electron;
 
+import { ProxyNode, AppSettings } from '../../shared/types';
+
 export interface ProxyConfig {
   id: string;
   name: string;
@@ -58,7 +60,6 @@ export interface ProxyStats {
 
 export class ProxyEngine {
   private static instance: ProxyEngine;
-  private currentConfig: ProxyConfig | null = null;
   private status: ProxyStatus = {
     running: false,
     uptime: 0,
@@ -66,6 +67,7 @@ export class ProxyEngine {
     upload: 0,
     download: 0
   };
+  private statusCallbacks: Array<(status: ProxyStatus) => void> = [];
 
   private constructor() {}
 
@@ -79,10 +81,52 @@ export class ProxyEngine {
   /**
    * 启动代理服务
    */
-  public async start(config: ProxyConfig, networkSettings?: NetworkSettings): Promise<void> {
+  public async startWithNode(node: ProxyNode, settings: AppSettings): Promise<void> {
     try {
-      this.currentConfig = config;
+      const engineType = settings.proxyEngine || 'singbox';
       
+      const proxyConfig: ProxyConfig = {
+        id: node.id,
+        name: node.name,
+        type: engineType,
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        config: { outbounds: [{...node}] } // 简化转换
+      };
+      
+      // 根据配置类型选择引擎
+      switch (engineType) {
+        case 'singbox':
+          await this.startSingbox(proxyConfig, settings);
+          break;
+        case 'xray':
+          await this.startXray(proxyConfig, settings);
+          break;
+        case 'clash':
+          await this.startClash(proxyConfig, settings);
+          break;
+        default:
+          throw new Error(`Unsupported proxy type: ${engineType}`);
+      }
+
+      this.status.running = true;
+      this.status.uptime = Date.now();
+      
+      this.startStatusMonitoring();
+      this.notifyStatusChange();
+      
+    } catch (error) {
+      this.status.error = error instanceof Error ? error.message : 'Unknown error';
+      throw error;
+    }
+  }
+
+  /**
+   * 启动代理服务
+   */
+  public async start(config: ProxyConfig, networkSettings?: AppSettings): Promise<void> {
+    try {
       // 根据配置类型选择引擎
       switch (config.type) {
         case 'singbox':
@@ -103,6 +147,7 @@ export class ProxyEngine {
       
       // 开始状态监控
       this.startStatusMonitoring();
+      this.notifyStatusChange();
       
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : 'Unknown error';
@@ -122,7 +167,7 @@ export class ProxyEngine {
       this.status.upload = 0;
       this.status.download = 0;
       this.status.error = undefined;
-      this.currentConfig = null;
+      this.notifyStatusChange();
     } catch (error) {
       throw new Error(`Failed to stop proxy: ${error}`);
     }
@@ -143,6 +188,37 @@ export class ProxyEngine {
    */
   public getStatus(): ProxyStatus {
     return { ...this.status };
+  }
+
+  /**
+   * 注册状态变化回调
+   */
+  public onStatusChange(callback: (status: ProxyStatus) => void): void {
+    this.statusCallbacks.push(callback);
+  }
+
+  /**
+   * 移除状态变化回调
+   */
+  public offStatusChange(callback: (status: ProxyStatus) => void): void {
+    const index = this.statusCallbacks.indexOf(callback);
+    if (index > -1) {
+      this.statusCallbacks.splice(index, 1);
+    }
+  }
+
+  /**
+   * 通知状态变化
+   */
+  private notifyStatusChange(): void {
+    const status = { ...this.status };
+    this.statusCallbacks.forEach(callback => {
+      try {
+        callback(status);
+      } catch (error) {
+        console.error('Status change callback error:', error);
+      }
+    });
   }
 
   /**
@@ -173,63 +249,75 @@ export class ProxyEngine {
   /**
    * 启动Sing-box引擎
    */
-  private async startSingbox(config: ProxyConfig, networkSettings?: NetworkSettings): Promise<void> {
+  private async startSingbox(config: ProxyConfig, networkSettings?: AppSettings): Promise<void> {
     const singboxConfig = this.convertToSingboxConfig(config, networkSettings);
     
     // 通过IPC调用主进程启动Sing-box
-    await window.electron.ipcRenderer.invoke('proxy:startSingbox', singboxConfig);
+    const result = await window.electron.ipcRenderer.invoke('proxy:startSingbox', singboxConfig);
+    
+    // 检查结果，如果失败则抛出错误
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start Sing-box');
+    }
   }
 
   /**
    * 启动Xray引擎
    */
-  private async startXray(config: ProxyConfig, networkSettings?: NetworkSettings): Promise<void> {
+  private async startXray(config: ProxyConfig, networkSettings?: AppSettings): Promise<void> {
     const xrayConfig = this.convertToXrayConfig(config, networkSettings);
     
     // 通过IPC调用主进程启动Xray
-    await window.electron.ipcRenderer.invoke('proxy:startXray', xrayConfig);
+    const result = await window.electron.ipcRenderer.invoke('proxy:startXray', xrayConfig);
+    
+    // 检查结果，如果失败则抛出错误
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start Xray');
+    }
   }
 
   /**
    * 启动Clash引擎
    */
-  private async startClash(config: ProxyConfig, networkSettings?: NetworkSettings): Promise<void> {
+  private async startClash(config: ProxyConfig, networkSettings?: AppSettings): Promise<void> {
     const clashConfig = this.convertToClashConfig(config, networkSettings);
     
     // 通过IPC调用主进程启动Clash
-    await window.electron.ipcRenderer.invoke('proxy:startClash', clashConfig);
+    const result = await window.electron.ipcRenderer.invoke('proxy:startClash', clashConfig);
+    
+    // 检查结果，如果失败则抛出错误
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start Clash');
+    }
   }
 
   /**
    * 转换为Sing-box配置格式
    */
-  private convertToSingboxConfig(config: ProxyConfig, networkSettings?: NetworkSettings): any {
+  private convertToSingboxConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
     // 基础Sing-box配置结构
     const singboxConfig: any = {
       log: {
         level: networkSettings?.logLevel || 'info',
         output: networkSettings?.enableLog ? networkSettings.logFile || 'chongdong.log' : 'console'
       },
-      dns: networkSettings?.enableDns ? {
+      experimental: {
+        clash_api: {
+          external_controller: '127.0.0.1:9090',
+          external_ui: '',
+          secret: ''
+        }
+      },
+      dns: {
         servers: [
           {
             tag: 'default',
-            address: networkSettings.dnsServer || '8.8.8.8',
+            address: '8.8.8.8',
             detour: 'direct'
-          },
-          ...(networkSettings.enableDoh ? [{
-            tag: 'doh',
-            address: networkSettings.dohServer || 'https://dns.google/dns-query',
-            detour: 'direct'
-          }] : [])
-        ],
-        rules: [
-          {
-            outbound: 'dns'
           }
         ],
         final: 'default'
-      } : undefined,
+      },
       inbounds: [
         // 只在启用 TUN 时添加 TUN inbound
         ...(networkSettings?.enableTun ? [{
@@ -285,39 +373,54 @@ export class ProxyEngine {
     if (config.config.outbounds) {
       // 修复网络类型和字段名
       const fixedOutbounds = config.config.outbounds.map((outbound: any) => {
-        const fixedOutbound = { ...outbound };
+        // 只保留 Sing-box 需要的字段
+        const fixedOutbound: any = {
+          type: outbound.type,
+          tag: outbound.name || `proxy-${outbound.id || Date.now()}`,
+          server: outbound.server,
+          server_port: outbound.port
+        };
         
-        // 修复 vmess 配置字段
-        if (outbound.type === 'vmess') {
-          // 在新版本的 Sing-box 中，vmess 不再使用 alterId 字段
-          // 移除 alter_id 和 alterId 字段
-          delete fixedOutbound.alter_id;
-          delete fixedOutbound.alterId;
-          
-          // 确保使用正确的安全设置
-          if (fixedOutbound.security === 'auto') {
-            fixedOutbound.security = 'auto';
-          }
+        // 确保所有必需字段都有值
+        if (!fixedOutbound.server || !fixedOutbound.server_port) {
+          console.warn('跳过无效的outbound配置:', outbound);
+          return null;
         }
         
-        // 修复 WebSocket 配置
-        if (outbound.network === 'ws') {
-          // 在 Sing-box 中，WebSocket 使用 transport 字段
-          delete fixedOutbound.network;
-          delete fixedOutbound.ws_opts;
-          fixedOutbound.transport = {
-            type: "ws",
-            path: outbound.ws_opts?.path || "/",
-            headers: outbound.ws_opts?.headers || {}
-          };
+        // 根据协议类型添加特定字段
+        if (outbound.type === 'vmess') {
+          fixedOutbound.uuid = outbound.uuid;
+          fixedOutbound.security = outbound.security || 'auto';
+          
+          // 处理传输配置
+          if (outbound.network === 'ws') {
+            fixedOutbound.transport = {
+              type: "ws",
+              path: outbound.wsPath || "/",
+              headers: outbound.wsHeaders || {}
+            };
+          }
+          // 对于 tcp 连接，不需要设置 transport 字段，Sing-box 默认使用 tcp
+        } else if (outbound.type === 'shadowsocks') {
+          fixedOutbound.method = outbound.method;
+          fixedOutbound.password = outbound.password;
+        } else if (outbound.type === 'trojan') {
+          fixedOutbound.password = outbound.password;
+          if (outbound.tls) {
+            fixedOutbound.tls = {
+              enabled: true,
+              server_name: outbound.server
+            };
+          }
         }
         
         return fixedOutbound;
       });
       
-      // 检查是否有重复的标签，避免冲突
+      // 过滤掉无效的outbound并检查重复标签
+      const validOutbounds = fixedOutbounds.filter((outbound: any) => outbound !== null);
       const existingTags = new Set(singboxConfig.outbounds.map((o: any) => o.tag));
-      const uniqueOutbounds = fixedOutbounds.filter((outbound: any) => {
+      const uniqueOutbounds = validOutbounds.filter((outbound: any) => {
         if (existingTags.has(outbound.tag)) {
           console.warn(`跳过重复的 outbound 标签: ${outbound.tag}`);
           return false;
@@ -343,7 +446,7 @@ export class ProxyEngine {
   /**
    * 转换为Xray配置格式
    */
-  private convertToXrayConfig(config: ProxyConfig, networkSettings?: NetworkSettings): any {
+  private convertToXrayConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
     // 基础Xray配置结构
     const xrayConfig: any = {
       log: {
@@ -408,7 +511,7 @@ export class ProxyEngine {
   /**
    * 转换为Clash配置格式
    */
-  private convertToClashConfig(config: ProxyConfig, networkSettings?: NetworkSettings): any {
+  private convertToClashConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
     const clashConfig: any = {
       port: 7890,
       'socks-port': 7891,
@@ -488,11 +591,13 @@ export class ProxyEngine {
           this.status.connections = stats.activeConnections || 0;
           this.status.upload = stats.totalUpload || 0;
           this.status.download = stats.totalDownload || 0;
+          this.notifyStatusChange();
         } catch (error) {
           console.error('Failed to update status:', error);
           // 如果获取状态失败，可能代理已经停止
           this.status.running = false;
           this.status.error = '状态更新失败';
+          this.notifyStatusChange();
         }
       }
     }, 5000);

@@ -164,13 +164,17 @@ export class ProxyManager {
       // 监听进程事件
       childProcess.on('error', (error) => {
         console.error('Sing-box process error:', error);
-        reject(error);
+        if (!resolved) {
+          resolved = true;
+          reject(error);
+        }
       });
 
       childProcess.on('exit', (code, signal) => {
         console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
         this.processes.delete(processId);
-        if (code !== 0) {
+        if (code !== 0 && !resolved) {
+          resolved = true;
           reject(new Error(`Sing-box process failed with exit code: ${code}`));
         }
       });
@@ -207,7 +211,10 @@ export class ProxyManager {
           childProcess.kill();
           
           // 使用 reject 而不是 throw，避免未捕获的异常
-          reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
+          }
           return;
         }
         
@@ -216,14 +223,20 @@ export class ProxyManager {
           console.error('Sing-box 配置解析错误，请检查配置文件格式');
           console.log('当前配置:', JSON.stringify(finalConfig, null, 2));
           childProcess.kill();
-          reject(new Error(`Sing-box 配置错误: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 配置错误: ${errorMessage}`));
+          }
           return;
         }
         
         if (errorMessage.includes('FATAL')) {
           console.error('Sing-box 致命错误:', errorMessage);
           childProcess.kill();
-          reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
+          }
           return;
         }
       });
@@ -241,8 +254,12 @@ export class ProxyManager {
       console.log(`Started Sing-box process: ${processId}`);
       
       // 如果进程启动成功，延迟一点时间再 resolve，确保没有立即错误
+      let resolved = false;
       setTimeout(() => {
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       }, 100);
     });
   }
@@ -467,14 +484,100 @@ export class ProxyManager {
    * 获取代理统计信息
    */
   public async getStats(): Promise<any> {
-    // 这里应该实现实际的统计逻辑
-    // 简化示例
-    return {
-      totalUpload: 0,
-      totalDownload: 0,
-      activeConnections: this.processes.size,
-      totalConnections: this.processes.size
-    };
+    try {
+      // 获取所有运行中的进程统计
+      let totalUpload = 0;
+      let totalDownload = 0;
+      let activeConnections = 0;
+      let uploadSpeed = 0;
+      let downloadSpeed = 0;
+
+      // 遍历所有活跃进程
+      for (const [processId, processInfo] of this.processes.entries()) {
+        try {
+          // 对于Sing-box，尝试通过API获取统计信息
+          if (processInfo.type === 'singbox') {
+            // Sing-box通常在9090端口提供API
+            const stats = await this.getSingboxStats();
+            if (stats) {
+              totalUpload += stats.upload || 0;
+              totalDownload += stats.download || 0;
+              uploadSpeed += stats.uploadSpeed || 0;
+              downloadSpeed += stats.downloadSpeed || 0;
+              activeConnections += stats.connections || 0;
+            }
+          }
+        } catch (error) {
+          console.warn(`获取进程 ${processId} 统计失败:`, error);
+        }
+      }
+
+      return {
+        totalUpload,
+        totalDownload,
+        uploadSpeed,
+        downloadSpeed,
+        activeConnections,
+        totalConnections: this.processes.size
+      };
+    } catch (error) {
+      console.error('获取统计数据失败:', error);
+      return {
+        totalUpload: 0,
+        totalDownload: 0,
+        uploadSpeed: 0,
+        downloadSpeed: 0,
+        activeConnections: 0,
+        totalConnections: 0
+      };
+    }
+  }
+
+  /**
+   * 获取Sing-box统计信息
+   */
+  private async getSingboxStats(): Promise<any> {
+    try {
+      // 尝试通过HTTP API获取Sing-box统计信息
+      // 注意：这需要Sing-box配置了API端点
+      const http = require('http');
+      
+      return new Promise((resolve) => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port: 9090, // Sing-box默认API端口
+          path: '/stats',
+          method: 'GET',
+          timeout: 1000
+        }, (res: any) => {
+          let data = '';
+          res.on('data', (chunk: any) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const stats = JSON.parse(data);
+              resolve(stats);
+            } catch (error) {
+              resolve(null);
+            }
+          });
+        });
+
+        req.on('error', () => {
+          resolve(null);
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          resolve(null);
+        });
+
+        req.end();
+      });
+    } catch (error) {
+      return null;
+    }
   }
 
   /**

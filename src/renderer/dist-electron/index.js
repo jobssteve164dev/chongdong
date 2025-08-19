@@ -976,12 +976,16 @@ class ProxyManager {
       });
       childProcess.on("error", (error) => {
         console.error("Sing-box process error:", error);
-        reject(error);
+        if (!resolved) {
+          resolved = true;
+          reject(error);
+        }
       });
       childProcess.on("exit", (code, signal) => {
         console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
         this.processes.delete(processId);
-        if (code !== 0) {
+        if (code !== 0 && !resolved) {
+          resolved = true;
           reject(new Error(`Sing-box process failed with exit code: ${code}`));
         }
       });
@@ -1007,20 +1011,29 @@ class ProxyManager {
             console.error("端口检查失败:", error);
           });
           childProcess.kill();
-          reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
+          }
           return;
         }
         if (errorMessage.includes("decode config")) {
           console.error("Sing-box 配置解析错误，请检查配置文件格式");
           console.log("当前配置:", JSON.stringify(finalConfig, null, 2));
           childProcess.kill();
-          reject(new Error(`Sing-box 配置错误: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 配置错误: ${errorMessage}`));
+          }
           return;
         }
         if (errorMessage.includes("FATAL")) {
           console.error("Sing-box 致命错误:", errorMessage);
           childProcess.kill();
-          reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
+          }
           return;
         }
       });
@@ -1033,8 +1046,12 @@ class ProxyManager {
         networkSettings
       });
       console.log(`Started Sing-box process: ${processId}`);
+      let resolved = false;
       setTimeout(() => {
-        resolve();
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       }, 100);
     });
   }
@@ -1201,12 +1218,88 @@ class ProxyManager {
    * 获取代理统计信息
    */
   async getStats() {
-    return {
-      totalUpload: 0,
-      totalDownload: 0,
-      activeConnections: this.processes.size,
-      totalConnections: this.processes.size
-    };
+    try {
+      let totalUpload = 0;
+      let totalDownload = 0;
+      let activeConnections = 0;
+      let uploadSpeed = 0;
+      let downloadSpeed = 0;
+      for (const [processId, processInfo] of this.processes.entries()) {
+        try {
+          if (processInfo.type === "singbox") {
+            const stats = await this.getSingboxStats();
+            if (stats) {
+              totalUpload += stats.upload || 0;
+              totalDownload += stats.download || 0;
+              uploadSpeed += stats.uploadSpeed || 0;
+              downloadSpeed += stats.downloadSpeed || 0;
+              activeConnections += stats.connections || 0;
+            }
+          }
+        } catch (error) {
+          console.warn(`获取进程 ${processId} 统计失败:`, error);
+        }
+      }
+      return {
+        totalUpload,
+        totalDownload,
+        uploadSpeed,
+        downloadSpeed,
+        activeConnections,
+        totalConnections: this.processes.size
+      };
+    } catch (error) {
+      console.error("获取统计数据失败:", error);
+      return {
+        totalUpload: 0,
+        totalDownload: 0,
+        uploadSpeed: 0,
+        downloadSpeed: 0,
+        activeConnections: 0,
+        totalConnections: 0
+      };
+    }
+  }
+  /**
+   * 获取Sing-box统计信息
+   */
+  async getSingboxStats() {
+    try {
+      const http = require("http");
+      return new Promise((resolve) => {
+        const req = http.request({
+          hostname: "127.0.0.1",
+          port: 9090,
+          // Sing-box默认API端口
+          path: "/stats",
+          method: "GET",
+          timeout: 1e3
+        }, (res) => {
+          let data = "";
+          res.on("data", (chunk) => {
+            data += chunk;
+          });
+          res.on("end", () => {
+            try {
+              const stats = JSON.parse(data);
+              resolve(stats);
+            } catch (error) {
+              resolve(null);
+            }
+          });
+        });
+        req.on("error", () => {
+          resolve(null);
+        });
+        req.on("timeout", () => {
+          req.destroy();
+          resolve(null);
+        });
+        req.end();
+      });
+    } catch (error) {
+      return null;
+    }
   }
   /**
    * 获取Sing-box可执行文件路径
@@ -1851,6 +1944,114 @@ class SystemProxyManager {
   }
 }
 const systemProxyManager = SystemProxyManager.getInstance();
+class DefaultSettings {
+  /**
+   * 获取默认应用设置
+   */
+  static getDefaultAppSettings() {
+    return {
+      theme: "auto",
+      language: "zh-CN",
+      autoStart: false,
+      systemProxy: true,
+      proxyPort: 7890,
+      socksPort: 7891,
+      mixedPort: 7890,
+      allowLan: false,
+      mode: "rule",
+      logLevel: "info",
+      enableLog: true,
+      logFile: "chongdong.log",
+      enableUdp: true,
+      enableIpv6: false,
+      enableTun: false,
+      tunDevice: "utun0",
+      enableFakeIp: true,
+      fakeIpRange: "198.18.0.1/16",
+      enableDns: true,
+      dnsServer: "8.8.8.8",
+      enableDoh: false,
+      dohServer: "https://dns.google/dns-query",
+      proxyEngine: "singbox",
+      engineSettings: {},
+      // 延迟测试设置
+      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
+      latencyTestTimeout: 1e4,
+      latencyTestRetries: 3,
+      latencyTestInterval: 10,
+      enableAutoLatencyTest: false,
+      latencyTestConcurrency: 3,
+      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
+      latencyTestValidityPeriod: 30
+    };
+  }
+  /**
+   * 获取默认用户偏好设置
+   */
+  static getDefaultUserPreferences() {
+    return {
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
+      autoHideMenuBar: false,
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: "Ctrl+Shift+P",
+        showMainWindow: "Ctrl+Shift+M",
+        quickSwitch: "Ctrl+Shift+S"
+      }
+    };
+  }
+  /**
+   * 获取默认引擎设置
+   */
+  static getDefaultEngineSettings() {
+    return {
+      proxyEngine: "singbox",
+      engineSettings: {}
+    };
+  }
+  /**
+   * 获取默认网络设置
+   */
+  static getDefaultNetworkSettings() {
+    return {
+      enableDns: true,
+      dnsServer: "8.8.8.8",
+      enableDoh: false,
+      dohServer: "https://dns.google/dns-query",
+      enableTun: false,
+      tunDevice: "utun0",
+      enableFakeIp: true,
+      fakeIpRange: "198.18.0.1/16",
+      enableUdp: true,
+      enableIpv6: false,
+      logLevel: "info",
+      enableLog: true,
+      logFile: "chongdong.log"
+    };
+  }
+  /**
+   * 获取默认延迟测试设置
+   */
+  static getDefaultLatencyTestSettings() {
+    return {
+      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
+      latencyTestTimeout: 1e4,
+      latencyTestRetries: 3,
+      latencyTestInterval: 10,
+      enableAutoLatencyTest: false,
+      latencyTestConcurrency: 3,
+      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
+      latencyTestValidityPeriod: 30
+    };
+  }
+}
 class SettingsManager {
   constructor() {
     const userDataPath = electron.app.getPath("userData");
@@ -1875,30 +2076,7 @@ class SettingsManager {
     } catch (error) {
       console.error("Failed to read settings:", error);
     }
-    return {
-      theme: "auto",
-      language: "zh-CN",
-      autoStart: false,
-      systemProxy: true,
-      proxyPort: 7890,
-      socksPort: 7891,
-      mixedPort: 7890,
-      allowLan: false,
-      mode: "rule",
-      logLevel: "info",
-      enableLog: true,
-      logFile: "chongdong.log",
-      enableUdp: true,
-      enableIpv6: false,
-      enableTun: false,
-      tunDevice: "utun0",
-      enableFakeIp: true,
-      fakeIpRange: "198.18.0.1/16",
-      enableDns: true,
-      dnsServer: "8.8.8.8",
-      enableDoh: false,
-      dohServer: "https://dns.google/dns-query"
-    };
+    return this.getDefaultSettings();
   }
   /**
    * 读取用户偏好设置
@@ -1912,23 +2090,7 @@ class SettingsManager {
     } catch (error) {
       console.error("Failed to read preferences:", error);
     }
-    return {
-      windowSize: { width: 1200, height: 800 },
-      windowPosition: { x: 100, y: 100 },
-      sidebarCollapsed: false,
-      autoHideMenuBar: true,
-      alwaysOnTop: false,
-      minimizeToTray: true,
-      startMinimized: false,
-      enableNotifications: true,
-      notificationSound: true,
-      enableHotkeys: true,
-      hotkeys: {
-        toggleProxy: "Ctrl+Shift+P",
-        showMainWindow: "Ctrl+Shift+M",
-        quickSwitch: "Ctrl+Shift+S"
-      }
-    };
+    return this.getDefaultPreferences();
   }
   /**
    * 保存应用设置
@@ -1952,6 +2114,12 @@ class SettingsManager {
       console.error("Failed to save preferences:", error);
     }
   }
+  getDefaultSettings() {
+    return DefaultSettings.getDefaultAppSettings();
+  }
+  getDefaultPreferences() {
+    return DefaultSettings.getDefaultUserPreferences();
+  }
 }
 const settingsManager = SettingsManager.getInstance();
 try {
@@ -1965,6 +2133,62 @@ let tray = null;
 let isQuitting = false;
 let globalShortcutManager = null;
 let notificationManager = null;
+async function quitApp() {
+  try {
+    console.log("开始退出应用...");
+    isQuitting = true;
+    try {
+      console.log("停止所有代理进程...");
+      await proxyManager.stopAll();
+      console.log("代理进程已停止");
+    } catch (error) {
+      console.error("停止代理进程失败:", error);
+    }
+    try {
+      console.log("清理系统代理设置...");
+      await systemProxyManager.clearSystemProxy();
+      console.log("系统代理设置已清理");
+    } catch (error) {
+      console.error("清理系统代理设置失败:", error);
+    }
+    try {
+      console.log("注销全局快捷键...");
+      if (globalShortcutManager) {
+        globalShortcutManager.unregisterAllHotcuts();
+      }
+      console.log("全局快捷键已注销");
+    } catch (error) {
+      console.error("注销全局快捷键失败:", error);
+    }
+    try {
+      console.log("销毁托盘...");
+      if (tray) {
+        tray.destroy();
+        tray = null;
+      }
+      console.log("托盘已销毁");
+    } catch (error) {
+      console.error("销毁托盘失败:", error);
+    }
+    try {
+      console.log("关闭所有窗口...");
+      const windows = electron.BrowserWindow.getAllWindows();
+      for (const window of windows) {
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+      }
+      console.log("所有窗口已关闭");
+    } catch (error) {
+      console.error("关闭窗口失败:", error);
+    }
+    console.log("退出应用进程...");
+    electron.app.exit(0);
+  } catch (error) {
+    console.error("退出应用过程中发生错误:", error);
+    process.exit(0);
+  }
+}
 function showMainWindow() {
   try {
     if (!mainWindow) {
@@ -2016,8 +2240,13 @@ function createTray() {
     console.log("开始创建系统托盘...");
     let icon;
     try {
-      icon = electron.nativeImage.createFromPath(path.join(__dirname, "../renderer/assets/icon.png")).resize({ width: 16, height: 16 });
-      console.log("使用自定义图标");
+      const iconPath = path.join(__dirname, "../renderer/assets/icon.png");
+      if (require("fs").existsSync(iconPath)) {
+        icon = electron.nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+        console.log("使用自定义托盘图标");
+      } else {
+        throw new Error("图标文件不存在");
+      }
     } catch (error) {
       console.log("使用默认托盘图标");
       icon = electron.nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3Njape.org5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==");
@@ -2043,10 +2272,9 @@ function createTray() {
       },
       {
         label: "退出",
-        click: () => {
+        click: async () => {
           console.log("托盘菜单：退出被点击");
-          isQuitting = true;
-          electron.app.quit();
+          await quitApp();
         }
       }
     ]);
@@ -2074,20 +2302,41 @@ function createTray() {
 }
 function createWindow() {
   const preferences = getUserPreferences();
-  mainWindow = new electron.BrowserWindow({
+  let iconPath;
+  try {
+    if (process.platform === "darwin") {
+      const icnsPath = path.join(__dirname, "../../release/mac/虫洞.app/Contents/Resources/electron.icns");
+      if (require("fs").existsSync(icnsPath)) {
+        iconPath = icnsPath;
+        console.log("使用 macOS 图标:", iconPath);
+      }
+    } else {
+      const pngPath = path.join(__dirname, "../renderer/assets/icon.png");
+      if (require("fs").existsSync(pngPath)) {
+        iconPath = pngPath;
+        console.log("使用 PNG 图标:", iconPath);
+      }
+    }
+  } catch (error) {
+    console.warn("图标文件不存在，使用默认图标:", error);
+  }
+  const windowOptions = {
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     show: false,
     autoHideMenuBar: preferences.autoHideMenuBar,
-    // 暂时移除图标设置，避免找不到图标文件
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       sandbox: false,
       backgroundThrottling: false
     }
-  });
+  };
+  if (iconPath) {
+    windowOptions.icon = iconPath;
+  }
+  mainWindow = new electron.BrowserWindow(windowOptions);
   const loadMainContents = () => {
     if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
       mainWindow == null ? void 0 : mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -2153,8 +2402,8 @@ function createWindow() {
         {
           label: "退出",
           accelerator: process.platform === "darwin" ? "Cmd+Q" : "Ctrl+Q",
-          click: () => {
-            electron.app.quit();
+          click: async () => {
+            await quitApp();
           }
         }
       ]
@@ -2221,7 +2470,21 @@ electron.app.whenReady().then(() => {
   });
 });
 electron.app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") electron.app.quit();
+  if (process.platform !== "darwin") {
+    quitApp();
+  }
+});
+electron.app.on("before-quit", async (event) => {
+  if (!isQuitting) {
+    event.preventDefault();
+    await quitApp();
+  }
+});
+electron.app.on("will-quit", () => {
+  console.log("应用即将退出...");
+});
+electron.app.on("quit", (_, exitCode) => {
+  console.log("应用已退出，退出码:", exitCode);
 });
 electron.ipcMain.handle("get-app-version", () => {
   return electron.app.getVersion();
@@ -2501,6 +2764,16 @@ electron.ipcMain.handle("window:showFromTray", async () => {
     return { success: true };
   } catch (error) {
     console.error("Failed to show window from tray:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("app:quit", async () => {
+  try {
+    console.log("收到渲染进程退出请求");
+    await quitApp();
+    return { success: true };
+  } catch (error) {
+    console.error("退出应用失败:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
@@ -2870,5 +3143,131 @@ electron.ipcMain.handle("notification:is-supported", async () => {
   } catch (error) {
     console.error("检查通知支持失败:", error);
     return { supported: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("geolocation:testViaProxy", async (_, { proxyUrl }) => {
+  try {
+    console.log("开始通过代理测试IP地理位置:", proxyUrl);
+    const https2 = require("https");
+    const http = require("http");
+    const { URL: URL2 } = require("url");
+    const apis = [
+      "https://ipapi.co/json/",
+      "https://ipinfo.io/json",
+      "https://api.ipify.org?format=json"
+    ];
+    for (const api of apis) {
+      try {
+        const url = new URL2(api);
+        const isHttps = url.protocol === "https:";
+        const client = isHttps ? https2 : http;
+        const proxyUrlObj = new URL2(proxyUrl);
+        const proxyOptions = {
+          host: proxyUrlObj.hostname,
+          port: proxyUrlObj.port || (isHttps ? 443 : 80),
+          method: "CONNECT",
+          path: `${url.hostname}:${url.port || (isHttps ? 443 : 80)}`,
+          headers: {
+            "Host": url.hostname
+          }
+        };
+        return new Promise((resolve) => {
+          const proxyReq = client.request(proxyOptions, (proxyRes) => {
+            if (proxyRes.statusCode === 200) {
+              const req = client.request({
+                host: "127.0.0.1",
+                port: proxyUrlObj.port || (isHttps ? 443 : 80),
+                method: "GET",
+                path: url.pathname + url.search,
+                headers: {
+                  "Host": url.hostname,
+                  "Accept": "application/json",
+                  "User-Agent": "Chongdong/1.0"
+                }
+              }, (res) => {
+                let data = "";
+                res.on("data", (chunk) => {
+                  data += chunk;
+                });
+                res.on("end", () => {
+                  try {
+                    const jsonData = JSON.parse(data);
+                    let result;
+                    if (api.includes("ipapi.co")) {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip,
+                        country: jsonData.country_name,
+                        region: jsonData.region,
+                        city: jsonData.city,
+                        isp: jsonData.org,
+                        timezone: jsonData.timezone
+                      };
+                    } else if (api.includes("ipinfo.io")) {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip,
+                        country: jsonData.country,
+                        region: jsonData.region,
+                        city: jsonData.city,
+                        isp: jsonData.org,
+                        timezone: jsonData.timezone
+                      };
+                    } else {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip
+                      };
+                    }
+                    console.log("通过代理IP地理位置测试成功:", result);
+                    resolve(result);
+                  } catch (error) {
+                    console.error("解析IP地理位置数据失败:", error);
+                    resolve({
+                      success: false,
+                      error: "Failed to parse response"
+                    });
+                  }
+                });
+              });
+              req.on("error", (error) => {
+                console.error("HTTP请求失败:", error);
+                resolve({
+                  success: false,
+                  error: error.message
+                });
+              });
+              req.end();
+            } else {
+              resolve({
+                success: false,
+                error: `Proxy connection failed: ${proxyRes.statusCode}`
+              });
+            }
+          });
+          proxyReq.on("error", (error) => {
+            console.error("代理连接失败:", error);
+            resolve({
+              success: false,
+              error: error.message
+            });
+          });
+          proxyReq.end();
+        });
+      } catch (error) {
+        console.warn(`IP地理位置API ${api} 通过代理测试失败:`, error);
+        continue;
+      }
+    }
+    return {
+      success: false,
+      error: "所有IP地理位置API都不可用"
+    };
+  } catch (error) {
+    console.error("通过代理IP地理位置测试失败:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
   }
 });

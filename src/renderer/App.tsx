@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Space, Typography } from 'antd';
 import {
   DashboardOutlined,
@@ -17,6 +17,8 @@ import SubscriptionManagement from '@/pages/SubscriptionManagement';
 import NodeManagement from './pages/NodeManagement';
 import Monitor from '@/pages/Monitor';
 import Settings from '@/pages/Settings';
+import { proxyEngine } from './utils/proxyEngine';
+import { useNodeStore } from './utils/stores';
 import './App.css';
 
 const { Sider, Content } = Layout;
@@ -25,6 +27,38 @@ const { Title } = Typography;
 const AppContent: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [selectedKey, setSelectedKey] = useState('dashboard');
+  
+  // 获取全局状态更新函数
+  const setProxyConnected = useNodeStore((state) => state.setProxyConnected);
+  const setCurrentProxyNode = useNodeStore((state) => state.setCurrentProxyNode);
+  const setCurrentProxyChain = useNodeStore((state) => state.setCurrentProxyChain);
+  const setTrafficStats = useNodeStore((state) => state.setTrafficStats);
+
+  // 注册proxyEngine状态变化回调
+  useEffect(() => {
+    const handleStatusChange = (status: any) => {
+      setProxyConnected(status.running);
+      setTrafficStats({
+        connections: status.connections || 0,
+        upload: status.upload || 0,
+        download: status.download || 0,
+        uploadSpeed: 0, // 这些需要计算
+        downloadSpeed: 0,
+      });
+      
+      // 如果代理停止，清空当前节点/代理链信息
+      if (!status.running) {
+        setCurrentProxyNode(null);
+        setCurrentProxyChain(null);
+      }
+    };
+
+    proxyEngine.onStatusChange(handleStatusChange);
+
+    return () => {
+      proxyEngine.offStatusChange(handleStatusChange);
+    };
+  }, [setProxyConnected, setCurrentProxyNode, setCurrentProxyChain, setTrafficStats]);
 
   const menuItems = [
     {

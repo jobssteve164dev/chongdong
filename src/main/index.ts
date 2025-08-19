@@ -4,6 +4,12 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createGlobalShortcutManager, HotkeyConfig } from './globalShortcutManager';
 import { createNotificationManager, NotificationConfig } from './notificationManager';
 
+// 导入管理器
+import { proxyManager } from './proxyManager';
+import { systemProxyManager } from './systemProxyManager';
+import { coreDownloader } from './coreDownloader';
+import { settingsManager } from './settingsManager';
+
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
   app.disableHardwareAcceleration();
@@ -20,6 +26,78 @@ let isQuitting = false;
 // 全局快捷键和通知管理器
 let globalShortcutManager: ReturnType<typeof createGlobalShortcutManager> | null = null;
 let notificationManager: ReturnType<typeof createNotificationManager> | null = null;
+
+// 统一的退出应用函数
+async function quitApp(): Promise<void> {
+  try {
+    console.log('开始退出应用...');
+    isQuitting = true;
+    
+    // 1. 停止所有代理进程
+    try {
+      console.log('停止所有代理进程...');
+      await proxyManager.stopAll();
+      console.log('代理进程已停止');
+    } catch (error) {
+      console.error('停止代理进程失败:', error);
+    }
+    
+    // 2. 清理系统代理设置
+    try {
+      console.log('清理系统代理设置...');
+      await systemProxyManager.clearSystemProxy();
+      console.log('系统代理设置已清理');
+    } catch (error) {
+      console.error('清理系统代理设置失败:', error);
+    }
+    
+    // 3. 注销全局快捷键
+    try {
+      console.log('注销全局快捷键...');
+      if (globalShortcutManager) {
+        globalShortcutManager.unregisterAllHotcuts();
+      }
+      console.log('全局快捷键已注销');
+    } catch (error) {
+      console.error('注销全局快捷键失败:', error);
+    }
+    
+    // 4. 销毁托盘
+    try {
+      console.log('销毁托盘...');
+      if (tray) {
+        tray.destroy();
+        tray = null;
+      }
+      console.log('托盘已销毁');
+    } catch (error) {
+      console.error('销毁托盘失败:', error);
+    }
+    
+    // 5. 关闭所有窗口
+    try {
+      console.log('关闭所有窗口...');
+      const windows = BrowserWindow.getAllWindows();
+      for (const window of windows) {
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+      }
+      console.log('所有窗口已关闭');
+    } catch (error) {
+      console.error('关闭窗口失败:', error);
+    }
+    
+    // 6. 退出应用
+    console.log('退出应用进程...');
+    app.exit(0);
+    
+  } catch (error) {
+    console.error('退出应用过程中发生错误:', error);
+    // 强制退出
+    process.exit(0);
+  }
+}
 
 // 统一的显示主窗口函数
 function showMainWindow(): void {
@@ -83,11 +161,17 @@ function createTray(): void {
   try {
     console.log('开始创建系统托盘...');
     
-    // 创建托盘图标（使用默认图标或创建一个简单的图标）
+    // 创建托盘图标
     let icon;
     try {
-      icon = nativeImage.createFromPath(join(__dirname, '../renderer/assets/icon.png')).resize({ width: 16, height: 16 });
-      console.log('使用自定义图标');
+      // 尝试使用应用图标
+      const iconPath = join(__dirname, '../renderer/assets/icon.png');
+      if (require('fs').existsSync(iconPath)) {
+        icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+        console.log('使用自定义托盘图标');
+      } else {
+        throw new Error('图标文件不存在');
+      }
     } catch (error) {
       // 如果找不到图标文件，创建一个简单的图标
       console.log('使用默认托盘图标');
@@ -117,10 +201,9 @@ function createTray(): void {
       },
       {
         label: '退出',
-        click: () => {
+        click: async () => {
           console.log('托盘菜单：退出被点击');
-          isQuitting = true;
-          app.quit();
+          await quitApp();
         }
       }
     ]);
@@ -159,21 +242,49 @@ function createWindow(): void {
   // 读取用户偏好设置
   const preferences = getUserPreferences();
   
+  // 获取应用图标路径
+  let iconPath: string | undefined;
+  try {
+    if (process.platform === 'darwin') {
+      // macOS 使用 .icns 文件
+      const icnsPath = join(__dirname, '../../release/mac/虫洞.app/Contents/Resources/electron.icns');
+      if (require('fs').existsSync(icnsPath)) {
+        iconPath = icnsPath;
+        console.log('使用 macOS 图标:', iconPath);
+      }
+    } else {
+      // 其他平台使用 PNG 文件
+      const pngPath = join(__dirname, '../renderer/assets/icon.png');
+      if (require('fs').existsSync(pngPath)) {
+        iconPath = pngPath;
+        console.log('使用 PNG 图标:', iconPath);
+      }
+    }
+  } catch (error) {
+    console.warn('图标文件不存在，使用默认图标:', error);
+  }
+
   // Create the browser window.
-  mainWindow = new BrowserWindow({
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     show: false,
     autoHideMenuBar: preferences.autoHideMenuBar,
-    // 暂时移除图标设置，避免找不到图标文件
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       backgroundThrottling: false,
     },
-  });
+  };
+
+  // 只有在图标存在时才添加图标配置
+  if (iconPath) {
+    windowOptions.icon = iconPath;
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   // 封装加载入口页面，便于异常时重试
   const loadMainContents = () => {
@@ -263,8 +374,8 @@ function createWindow(): void {
         {
           label: '退出',
           accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
-          click: () => {
-            app.quit();
+          click: async () => {
+            await quitApp();
           },
         },
       ],
@@ -350,17 +461,33 @@ app.whenReady().then(() => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    quitApp();
+  }
+});
+
+// 应用退出事件处理
+app.on('before-quit', async (event) => {
+  if (!isQuitting) {
+    event.preventDefault();
+    await quitApp();
+  }
+});
+
+// 应用即将退出事件处理
+app.on('will-quit', () => {
+  console.log('应用即将退出...');
+});
+
+// 应用退出事件处理
+app.on('quit', (_, exitCode) => {
+  console.log('应用已退出，退出码:', exitCode);
 });
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
 
-// 导入管理器
-import { proxyManager } from './proxyManager';
-import { systemProxyManager } from './systemProxyManager';
-import { coreDownloader } from './coreDownloader';
-import { settingsManager } from './settingsManager';
+// import { ProxyNode } from '../shared/types';
 
 // 基础IPC处理程序
 ipcMain.handle('get-app-version', () => {
@@ -693,6 +820,18 @@ ipcMain.handle('window:showFromTray', async () => {
     return { success: true };
   } catch (error) {
     console.error('Failed to show window from tray:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 应用退出IPC处理程序
+ipcMain.handle('app:quit', async () => {
+  try {
+    console.log('收到渲染进程退出请求');
+    await quitApp();
+    return { success: true };
+  } catch (error) {
+    console.error('退出应用失败:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
@@ -1144,5 +1283,153 @@ ipcMain.handle('notification:is-supported', async () => {
   } catch (error) {
     console.error('检查通知支持失败:', error);
     return { supported: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// IP地理位置测试IPC处理程序
+ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
+  try {
+    console.log('开始通过代理测试IP地理位置:', proxyUrl);
+    
+    const https = require('https');
+    const http = require('http');
+    const { URL } = require('url');
+    
+    // 使用多个IP地理位置API服务，提高成功率
+    const apis = [
+      'https://ipapi.co/json/',
+      'https://ipinfo.io/json',
+      'https://api.ipify.org?format=json'
+    ];
+
+    for (const api of apis) {
+      try {
+        const url = new URL(api);
+        const isHttps = url.protocol === 'https:';
+        const client = isHttps ? https : http;
+        
+        // 解析代理URL
+        const proxyUrlObj = new URL(proxyUrl);
+        const proxyOptions = {
+          host: proxyUrlObj.hostname,
+          port: proxyUrlObj.port || (isHttps ? 443 : 80),
+          method: 'CONNECT',
+          path: `${url.hostname}:${url.port || (isHttps ? 443 : 80)}`,
+          headers: {
+            'Host': url.hostname
+          }
+        };
+
+        return new Promise((resolve) => {
+          const proxyReq = client.request(proxyOptions, (proxyRes: any) => {
+            if (proxyRes.statusCode === 200) {
+              // 代理连接成功，现在发送HTTP请求
+              const req = client.request({
+                host: '127.0.0.1',
+                port: proxyUrlObj.port || (isHttps ? 443 : 80),
+                method: 'GET',
+                path: url.pathname + url.search,
+                headers: {
+                  'Host': url.hostname,
+                  'Accept': 'application/json',
+                  'User-Agent': 'Chongdong/1.0'
+                }
+              }, (res: any) => {
+                let data = '';
+                res.on('data', (chunk: any) => {
+                  data += chunk;
+                });
+                res.on('end', () => {
+                  try {
+                    const jsonData = JSON.parse(data);
+                    
+                    // 处理不同的API响应格式
+                    let result: any;
+                    
+                    if (api.includes('ipapi.co')) {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip,
+                        country: jsonData.country_name,
+                        region: jsonData.region,
+                        city: jsonData.city,
+                        isp: jsonData.org,
+                        timezone: jsonData.timezone
+                      };
+                    } else if (api.includes('ipinfo.io')) {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip,
+                        country: jsonData.country,
+                        region: jsonData.region,
+                        city: jsonData.city,
+                        isp: jsonData.org,
+                        timezone: jsonData.timezone
+                      };
+                    } else {
+                      result = {
+                        success: true,
+                        ip: jsonData.ip
+                      };
+                    }
+
+                    console.log('通过代理IP地理位置测试成功:', result);
+                    resolve(result);
+                  } catch (error) {
+                    console.error('解析IP地理位置数据失败:', error);
+                    resolve({
+                      success: false,
+                      error: 'Failed to parse response'
+                    });
+                  }
+                });
+              });
+              
+              req.on('error', (error: any) => {
+                console.error('HTTP请求失败:', error);
+                resolve({
+                  success: false,
+                  error: error.message
+                });
+              });
+              
+              req.end();
+            } else {
+              resolve({
+                success: false,
+                error: `Proxy connection failed: ${proxyRes.statusCode}`
+              });
+            }
+          });
+          
+          proxyReq.on('error', (error: any) => {
+            console.error('代理连接失败:', error);
+            resolve({
+              success: false,
+              error: error.message
+            });
+          });
+          
+          proxyReq.end();
+        });
+        
+      } catch (error) {
+        console.warn(`IP地理位置API ${api} 通过代理测试失败:`, error);
+        continue; // 尝试下一个API
+      }
+    }
+
+    // 所有API都失败了
+    return {
+      success: false,
+      error: '所有IP地理位置API都不可用'
+    };
+    
+  } catch (error) {
+    console.error('通过代理IP地理位置测试失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 });

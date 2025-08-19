@@ -11,25 +11,13 @@ import {
   Alert,
   Select,
   InputNumber,
-  ColorPicker,
-  Slider,
-  Radio,
-  Checkbox,
   Upload,
   message,
   Row,
   Col,
-  List,
-  Avatar,
-  Tag,
-  Tooltip,
   Badge,
-  Modal,
-  Tabs,
-  Collapse,
   Descriptions,
-  Statistic,
-  Progress,
+  Tabs,
 } from 'antd';
 import {
   SettingOutlined,
@@ -37,25 +25,12 @@ import {
   ReloadOutlined,
   ExportOutlined,
   ImportOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-  EditOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  LockOutlined,
-  UnlockOutlined,
   KeyOutlined,
-  UserOutlined,
   GlobalOutlined,
-  WifiOutlined,
   ThunderboltOutlined,
   CloudOutlined,
   InfoCircleOutlined,
-  QuestionCircleOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  WarningOutlined,
-  CloseCircleOutlined,
   SecurityScanOutlined,
   DesktopOutlined,
 } from '@ant-design/icons';
@@ -65,8 +40,8 @@ import { log } from '../utils/logger';
 import ConfigApi from '../utils/configApi';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import CoreManager from '../components/CoreManager';
-import { CoreStatus } from '../utils/coreManager';
 import { windowManager } from '../utils/windowManager';
+import { DefaultSettings } from '../utils/defaultSettings';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -74,70 +49,18 @@ const { Option } = Select;
 const { TabPane } = Tabs;
 
 const Settings: React.FC = () => {
-  const { theme, toggleTheme } = useTheme();
+  const { toggleTheme } = useTheme();
   const [form] = Form.useForm();
   const [preferencesForm] = Form.useForm();
   const [networkForm] = Form.useForm();
   const [securityForm] = Form.useForm();
+  const [engineForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const networkSettingsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [coresStatus, setCoresStatus] = useState<CoreStatus>({ 
-    singbox: false, 
-    xray: false, 
-    clash: false,
-    geoip: false,
-    geosite: false
-  });
-  const [settings, setSettings] = useState<AppSettings>({
-    theme: 'auto',
-    language: 'zh-CN',
-    autoStart: false,
-    systemProxy: true,
-    proxyPort: 7890,
-    socksPort: 7891,
-    mixedPort: 7890,
-    allowLan: false,
-    mode: 'rule',
-    logLevel: 'info',
-    enableLog: true,
-    logFile: 'chongdong.log',
-    enableUdp: true,
-    enableIpv6: false,
-    enableTun: false,
-    tunDevice: 'utun0',
-    enableFakeIp: true,
-    fakeIpRange: '198.18.0.1/16',
-    enableDns: true,
-    dnsServer: '8.8.8.8',
-    enableDoh: false,
-    dohServer: 'https://dns.google/dns-query',
-    // 延迟测试设置
-    latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
-    latencyTestTimeout: 10000,
-    latencyTestRetries: 3,
-    latencyTestInterval: 10,
-    enableAutoLatencyTest: false,
-    latencyTestConcurrency: 3,
-    latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
-  });
 
-  const [preferences, setPreferences] = useState<UserPreferences>({
-    windowSize: { width: 1200, height: 800 },
-    windowPosition: { x: 100, y: 100 },
-    sidebarCollapsed: false,
-    autoHideMenuBar: false,
-    alwaysOnTop: false,
-    minimizeToTray: true,
-    startMinimized: false,
-    enableNotifications: true,
-    notificationSound: true,
-    enableHotkeys: true,
-    hotkeys: {
-      toggleProxy: 'Ctrl+Shift+P',
-      showMainWindow: 'Ctrl+Shift+M',
-      quickSwitch: 'Ctrl+Shift+S'
-    }
-  });
+  const [settings, setSettings] = useState<AppSettings>(DefaultSettings.getDefaultAppSettings());
+
+  const [preferences, setPreferences] = useState<UserPreferences>(DefaultSettings.getDefaultUserPreferences());
 
   // 加载已保存的设置
   useEffect(() => {
@@ -146,22 +69,46 @@ const Settings: React.FC = () => {
 
   const loadSavedSettings = async () => {
     try {
-      // 加载应用设置
-      const savedSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
+      // 尝试从新的存储键加载设置
+      let savedSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
+      
+      // 如果没有找到，尝试从旧的存储键加载（迁移兼容）
+      if (!savedSettings) {
+        const oldSettings = Storage.get<AppSettings>('settings');
+        if (oldSettings) {
+          // 迁移旧设置到新的存储键
+          savedSettings = oldSettings;
+          Storage.set(STORAGE_KEYS.SETTINGS, oldSettings);
+          Storage.remove('settings'); // 删除旧的存储键
+          console.log('已迁移旧设置到新的存储键');
+        }
+      }
+      
+      // 处理引擎设置的迁移（修复 sing-box 到 singbox）
+      if (savedSettings && (savedSettings.proxyEngine as any) === 'sing-box') {
+        savedSettings.proxyEngine = 'singbox';
+        Storage.set(STORAGE_KEYS.SETTINGS, savedSettings);
+        console.log('已修复引擎设置：sing-box -> singbox');
+      }
+      
       if (savedSettings) {
         setSettings(prev => ({ ...prev, ...savedSettings }));
         form.setFieldsValue(savedSettings);
         networkForm.setFieldsValue(savedSettings);
         securityForm.setFieldsValue(savedSettings);
+        // Special handling for engineForm to stringify engineSettings
+        engineForm.setFieldsValue({
+          ...savedSettings,
+          engineSettings: savedSettings.engineSettings 
+            ? JSON.stringify(savedSettings.engineSettings, null, 2) 
+            : ''
+        });
       }
 
-      // 加载用户偏好设置
       const savedPreferences = Storage.get<UserPreferences>(STORAGE_KEYS.USER_PREFERENCES);
       if (savedPreferences) {
         setPreferences(prev => ({ ...prev, ...savedPreferences }));
         preferencesForm.setFieldsValue(savedPreferences);
-        
-        // 应用窗口设置
         await applyWindowSettings(savedPreferences);
       }
 
@@ -222,7 +169,22 @@ const Settings: React.FC = () => {
       const preferencesValues = await preferencesForm.validateFields();
       const networkValues = await networkForm.validateFields().catch(() => ({}));
       const securityValues = await securityForm.validateFields().catch(() => ({}));
+      const engineValues = await engineForm.validateFields().catch(() => ({}));
       
+      // 在这里转换 engineSettings
+      if (engineValues.engineSettings && typeof engineValues.engineSettings === 'string') {
+        try {
+          engineValues.engineSettings = JSON.parse(engineValues.engineSettings);
+        } catch (e) {
+          message.error('引擎特定配置不是有效的JSON格式，请检查！');
+          log.error('无效的引擎配置JSON', e, 'Settings');
+          setLoading(false);
+          return; // 阻止保存
+        }
+      } else if (!engineValues.engineSettings) {
+        engineValues.engineSettings = {}; // 确保它是一个对象
+      }
+
       // 保存应用设置
       const newSettings = { ...settings, ...settingsValues };
       Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
@@ -234,7 +196,7 @@ const Settings: React.FC = () => {
       setPreferences(newPreferences);
       
       // 保存网络和安全设置到应用设置中
-      const allSettings = { ...newSettings, ...networkValues, ...securityValues };
+      const allSettings = { ...newSettings, ...networkValues, ...securityValues, ...engineValues };
       Storage.set(STORAGE_KEYS.SETTINGS, allSettings);
       setSettings(allSettings);
       
@@ -381,55 +343,14 @@ const Settings: React.FC = () => {
     preferencesForm.resetFields();
     networkForm.resetFields();
     securityForm.resetFields();
-    setSettings({
-      theme: 'auto',
-      language: 'zh-CN',
-      autoStart: false,
-      systemProxy: true,
-      proxyPort: 7890,
-      socksPort: 7891,
-      mixedPort: 7890,
-      allowLan: false,
-      mode: 'rule',
-      logLevel: 'info',
-      enableLog: true,
-      logFile: 'chongdong.log',
-      enableUdp: true,
-      enableIpv6: false,
-      enableTun: false,
-      tunDevice: 'utun0',
-      enableFakeIp: true,
-      fakeIpRange: '198.18.0.1/16',
-      enableDns: true,
-      dnsServer: '8.8.8.8',
-      enableDoh: false,
-      dohServer: 'https://dns.google/dns-query',
-      // 延迟测试设置
-      latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
-      latencyTestTimeout: 10000,
-      latencyTestRetries: 3,
-      latencyTestInterval: 10,
-      enableAutoLatencyTest: false,
-      latencyTestConcurrency: 3,
-      latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
-    });
-    setPreferences({
-      windowSize: { width: 1200, height: 800 },
-      windowPosition: { x: 100, y: 100 },
-      sidebarCollapsed: false,
-      autoHideMenuBar: false,
-      alwaysOnTop: false,
-      minimizeToTray: true,
-      startMinimized: false,
-      enableNotifications: true,
-      notificationSound: true,
-      enableHotkeys: true,
-      hotkeys: {
-        toggleProxy: 'Ctrl+Shift+P',
-        showMainWindow: 'Ctrl+Shift+M',
-        quickSwitch: 'Ctrl+Shift+S'
-      }
-    });
+    engineForm.resetFields();
+    
+    // 使用统一的默认设置
+    const defaultSettings = DefaultSettings.getDefaultAppSettings();
+    const defaultPreferences = DefaultSettings.getDefaultUserPreferences();
+    
+    setSettings(defaultSettings);
+    setPreferences(defaultPreferences);
     
     message.info('设置已重置为默认值');
     log.info('重置应用设置', null, 'Settings');
@@ -920,6 +841,17 @@ const Settings: React.FC = () => {
                   />
                 </Form.Item>
               </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="latencyTestValidityPeriod" label="延迟测试结果有效期(分钟)">
+                  <InputNumber 
+                    min={5} 
+                    max={120} 
+                    step={5}
+                    placeholder="30"
+                    style={{ width: '100%' }} 
+                  />
+                </Form.Item>
+              </Col>
             </Row>
 
             <Row gutter={[16, 16]}>
@@ -1259,13 +1191,54 @@ const Settings: React.FC = () => {
         <TabPane
           tab={
             <span>
+              <ThunderboltOutlined />
+              引擎设置
+            </span>
+          }
+          key="engine"
+        >
+          <Card title="代理引擎配置">
+            <Form
+              form={engineForm}
+              layout="vertical"
+              initialValues={settings}
+            >
+              <Form.Item
+                name="proxyEngine"
+                label="代理引擎"
+                rules={[{ required: true, message: '请选择一个代理引擎' }]}
+              >
+                <Select>
+                  <Option value="xray">Xray</Option>
+                  <Option value="clash">Clash</Option>
+                  <Option value="singbox">Sing-box</Option>
+                  <Option value="v2ray">V2Ray (depricated)</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="engineSettings"
+                label="引擎特定配置 (JSON)"
+                tooltip="此处的配置将作为命令行参数或特定配置文件内容传递给所选引擎。"
+              >
+                <Input.TextArea 
+                  rows={10}
+                  placeholder='例如：&#10;{&#10;  "apiPort": 9090,&#10;  "logLevel": "debug"&#10;}'
+                />
+              </Form.Item>
+            </Form>
+          </Card>
+        </TabPane>
+
+        <TabPane
+          tab={
+            <span>
               <CloudOutlined />
               核心管理
             </span>
           }
           key="core"
         >
-          <CoreManager onCoreStatusChange={setCoresStatus} />
+          <CoreManager />
         </TabPane>
       </Tabs>
     </div>

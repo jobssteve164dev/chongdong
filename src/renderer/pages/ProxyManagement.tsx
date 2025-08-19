@@ -1,296 +1,156 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, Table, Tag, Switch, Modal, Form, Input, Select, message, Space, Tooltip, Progress, Tabs } from 'antd';
-import { PlayCircleOutlined, StopOutlined, SettingOutlined, PlusOutlined, DeleteOutlined, EditOutlined, EyeOutlined, LinkOutlined } from '@ant-design/icons';
-import { proxyEngine, ProxyConfig, ProxyStatus } from '../utils/proxyEngine';
+import {
+  Card,
+  Button,
+  Tabs,
+  message,
+  Modal,
+  Tag,
+} from 'antd';
+import {
+  PlayCircleOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
+import { proxyEngine, ProxyStatus } from '../utils/proxyEngine';
 import { systemProxy, ProxySettings } from '../utils/systemProxy';
-import { chainProxyManager, ChainConfig } from '../utils/chainProxy';
+import { ChainConfig, ProxyNode, AppSettings } from '../../shared/types';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import ProxyChainBuilder from '../components/ProxyChainBuilder';
-import { CoreManager as CoreManagerUtil } from '../utils/coreManager';
+import NodeSelector from '../components/NodeSelector';
+import { useNodeStore, NodeStore } from '../utils/stores';
+import { DefaultSettings } from '../utils/defaultSettings';
 import './ProxyManagement.css';
 
-const { Option } = Select;
+const { TabPane } = Tabs;
 
-interface ProxyManagementProps {
-  // 可以添加props如果需要
-}
-
-const ProxyManagement: React.FC<ProxyManagementProps> = () => {
-  const [proxyConfigs, setProxyConfigs] = useState<ProxyConfig[]>([]);
+const ProxyManagement: React.FC = () => {
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
-  const [currentStatus, setCurrentStatus] = useState<ProxyStatus | null>(null);
   const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
   const [loading, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingConfig, setEditingConfig] = useState<ProxyConfig | null>(null);
-  const [form] = Form.useForm();
+  
+  // 从 Zustand store 获取节点和延迟信息
+  const nodes = useNodeStore((state: NodeStore) => state.nodes);
+  const nodeLatencies = useNodeStore((state: NodeStore) => state.nodeLatencies);
+  const defaultChainId = useNodeStore((state: NodeStore) => state.defaultChainId);
+  const setNodeLatencies = useNodeStore((state: NodeStore) => state.setNodeLatencies);
+  
+  // 从store获取全局代理连接状态
+  const proxyConnected = useNodeStore((state: NodeStore) => state.proxyConnected);
+  const setProxyConnected = useNodeStore((state: NodeStore) => state.setProxyConnected);
+  const currentProxyNode = useNodeStore((state: NodeStore) => state.currentProxyNode);
+  const setCurrentProxyNode = useNodeStore((state: NodeStore) => state.setCurrentProxyNode);
+  const currentProxyChain = useNodeStore((state: NodeStore) => state.currentProxyChain);
+  const setCurrentProxyChain = useNodeStore((state: NodeStore) => state.setCurrentProxyChain);
+  const trafficStats = useNodeStore((state: NodeStore) => state.trafficStats);
 
-  // 加载配置
   useEffect(() => {
-    loadConfigs();
+    loadChainConfigs();
     loadSystemProxy();
-    startStatusPolling();
-    
-    console.log('设置端口占用监听器...');
-    
-    // 监听端口占用通知
+
     const handlePortInUse = (data: { port: number; processId: string }) => {
-      console.log('收到端口占用通知:', data);
-      if (!data) {
-        console.error('端口占用通知未收到有效数据');
-        return;
-      }
       Modal.confirm({
         title: '端口被占用',
-        content: (
-          <div>
-            <p>端口 {data.port} 已被其他进程占用，无法启动代理服务。</p>
-            <p>可能的原因：</p>
-            <ul>
-              <li>之前的代理进程未完全退出</li>
-              <li>其他应用正在使用该端口</li>
-              <li>系统代理已启用</li>
-            </ul>
-            <p>是否要终止占用该端口的进程？</p>
-          </div>
-        ),
-        okText: '终止进程',
-        cancelText: '取消',
+        content: `端口 ${data.port} 已被占用。是否终止占用该端口的进程？`,
         onOk: async () => {
-          try {
-            const result = await window.electron.ipcRenderer.invoke('proxy:killProcessOnPort', data.port);
-            if (result.success) {
-              message.success(result.message);
-              // 重新尝试启动代理
-              setTimeout(() => {
-                // 这里可以重新启动代理，但需要知道是哪个配置
-                message.info('请重新尝试启动代理服务');
-              }, 1000);
-            } else {
-              message.error(result.message || '操作失败');
-            }
-          } catch (error) {
-            message.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
-          }
+          await window.electron.ipcRenderer.invoke('proxy:killProcessOnPort', data.port);
+          message.info('进程已终止，请重试启动代理。');
         },
-        onCancel: () => {
-          // 用户选择取消时，重置代理状态
-          console.log('用户取消端口占用处理，重置代理状态');
-          
-          // 重置代理状态卡片
-          setCurrentStatus({
-            running: false,
-            uptime: 0,
-            connections: 0,
-            upload: 0,
-            download: 0,
-            error: '端口被占用，启动失败'
-          });
-          
-          // 重置所有代理配置的启用状态
-          const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
-          saveProxyConfigs(updatedConfigs);
-          
-          message.info('已取消启动代理服务');
-        }
       });
     };
 
-    // 注册监听器
     window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
-    console.log('端口占用监听器已设置');
 
-    // 清理监听器
     return () => {
-      // 注意：这里我们无法直接移除特定的监听器，但这是可以接受的
-      // 因为组件卸载时会自动清理
-      console.log('清理端口占用监听器');
+      // 清理IPC监听器
     };
   }, []);
 
-  const loadConfigs = async () => {
-    try {
-      // 从存储中加载代理配置
-      const savedProxyConfigs = Storage.get<ProxyConfig[]>('proxy_configs', []) || [];
-      const savedChainConfigs = Storage.get<ChainConfig[]>('chain_configs', []) || [];
-
-      // 如果没有保存的配置，使用默认配置
-      if (savedProxyConfigs.length === 0) {
-        const defaultConfigs: ProxyConfig[] = [
-          {
-            id: '1',
-            name: 'Sing-box 基础测试',
-            type: 'singbox',
-            config: {
-              // 空的 outbounds，让基础配置处理
-              outbounds: []
-            },
-            enabled: false,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          }
-        ];
-
-        const defaultChains: ChainConfig[] = [
-          {
-            id: 'chain-1',
-            name: '默认代理链',
-            description: '包含多个代理的链式配置',
-            proxies: ['1'],
-            rules: [
-              {
-                id: 'rule-1',
-                type: 'geoip',
-                value: 'cn',
-                action: 'direct',
-                priority: 100
-              }
-            ],
-            enabled: false,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          }
-        ];
-
-        // 保存默认配置到存储
-        Storage.set('proxy_configs', defaultConfigs);
-        Storage.set('chain_configs', defaultChains);
-
-        setProxyConfigs(defaultConfigs);
-        setChainConfigs(defaultChains);
-      } else {
-        // 检查是否有旧的 vmess 配置，如果有则强制重置
-        const hasOldConfig = savedProxyConfigs.some(config => 
-          config.config?.outbounds?.some((outbound: any) => 
-            outbound.type === 'vmess' && outbound.server === 'example.com'
-          )
-        );
-        
-        if (hasOldConfig) {
-          console.log('检测到旧的 vmess 配置，强制重置为默认配置');
-          // 清除旧配置
-          Storage.remove('proxy_configs');
-          Storage.remove('chain_configs');
-          // 重新加载
-          loadConfigs();
-          return;
-        }
-        
-        setProxyConfigs(savedProxyConfigs);
-        setChainConfigs(savedChainConfigs);
-      }
-    } catch (error) {
-      message.error('加载配置失败');
-    }
+  const loadChainConfigs = () => {
+    const savedChainConfigs = Storage.get<ChainConfig[]>('chain_configs', []) || [];
+    setChainConfigs(savedChainConfigs);
   };
 
-  // 保存代理配置到存储
-  const saveProxyConfigs = (configs: ProxyConfig[]) => {
-    try {
-      Storage.set('proxy_configs', configs);
-      setProxyConfigs(configs);
-    } catch (error: unknown) {
-      message.error('保存代理配置失败');
-    }
-  };
-
-  // 保存代理链配置到存储
   const saveChainConfigs = (configs: ChainConfig[]) => {
-    try {
-      Storage.set('chain_configs', configs);
-      setChainConfigs(configs);
-    } catch (error: unknown) {
-      message.error('保存代理链配置失败');
-    }
+    Storage.set('chain_configs', configs);
+    setChainConfigs(configs);
   };
 
   const loadSystemProxy = async () => {
-    try {
-      const settings = await systemProxy.getSystemProxy();
-      setSystemProxySettings(settings);
-    } catch (error) {
-      console.error('Failed to load system proxy:', error);
-    }
+    const settings = await systemProxy.getSystemProxy();
+    setSystemProxySettings(settings);
   };
 
-  const startStatusPolling = () => {
-    const interval = setInterval(async () => {
-      try {
-        const status = proxyEngine.getStatus();
-        setCurrentStatus(status);
-        
-        // 如果代理引擎状态与配置状态不一致，同步状态
-        const runningConfig = proxyConfigs.find(c => c.enabled);
-        if (status.running && !runningConfig) {
-          // 代理引擎在运行但没有启用的配置，重置状态
-          setCurrentStatus({
-            running: false,
-            uptime: 0,
-            connections: 0,
-            upload: 0,
-            download: 0,
-            error: '状态不一致'
-          });
-        } else if (!status.running && runningConfig) {
-          // 有启用的配置但代理引擎未运行，更新配置状态
-          const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
-          saveProxyConfigs(updatedConfigs);
-        }
-      } catch (error) {
-        console.error('状态轮询错误:', error);
-      }
-    }, 2000);
 
-    return () => clearInterval(interval);
-  };
 
-  // 代理配置管理
-  const handleStartProxy = async (config: ProxyConfig) => {
-    // 检查对应的核心是否已安装
-    const coreName = config.type;
-    const isInstalled = await CoreManagerUtil.isCoreInstalled(coreName);
-    if (!isInstalled) {
-      Modal.confirm({
-        title: '核心未安装',
-        content: `${CoreManagerUtil.getCoreDisplayName(coreName)} 核心未安装，是否现在下载安装？`,
-        okText: '下载安装',
-        cancelText: '取消',
-        onOk: () => {
-          // 这里可以触发下载，或者引导用户到核心管理页面
-          message.info('请先下载安装对应的代理核心');
-        }
-      });
-      return;
-    }
-
+  const handleStartProxy = async (selectedNodeId: string) => {
     setLoading(true);
     try {
-      await proxyEngine.start(config);
-      // 更新配置状态
-      const updatedConfigs = proxyConfigs.map(c => 
-        c.id === config.id ? { ...c, enabled: true, updatedAt: new Date() } : c
-      );
-      saveProxyConfigs(updatedConfigs);
+      const selectedNode = nodes.find((n: ProxyNode) => n.id === selectedNodeId);
+      if (!selectedNode) {
+        throw new Error('未找到所选节点');
+      }
+
+      let settings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS, undefined);
+      
+      // 如果没有找到，尝试从旧的存储键加载（迁移兼容）
+      if (!settings) {
+        const oldSettings = Storage.get<AppSettings>('settings');
+        if (oldSettings) {
+          settings = oldSettings;
+          Storage.set(STORAGE_KEYS.SETTINGS, oldSettings);
+          Storage.remove('settings');
+          console.log('已迁移旧设置到新的存储键');
+        }
+      }
+      
+      // 处理引擎设置的迁移（修复 sing-box 到 singbox）
+      if (settings && (settings.proxyEngine as any) === 'sing-box') {
+        settings.proxyEngine = 'singbox';
+        Storage.set(STORAGE_KEYS.SETTINGS, settings);
+        console.log('已修复引擎设置：sing-box -> singbox');
+      }
+      
+      const defaultSettings = DefaultSettings.getDefaultAppSettings();
+
+      await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
       message.success('代理引擎启动成功');
+      
+      // 更新全局状态
+      setProxyConnected(true);
+      setCurrentProxyNode(selectedNode);
+      setCurrentProxyChain(null);
+      
+      loadSystemProxy();
+    } catch (error) {
+      message.error(`代理启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // 更新全局状态
+      setProxyConnected(false);
+      setCurrentProxyNode(null);
+      setCurrentProxyChain(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartChainProxy = async (chain: ChainConfig) => {
+    setLoading(true);
+    try {
+      // TODO: 实现代理链启动逻辑
+      console.log('启动代理链:', chain.name);
+      message.success('代理链启动成功（模拟）');
+      
+      // 更新全局状态
+      setProxyConnected(true);
+      setCurrentProxyNode(null);
+      setCurrentProxyChain(chain);
+      
       loadSystemProxy();
     } catch (error) {
       message.error(`启动失败: ${error instanceof Error ? error.message : '未知错误'}`);
-      
-      // 启动失败时，将状态重置为inactive
-      const updatedConfigs = proxyConfigs.map(c => 
-        c.id === config.id ? { ...c, enabled: false, updatedAt: new Date() } : c
-      );
-      saveProxyConfigs(updatedConfigs);
-
-      // 更新代理状态卡片
-      setCurrentStatus({
-        running: false,
-        uptime: 0,
-        connections: 0,
-        upload: 0,
-        download: 0,
-        error: error instanceof Error ? error.message : '未知错误'
-      });
+      // 更新全局状态
+      setProxyConnected(false);
+      setCurrentProxyNode(null);
+      setCurrentProxyChain(null);
     } finally {
       setLoading(false);
     }
@@ -300,10 +160,13 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     setLoading(true);
     try {
       await proxyEngine.stop();
-      // 更新所有配置状态为禁用
-      const updatedConfigs = proxyConfigs.map(c => ({ ...c, enabled: false, updatedAt: new Date() }));
-      saveProxyConfigs(updatedConfigs);
       message.success('代理引擎已停止');
+      
+      // 更新全局状态
+      setProxyConnected(false);
+      setCurrentProxyNode(null);
+      setCurrentProxyChain(null);
+      
       loadSystemProxy();
     } catch (error) {
       message.error(`停止失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -312,575 +175,91 @@ const ProxyManagement: React.FC<ProxyManagementProps> = () => {
     }
   };
 
-  // 自动生成代理配置
-  const generateProxyConfig = (type: string, settings: any) => {
-    const { serverAddress, serverPort, protocol, uuid, security, network, wsPath, wsHost } = settings;
-    
-    switch (type) {
-      case 'singbox':
-        const outbound: any = {
-          type: protocol,
-          tag: 'proxy',
-          server: serverAddress,
-          server_port: parseInt(serverPort),
-          uuid: uuid,
-          security: security || 'auto'
-        };
-
-        // 添加传输协议配置
-        if (network === 'ws') {
-          outbound.transport = {
-            type: 'ws',
-            path: wsPath || '/',
-            headers: wsHost ? { Host: wsHost } : {}
-          };
-        } else if (network === 'grpc') {
-          outbound.transport = {
-            type: 'grpc',
-            service_name: wsPath || 'grpc'
-          };
-        }
-
-        return {
-          outbounds: [outbound]
-        };
-
-      case 'xray':
-        const xrayOutbound: any = {
-          protocol: protocol,
-          tag: 'proxy',
-          settings: {
-            vnext: [{
-              address: serverAddress,
-              port: parseInt(serverPort),
-              users: [{
-                id: uuid,
-                security: security || 'auto'
-              }]
-            }]
-          }
-        };
-
-        if (network === 'ws') {
-          xrayOutbound.streamSettings = {
-            network: 'ws',
-            wsSettings: {
-              path: wsPath || '/',
-              headers: wsHost ? { Host: wsHost } : {}
-            }
-          };
-        }
-
-        return {
-          outbounds: [xrayOutbound]
-        };
-
-      case 'clash':
-        return {
-          port: 7890,
-          'socks-port': 7891,
-          'mixed-port': 7890,
-          'allow-lan': false,
-          mode: 'rule',
-          proxies: [{
-            name: 'proxy',
-            type: protocol,
-            server: serverAddress,
-            port: parseInt(serverPort),
-            uuid: uuid,
-            cipher: security || 'auto',
-            network: network || 'tcp',
-            'ws-path': wsPath || '/',
-            'ws-headers': wsHost ? { Host: wsHost } : {}
-          }]
-        };
-
-      default:
-        return {
-          outbounds: [
-            {
-              type: 'direct',
-              tag: 'direct'
-            }
-          ]
-        };
-    }
-  };
-
-  // 简化的配置保存
-  const handleSaveSimpleConfig = async (values: any) => {
-    try {
-      // 根据类型和设置自动生成配置
-      const autoConfig = generateProxyConfig(values.type, values);
-      
-      const config: ProxyConfig = {
-        id: editingConfig?.id || `config_${Date.now()}`,
-        name: values.name,
-        type: values.type,
-        config: autoConfig,
-        enabled: false,
-        createdAt: editingConfig?.createdAt || new Date(),
-        updatedAt: new Date()
-      };
-
-      if (editingConfig) {
-        const updatedConfigs = proxyConfigs.map(c => c.id === config.id ? config : c);
-        saveProxyConfigs(updatedConfigs);
-      } else {
-        saveProxyConfigs([...proxyConfigs, config]);
-      }
-
-      setModalVisible(false);
-      setEditingConfig(null);
-      form.resetFields();
-      message.success('配置保存成功');
-    } catch (error) {
-      message.error('保存失败');
-    }
-  };
-
-  const handleDeleteProxyConfig = (id: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除这个代理配置吗？',
-      onOk: () => {
-        const updatedConfigs = proxyConfigs.filter(c => c.id !== id);
-        saveProxyConfigs(updatedConfigs);
-        message.success('配置已删除');
-      }
-    });
-  };
-
-  // 重置配置到默认状态
-  const handleResetConfigs = () => {
-    Modal.confirm({
-      title: '重置配置',
-      content: '确定要重置所有代理配置到默认状态吗？这将清除所有自定义配置。',
-      okText: '重置',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: () => {
-        try {
-          // 清除所有配置
-          Storage.remove('proxy_configs');
-          Storage.remove('chain_configs');
-          
-          // 重新加载默认配置
-          loadConfigs();
-          
-          message.success('配置已重置为默认状态');
-        } catch (error) {
-          message.error('重置配置失败');
-        }
-      }
-    });
-  };
-
-  // 处理拖拽式代理链构建器保存
   const handleChainBuilderSave = (chainData: { name: string; description: string; nodes: any[] }) => {
-    try {
-      const chain: ChainConfig = {
-        id: `chain_${Date.now()}`,
-        name: chainData.name,
-        description: chainData.description,
-        proxies: chainData.nodes.map(node => node.server.id),
-        rules: [],
-        enabled: false,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      saveChainConfigs([...chainConfigs, chain]);
-      message.success('代理链保存成功');
-    } catch (error) {
-      message.error('保存失败');
-    }
+    const newChain: ChainConfig = {
+      id: `chain_${Date.now()}`,
+      name: chainData.name,
+      description: chainData.description,
+      proxies: chainData.nodes.map(node => node.id), // 假设节点对象有id
+      rules: [],
+      enabled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    saveChainConfigs([...chainConfigs, newChain]);
+    message.success('代理链保存成功');
   };
 
-  // 删除代理链
   const handleDeleteChain = (chainId: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除这个代理链吗？此操作不可恢复。',
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: () => {
-        const updatedChains = chainConfigs.filter(chain => chain.id !== chainId);
-        saveChainConfigs(updatedChains);
-        message.success('代理链已删除');
-      }
-    });
-  };
-
-  // 切换代理链启用状态
-  const handleToggleChainStatus = (chainId: string, enabled: boolean) => {
-    const updatedChains = chainConfigs.map(chain => 
-      chain.id === chainId ? { ...chain, enabled, updatedAt: new Date() } : chain
-    );
+    const updatedChains = chainConfigs.filter(chain => chain.id !== chainId);
     saveChainConfigs(updatedChains);
-    message.success(`代理链已${enabled ? '启用' : '禁用'}`);
+    message.success('代理链已删除');
   };
-
-
-
-  // 表格列定义
-  const proxyColumns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type: string) => (
-        <Tag color={type === 'singbox' ? 'blue' : type === 'xray' ? 'green' : 'orange'}>
-          {type.toUpperCase()}
-        </Tag>
-      ),
-    },
-    {
-      title: '状态',
-      key: 'status',
-      render: (_: any, record: ProxyConfig) => (
-        <Switch
-          checked={currentStatus?.running && record.enabled}
-          onChange={(checked) => {
-            if (checked) {
-              try {
-                handleStartProxy(record);
-              } catch (error) {
-                console.error('启动代理服务失败:', error);
-                const errorMessage = error instanceof Error ? error.message : '未知错误';
-                message.error(`启动代理服务失败: ${errorMessage}`);
-                // 启动失败时，将状态重置为inactive
-                const newConfigs = proxyConfigs.map(c => c.id === record.id ? { ...c, enabled: false } : c);
-                setProxyConfigs(newConfigs);
-              }
-            } else {
-              handleStopProxy();
-            }
-          }}
-          loading={loading}
-        />
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: any, record: ProxyConfig) => (
-        <Space>
-          <Tooltip title="编辑">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setEditingConfig(record);
-                // 将配置对象序列化为 JSON 字符串
-                const formData = {
-                  ...record,
-                  config: JSON.stringify(record.config, null, 2)
-                };
-                form.setFieldsValue(formData);
-                setModalVisible(true);
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="查看配置">
-            <Button
-              type="text"
-              icon={<EyeOutlined />}
-              onClick={() => {
-                Modal.info({
-                  title: '配置详情',
-                  content: (
-                    <pre>{JSON.stringify(record.config, null, 2)}</pre>
-                  ),
-                  width: 600,
-                });
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="删除">
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteProxyConfig(record.id)}
-            />
-          </Tooltip>
-        </Space>
-      ),
-    },
-  ];
-
-
 
   return (
     <div className="proxy-management">
       <div className="proxy-header">
         <h2>代理管理</h2>
-        <Space>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditingConfig(null);
-              form.resetFields();
-              setModalVisible(true);
-            }}
+        <Button
+            type={proxyConnected ? "default" : "primary"}
+            danger={proxyConnected}
+            icon={proxyConnected ? <StopOutlined /> : <PlayCircleOutlined />}
+            onClick={proxyConnected ? handleStopProxy : () => message.info('请在下方选择一个节点或代理链以启动')}
+            loading={loading}
           >
-            添加代理
-          </Button>
-          <Button
-            type="default"
-            icon={<SettingOutlined />}
-            onClick={handleResetConfigs}
-          >
-            重置配置
-          </Button>
-        </Space>
+            {proxyConnected ? '停止代理' : '启动代理'}
+        </Button>
       </div>
 
-      {/* 状态卡片 */}
       <div className="status-cards">
         <Card title="代理状态" className="status-card">
-          <div className="status-content">
             <div className="status-item">
               <span>运行状态:</span>
-              <Tag color={currentStatus?.running ? 'green' : 'red'}>
-                {currentStatus?.running ? '运行中' : '已停止'}
+              <Tag color={proxyConnected ? 'green' : 'red'}>
+                {proxyConnected ? '运行中' : '已停止'}
               </Tag>
             </div>
-            {currentStatus?.running && (
+            {proxyConnected && (
               <>
                 <div className="status-item">
-                  <span>运行时间:</span>
-                  <span>{Math.floor((Date.now() - (currentStatus.uptime || 0)) / 1000)}秒</span>
+                  <span>当前节点:</span>
+                  <span>{currentProxyNode?.name || currentProxyChain?.name || '未知'}</span>
                 </div>
                 <div className="status-item">
                   <span>连接数:</span>
-                  <span>{currentStatus.connections}</span>
-                </div>
-                <div className="status-item">
-                  <span>上传:</span>
-                  <span>{(currentStatus.upload / 1024 / 1024).toFixed(2)} MB</span>
-                </div>
-                <div className="status-item">
-                  <span>下载:</span>
-                  <span>{(currentStatus.download / 1024 / 1024).toFixed(2)} MB</span>
+                  <span>{trafficStats.connections}</span>
                 </div>
               </>
             )}
-          </div>
         </Card>
-
         <Card title="系统代理" className="status-card">
-          <div className="status-content">
             <div className="status-item">
               <span>状态:</span>
               <Tag color={systemProxySettings?.enabled ? 'green' : 'red'}>
                 {systemProxySettings?.enabled ? '已启用' : '未启用'}
               </Tag>
             </div>
-            {systemProxySettings?.enabled && (
-              <div className="status-item">
-                <span>代理地址:</span>
-                <span>{systemProxySettings.host}:{systemProxySettings.port}</span>
-              </div>
-            )}
-            <div className="status-item" style={{ marginTop: '12px' }}>
-              <Button
-                type={systemProxySettings?.enabled ? 'default' : 'primary'}
-                size="small"
-                onClick={async () => {
-                  try {
-                    if (systemProxySettings?.enabled) {
-                      await systemProxy.clearSystemProxy();
-                      message.success('系统代理已关闭');
-                    } else {
-                      await systemProxy.setSystemProxy('127.0.0.1', 7890);
-                      message.success('系统代理已启用');
-                    }
-                    loadSystemProxy();
-                  } catch (error) {
-                    message.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
-                  }
-                }}
-              >
-                {systemProxySettings?.enabled ? '关闭系统代理' : '启用系统代理'}
-              </Button>
-            </div>
-          </div>
         </Card>
       </div>
 
-      {/* 代理配置表格 */}
-      <Card title="代理配置" className="config-card">
-        <Table
-          dataSource={proxyConfigs}
-          columns={proxyColumns}
-          rowKey="id"
-          pagination={false}
-        />
-      </Card>
-
-      {/* 拖拽式代理链构建器 */}
-      <Card title="代理链配置" className="config-card">
-        <ProxyChainBuilder 
-          onSave={handleChainBuilderSave} 
-          existingChains={chainConfigs}
-          onDeleteChain={handleDeleteChain}
-          onToggleChainStatus={handleToggleChainStatus}
-        />
-      </Card>
-
-      {/* 代理配置模态框 */}
-      <Modal
-        title={editingConfig ? '编辑代理配置' : '添加代理配置'}
-        open={modalVisible}
-        onCancel={() => {
-          setModalVisible(false);
-          setEditingConfig(null);
-          form.resetFields();
-        }}
-        footer={null}
-        width={600}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSaveSimpleConfig}
-        >
-          <Form.Item
-            name="name"
-            label="配置名称"
-            rules={[{ required: true, message: '请输入配置名称' }]}
-          >
-            <Input placeholder="请输入配置名称" />
-          </Form.Item>
-
-          <Form.Item
-            name="type"
-            label="代理类型"
-            rules={[{ required: true, message: '请选择代理类型' }]}
-          >
-            <Select placeholder="请选择代理类型">
-              <Option value="singbox">Sing-box</Option>
-              <Option value="xray">Xray</Option>
-              <Option value="clash">Clash</Option>
-            </Select>
-          </Form.Item>
-
-          {/* 简化的配置表单 */}
-          <Form.Item
-            name="serverAddress"
-            label="服务器地址"
-            rules={[{ required: true, message: '请输入服务器地址' }]}
-          >
-            <Input placeholder="例如: example.com" />
-          </Form.Item>
-
-          <Form.Item
-            name="serverPort"
-            label="服务器端口"
-            rules={[{ required: true, message: '请输入服务器端口' }]}
-          >
-            <Input placeholder="例如: 443" />
-          </Form.Item>
-
-          <Form.Item
-            name="protocol"
-            label="协议类型"
-            rules={[{ required: true, message: '请选择协议类型' }]}
-          >
-            <Select placeholder="请选择协议类型">
-              <Option value="vmess">VMess</Option>
-              <Option value="vless">VLESS</Option>
-              <Option value="trojan">Trojan</Option>
-              <Option value="shadowsocks">Shadowsocks</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            name="uuid"
-            label="UUID/密码"
-            rules={[{ required: true, message: '请输入UUID或密码' }]}
-          >
-            <Input placeholder="请输入UUID或密码" />
-          </Form.Item>
-
-          <Form.Item
-            name="security"
-            label="加密方式"
-          >
-            <Select placeholder="请选择加密方式" defaultValue="auto">
-              <Option value="auto">自动</Option>
-              <Option value="none">无</Option>
-              <Option value="aes-128-gcm">AES-128-GCM</Option>
-              <Option value="chacha20-poly1305">ChaCha20-Poly1305</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            name="network"
-            label="传输协议"
-          >
-            <Select placeholder="请选择传输协议" defaultValue="tcp">
-              <Option value="tcp">TCP</Option>
-              <Option value="ws">WebSocket</Option>
-              <Option value="grpc">gRPC</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            noStyle
-            shouldUpdate={(prevValues, currentValues) => prevValues.network !== currentValues.network}
-          >
-            {({ getFieldValue }) => {
-              const network = getFieldValue('network');
-              if (network === 'ws') {
-                return (
-                  <>
-                    <Form.Item
-                      name="wsPath"
-                      label="WebSocket 路径"
-                    >
-                      <Input placeholder="例如: /path" />
-                    </Form.Item>
-                    <Form.Item
-                      name="wsHost"
-                      label="WebSocket Host"
-                    >
-                      <Input placeholder="例如: example.com" />
-                    </Form.Item>
-                  </>
-                );
-              }
-              return null;
-            }}
-          </Form.Item>
-
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
-                保存
-              </Button>
-              <Button onClick={() => {
-                setModalVisible(false);
-                setEditingConfig(null);
-                form.resetFields();
-              }}>
-                取消
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-
+      <Tabs defaultActiveKey="nodes">
+        <TabPane tab="选择节点" key="nodes">
+          <Card title="可用节点列表">
+            <NodeSelector nodes={nodes} onSelect={handleStartProxy} />
+          </Card>
+        </TabPane>
+        <TabPane tab="代理链" key="chains">
+          <Card title="配置代理链">
+            <ProxyChainBuilder 
+              nodes={nodes}
+              onSave={handleChainBuilderSave} 
+              existingChains={chainConfigs}
+              onDeleteChain={handleDeleteChain}
+              onStartChain={handleStartChainProxy}
+            />
+          </Card>
+        </TabPane>
+      </Tabs>
     </div>
   );
 };

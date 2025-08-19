@@ -69,7 +69,8 @@
     "node-fetch": "^3.0.0",
     "react": "^18.0.0",
     "react-beautiful-dnd": "^13.1.1",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "zustand": "^5.0.7"
   },
   "build": {
     "appId": "com.chongdong.app",
@@ -83,7 +84,8 @@
       "package.json"
     ],
     "mac": {
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "icon": "src/renderer/assets/icon.png"
     },
     "win": {
       "target": [
@@ -93,7 +95,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "src/renderer/assets/icon.png"
     },
     "linux": {
       "target": [
@@ -103,7 +106,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "src/renderer/assets/icon.png"
     }
   }
 }

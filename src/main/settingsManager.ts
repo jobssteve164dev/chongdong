@@ -1,45 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-
-export interface UserPreferences {
-  windowSize: { width: number; height: number };
-  windowPosition: { x: number; y: number };
-  sidebarCollapsed: boolean;
-  autoHideMenuBar: boolean;
-  alwaysOnTop: boolean;
-  minimizeToTray: boolean;
-  startMinimized: boolean;
-  enableNotifications: boolean;
-  notificationSound: boolean;
-  enableHotkeys: boolean;
-  hotkeys: Record<string, string>;
-}
-
-export interface AppSettings {
-  theme: 'light' | 'dark' | 'auto';
-  language: string;
-  autoStart: boolean;
-  systemProxy: boolean;
-  proxyPort: number;
-  socksPort: number;
-  mixedPort: number;
-  allowLan: boolean;
-  mode: 'rule' | 'global' | 'direct';
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-  enableLog: boolean;
-  logFile: string;
-  enableUdp: boolean;
-  enableIpv6: boolean;
-  enableTun: boolean;
-  tunDevice: string;
-  enableFakeIp: boolean;
-  fakeIpRange: string;
-  enableDns: boolean;
-  dnsServer: string;
-  enableDoh: boolean;
-  dohServer: string;
-}
+import { AppSettings, UserPreferences } from '../shared/types';
+import { DefaultSettings } from '../shared/defaultSettings';
 
 export class SettingsManager {
   private static instance: SettingsManager;
@@ -73,30 +36,7 @@ export class SettingsManager {
     }
     
     // 返回默认设置
-    return {
-      theme: 'auto',
-      language: 'zh-CN',
-      autoStart: false,
-      systemProxy: true,
-      proxyPort: 7890,
-      socksPort: 7891,
-      mixedPort: 7890,
-      allowLan: false,
-      mode: 'rule',
-      logLevel: 'info',
-      enableLog: true,
-      logFile: 'chongdong.log',
-      enableUdp: true,
-      enableIpv6: false,
-      enableTun: false,
-      tunDevice: 'utun0',
-      enableFakeIp: true,
-      fakeIpRange: '198.18.0.1/16',
-      enableDns: true,
-      dnsServer: '8.8.8.8',
-      enableDoh: false,
-      dohServer: 'https://dns.google/dns-query'
-    };
+    return this.getDefaultSettings();
   }
 
   /**
@@ -113,23 +53,7 @@ export class SettingsManager {
     }
     
     // 返回默认偏好设置
-    return {
-      windowSize: { width: 1200, height: 800 },
-      windowPosition: { x: 100, y: 100 },
-      sidebarCollapsed: false,
-      autoHideMenuBar: true,
-      alwaysOnTop: false,
-      minimizeToTray: true,
-      startMinimized: false,
-      enableNotifications: true,
-      notificationSound: true,
-      enableHotkeys: true,
-      hotkeys: {
-        toggleProxy: 'Ctrl+Shift+P',
-        showMainWindow: 'Ctrl+Shift+M',
-        quickSwitch: 'Ctrl+Shift+S'
-      }
-    };
+    return this.getDefaultPreferences();
   }
 
   /**
@@ -154,6 +78,14 @@ export class SettingsManager {
     } catch (error) {
       console.error('Failed to save preferences:', error);
     }
+  }
+
+  private getDefaultSettings(): AppSettings {
+    return DefaultSettings.getDefaultAppSettings();
+  }
+
+  private getDefaultPreferences(): UserPreferences {
+    return DefaultSettings.getDefaultUserPreferences();
   }
 }
 

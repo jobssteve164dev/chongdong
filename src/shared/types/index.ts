@@ -90,6 +90,8 @@ export interface AppSettings {
   dnsServer: string;
   enableDoh: boolean;
   dohServer: string;
+  proxyEngine: 'singbox' | 'xray' | 'clash';
+  engineSettings: Record<string, any>;
   // 延迟测试设置
   latencyTestUrl: string;
   latencyTestTimeout: number;
@@ -98,6 +100,7 @@ export interface AppSettings {
   enableAutoLatencyTest: boolean;
   latencyTestConcurrency: number;
   latencyTestUrls: string;
+  latencyTestValidityPeriod: number;
 }
 
 // 用户偏好设置
@@ -211,4 +214,31 @@ export interface AppError {
   message: string;
   details?: any;
   timestamp: number;
+}
+
+export interface ProxyNode {
+  id: string;
+  name: string;
+  type: ProxyProtocol | string;
+  server: string;
+  port: number;
+  // Extended properties for config generation
+  uuid?: string;
+  password?: string;
+  security?: string;
+  network?: string;
+  wsPath?: string;
+  wsHost?: string;
+  // Add other simple properties needed for display or basic logic
+}
+
+export interface ChainConfig {
+  id: string;
+  name: string;
+  description: string;
+  proxies: string[];
+  rules: any[];
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }

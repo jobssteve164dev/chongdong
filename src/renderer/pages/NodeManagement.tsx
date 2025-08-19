@@ -12,38 +12,29 @@ import {
   Tabs,
   Tooltip,
   Badge,
-  Progress,
-  Alert,
   Empty,
-  Spin,
   message,
-  notification,
 } from 'antd';
 import {
-  ReloadOutlined,
   PlayCircleOutlined,
   PauseCircleOutlined,
   ThunderboltOutlined,
   CloudOutlined,
-  GlobalOutlined,
-  WifiOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  ClockCircleOutlined,
   ClusterOutlined,
   SyncOutlined,
-  SortAscendingOutlined,
-  SortDescendingOutlined,
 } from '@ant-design/icons';
 import { ProxyServer, Subscription } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
-import { latencyTester, LatencyTestResult } from '../utils/latencyTester';
+import { latencyTester } from '../utils/latencyTester';
+import { useNodeStore, NodeStore } from '../utils/stores'; // 导入 Zustand store 和类型
+import { ProxyNode } from '../../shared/types';
+import { DefaultSettings } from '../utils/defaultSettings';
 import './NodeManagement.css';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 interface NodeWithSubscription extends ProxyServer {
   subscriptionName: string;
@@ -61,6 +52,7 @@ const NodeManagement: React.FC = () => {
   // 添加排序状态
   const [sortField, setSortField] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<SortOrder>(null);
+
 
   // 加载订阅和节点数据
   useEffect(() => {
@@ -141,6 +133,23 @@ const NodeManagement: React.FC = () => {
       });
 
       setAllNodes(nodesWithSubscription);
+
+      // 将节点数据更新到 Zustand store
+      const plainNodes: ProxyNode[] = nodesWithSubscription.map(n => ({
+        id: n.id,
+        name: n.name,
+        type: n.protocol,
+        server: n.host,
+        port: n.port,
+        uuid: n.uuid,
+        password: n.password,
+        security: n.encryption,
+        network: n.network,
+        wsPath: n.wsPath,
+        wsHost: n.wsHeaders?.Host,
+      }));
+      useNodeStore.getState().setNodes(plainNodes);
+
     } catch (error: unknown) {
       message.error('加载节点数据失败');
       log.error('加载节点数据失败', error, 'NodeManagement');
@@ -241,7 +250,7 @@ const NodeManagement: React.FC = () => {
   };
 
   // 添加排序处理函数
-  const handleTableChange = (pagination: any, filters: any, sorter: any) => {
+  const handleTableChange = (_pagination: any, _filters: any, sorter: any) => {
     setSortField(sorter.field || '');
     setSortOrder(sorter.order || null);
   };
@@ -376,10 +385,21 @@ const NodeManagement: React.FC = () => {
   // 批量延迟测试
   const handleBatchTestLatency = async () => {
     setLoading(true);
-    try {
-      const nodesToTest = allNodes.filter(node => !node.latency || node.latency === 0);
+          try {
+        // 获取延迟测试有效期配置（默认30分钟）
+        const settings = Storage.get(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings()) || DefaultSettings.getDefaultAppSettings();
+        const latencyValidityPeriod = (settings.latencyTestValidityPeriod || 30) * 60 * 1000; // 转换为毫秒
+      
+      // 筛选需要测试的节点（没有延迟信息、延迟为0或延迟已过期）
+      const { isLatencyValid, setNodeLatency } = useNodeStore.getState();
+      const nodesToTest = allNodes.filter(node => {
+        const hasValidLatency = isLatencyValid(node.id, latencyValidityPeriod);
+        const hasLatency = node.latency && node.latency > 0;
+        return !hasValidLatency || !hasLatency;
+      });
+      
       if (nodesToTest.length === 0) {
-        message.info('没有需要测试的节点');
+        message.info('所有节点的延迟信息都在有效期内，无需测试');
         return;
       }
 
@@ -388,7 +408,13 @@ const NodeManagement: React.FC = () => {
       // 使用真实的延迟测试功能
       const results = await latencyTester.testNodesLatencyViaMainProcess(nodesToTest);
       
-      // 更新节点延迟信息
+      // 更新store中的延迟信息
+      results.forEach((result, nodeId) => {
+        const latency = result.success ? result.latency : 0;
+        setNodeLatency(nodeId, latency, result.timestamp);
+      });
+      
+      // 更新节点延迟信息（用于显示）
       const updatedNodes = [...allNodes];
       results.forEach((result, nodeId) => {
         const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);

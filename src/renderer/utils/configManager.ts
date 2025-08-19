@@ -10,6 +10,7 @@ import {
   ApiResponse 
 } from '../../shared/types';
 import { logger } from './logger';
+import { DefaultSettings } from '../../shared/defaultSettings';
 
 /**
  * 配置管理类
@@ -40,55 +41,8 @@ export class ConfigManager {
    */
   private loadDefaultConfig(): AppState {
     return {
-      settings: {
-        theme: 'auto',
-        language: 'zh-CN',
-        autoStart: false,
-        systemProxy: true,
-        proxyPort: 7890,
-        socksPort: 7891,
-        mixedPort: 7890,
-        allowLan: false,
-        mode: 'rule',
-        logLevel: 'info',
-        enableLog: true,
-        logFile: 'chongdong.log',
-        enableUdp: true,
-        enableIpv6: false,
-        enableTun: false,
-        tunDevice: 'utun0',
-        enableFakeIp: true,
-        fakeIpRange: '198.18.0.1/16',
-        enableDns: true,
-        dnsServer: '8.8.8.8',
-        enableDoh: false,
-        dohServer: 'https://dns.google/dns-query',
-        // 延迟测试默认设置
-        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
-        latencyTestTimeout: 10000,
-        latencyTestRetries: 3,
-        latencyTestInterval: 10,
-        enableAutoLatencyTest: false,
-        latencyTestConcurrency: 3,
-        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com'
-      },
-      preferences: {
-        windowSize: { width: 1200, height: 800 },
-        windowPosition: { x: 100, y: 100 },
-        sidebarCollapsed: false,
-        autoHideMenuBar: false,
-        alwaysOnTop: false,
-        minimizeToTray: true,
-        startMinimized: false,
-        enableNotifications: true,
-        notificationSound: true,
-        enableHotkeys: true,
-        hotkeys: {
-          toggleProxy: 'Ctrl+Shift+P',
-          showMainWindow: 'Ctrl+Shift+M',
-          quickSwitch: 'Ctrl+Shift+S'
-        }
-      },
+      settings: DefaultSettings.getDefaultAppSettings(),
+      preferences: DefaultSettings.getDefaultUserPreferences(),
       subscriptions: [],
       servers: [],
       groups: [],

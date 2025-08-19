@@ -13,11 +13,9 @@ import {
   Typography,
   Row,
   Col,
-  Divider,
   Badge,
   Empty,
-  Spin,
-  Alert
+  Spin
 } from 'antd';
 import { 
   DragDropContext, 
@@ -26,7 +24,6 @@ import {
   DropResult 
 } from 'react-beautiful-dnd';
 import {
-  PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   SettingOutlined,
@@ -35,18 +32,16 @@ import {
   ThunderboltOutlined,
   GlobalOutlined,
   WifiOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  ClockCircleOutlined,
   ArrowDownOutlined,
   SaveOutlined,
   ClearOutlined,
   PoweroffOutlined,
-  PlayCircleOutlined
+  PlayCircleOutlined,
+  StarOutlined,
+  StarFilled
 } from '@ant-design/icons';
-import { ProxyServer, Subscription } from '../../shared/types';
-import { Storage, STORAGE_KEYS } from '../utils/storage';
-import { subscriptionManager } from '../utils/subscriptionManager';
+import { ProxyNode, ChainConfig } from '../../shared/types';
+import { useNodeStore, NodeStore } from '../utils/stores';
 import './ProxyChainBuilder.css';
 
 const { Title, Text } = Typography;
@@ -54,26 +49,27 @@ const { Option } = Select;
 
 interface ChainNode {
   id: string;
-  server: ProxyServer;
+  server: ProxyNode;
   config?: any; // 进阶配置
 }
 
 interface ProxyChainBuilderProps {
+  nodes: ProxyNode[];
   onSave?: (chain: { name: string; description: string; nodes: ChainNode[] }) => void;
   initialChain?: { name: string; description: string; nodes: ChainNode[] };
   existingChains?: ChainConfig[];
   onDeleteChain?: (chainId: string) => void;
-  onToggleChainStatus?: (chainId: string, enabled: boolean) => void;
+  onStartChain?: (chain: ChainConfig) => void;
 }
 
 const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({ 
+  nodes,
   onSave, 
   initialChain,
   existingChains = [],
   onDeleteChain,
-  onToggleChainStatus
+  onStartChain
 }) => {
-  const [availableNodes, setAvailableNodes] = useState<ProxyServer[]>([]);
   const [chainNodes, setChainNodes] = useState<ChainNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -83,45 +79,21 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
   const [savedChains, setSavedChains] = useState<ChainConfig[]>(existingChains);
   const [form] = Form.useForm();
 
+  // 从store获取默认代理链ID
+  const defaultChainId = useNodeStore((state: NodeStore) => state.defaultChainId);
+  const setDefaultChainId = useNodeStore((state: NodeStore) => state.setDefaultChainId);
+
   // 加载可用节点和已保存的代理链
   useEffect(() => {
-    loadAvailableNodes();
     if (initialChain) {
       setChainNodes(initialChain.nodes);
     }
-  }, []);
+  }, [initialChain]);
 
   // 当existingChains更新时，同步到本地状态
   useEffect(() => {
     setSavedChains(existingChains);
   }, [existingChains]);
-
-  const loadAvailableNodes = async () => {
-    setLoading(true);
-    try {
-      // 从存储中获取订阅数据
-      const subscriptions: Subscription[] = Storage.get(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []);
-      console.log('加载的订阅数据:', subscriptions);
-      
-      // 收集所有启用的节点
-      const allNodes: ProxyServer[] = [];
-      subscriptions.forEach(sub => {
-        if (sub.enabled && sub.servers) {
-          const enabledServers = sub.servers.filter(server => server.enabled);
-          console.log(`订阅 ${sub.name} 的启用节点:`, enabledServers);
-          allNodes.push(...enabledServers);
-        }
-      });
-
-      console.log('总共有可用节点:', allNodes.length, allNodes);
-      setAvailableNodes(allNodes);
-    } catch (error) {
-      console.error('加载节点失败:', error);
-      message.error('加载节点信息失败');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 处理拖拽结束
   const handleDragEnd = (result: DropResult) => {
@@ -138,7 +110,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
     // 从可用节点拖拽到链中
     if (source.droppableId === 'available-nodes' && destination.droppableId === 'chain-nodes') {
       console.log('从可用节点拖拽到链中');
-      const draggedNode = availableNodes[source.index];
+      const draggedNode = nodes[source.index];
       console.log('拖拽的节点:', draggedNode);
       
       if (draggedNode) {
@@ -173,8 +145,8 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
     setEditingNode(node);
     form.setFieldsValue({
       name: node.server.name,
-      protocol: node.server.protocol,
-      host: node.server.host,
+      protocol: node.server.type,
+      host: node.server.server,
       port: node.server.port,
       ...node.config
     });
@@ -225,6 +197,19 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
     setChainDescription('');
   };
 
+  // 设置默认代理链
+  const handleSetDefaultChain = (chainId: string) => {
+    setDefaultChainId(chainId);
+    const chain = savedChains.find(c => c.id === chainId);
+    message.success(`已将"${chain?.name}"设置为默认代理链`);
+  };
+
+  // 取消默认代理链
+  const handleUnsetDefaultChain = () => {
+    setDefaultChainId(null);
+    message.success('已取消默认代理链设置');
+  };
+
   // 获取协议图标
   const getProtocolIcon = (protocol: string) => {
     switch (protocol) {
@@ -263,13 +248,22 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                   size="small" 
                   style={{ 
                     marginBottom: '8px',
-                    border: '1px solid #e8e8e8',
-                    borderRadius: '8px'
+                    border: chain.id === defaultChainId ? '2px solid #1890ff' : '1px solid #e8e8e8',
+                    borderRadius: '8px',
+                    background: chain.id === defaultChainId ? 'rgba(24, 144, 255, 0.05)' : 'transparent'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>{chain.name}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        {chain.id === defaultChainId && (
+                          <StarFilled style={{ color: '#1890ff', marginRight: '8px' }} />
+                        )}
+                        <div style={{ fontWeight: '600' }}>{chain.name}</div>
+                        {chain.id === defaultChainId && (
+                          <Tag color="blue" style={{ marginLeft: '8px' }}>默认</Tag>
+                        )}
+                      </div>
                       {chain.description && (
                         <div style={{ fontSize: '12px', color: '#666' }}>{chain.description}</div>
                       )}
@@ -277,27 +271,52 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                         包含 {chain.proxies.length} 个节点
                       </div>
                     </div>
-                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                       <Button 
-                         size="small" 
-                         type={chain.enabled ? 'primary' : 'default'}
-                         icon={chain.enabled ? <PoweroffOutlined /> : <PlayCircleOutlined />}
-                         onClick={() => onToggleChainStatus?.(chain.id, !chain.enabled)}
-                         style={{ 
-                           minWidth: '60px',
-                           fontSize: '12px'
-                         }}
-                       >
-                         {chain.enabled ? '禁用' : '启用'}
-                       </Button>
-                       <Button 
-                         size="small" 
-                         type="text" 
-                         danger
-                         icon={<DeleteOutlined />}
-                         onClick={() => onDeleteChain?.(chain.id)}
-                       />
-                     </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {/* 设置默认代理链按钮 */}
+                      {chain.id === defaultChainId ? (
+                        <Tooltip title="取消默认设置">
+                          <Button 
+                            size="small" 
+                            type="text" 
+                            icon={<StarOutlined />}
+                            onClick={() => handleUnsetDefaultChain()}
+                            style={{ color: '#1890ff' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="设为默认代理链">
+                          <Button 
+                            size="small" 
+                            type="text" 
+                            icon={<StarOutlined />}
+                            onClick={() => handleSetDefaultChain(chain.id)}
+                          />
+                        </Tooltip>
+                      )}
+                      
+                      {/* 启动代理链按钮 */}
+                      <Button 
+                        size="small" 
+                        type={chain.enabled ? 'primary' : 'default'}
+                        icon={chain.enabled ? <PoweroffOutlined /> : <PlayCircleOutlined />}
+                        onClick={() => onStartChain?.(chain)}
+                        style={{ 
+                          minWidth: '60px',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {chain.enabled ? '运行中' : '启动'}
+                      </Button>
+                      
+                      {/* 删除按钮 */}
+                      <Button 
+                        size="small" 
+                        type="text" 
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => onDeleteChain?.(chain.id)}
+                      />
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -334,7 +353,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
             title={
               <Space>
                 <CloudOutlined />
-                可用节点 ({availableNodes.length})
+                可用节点 ({nodes.length})
               </Space>
             }
             size="small"
@@ -344,7 +363,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <Spin />
               </div>
-            ) : availableNodes.length === 0 ? (
+            ) : nodes.length === 0 ? (
               <Empty description="暂无可用节点" />
             ) : (
               <Droppable droppableId="available-nodes">
@@ -361,7 +380,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                       background: snapshot.isDraggingOver ? 'rgba(82, 196, 26, 0.05)' : 'transparent'
                     }}
                   >
-                    {availableNodes.map((node, index) => (
+                    {nodes.map((node, index) => (
                       <Draggable key={node.id} draggableId={node.id} index={index}>
                         {(provided, snapshot) => (
                           <div
@@ -379,23 +398,18 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                               <div className="node-info">
                                 <div className="node-header">
                                   <Space>
-                                    {getProtocolIcon(node.protocol)}
+                                    {getProtocolIcon(node.type as string)}
                                     <Text strong>{node.name}</Text>
-                                    <Tag color={getProtocolColor(node.protocol)}>
-                                      {node.protocol.toUpperCase()}
+                                    <Tag color={getProtocolColor(node.type as string)}>
+                                      {(node.type as string).toUpperCase()}
                                     </Tag>
                                   </Space>
                                 </div>
                                 <div className="node-details">
                                   <Text type="secondary">
-                                    {node.host}:{node.port}
+                                    {node.server}:{node.port}
                                   </Text>
-                                  {node.latency && (
-                                    <Badge 
-                                      count={`${node.latency}ms`} 
-                                      style={{ backgroundColor: node.latency < 100 ? '#52c41a' : '#faad14' }}
-                                    />
-                                  )}
+                                  {/* Latency badge can be added here if Node type supports it */}
                                 </div>
                               </div>
                             </Card>
@@ -491,10 +505,10 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                                 <div className="node-info">
                                   <div className="node-header">
                                     <Space>
-                                      {getProtocolIcon(node.server.protocol)}
+                                      {getProtocolIcon(node.server.type as string)}
                                       <Text strong>{node.server.name}</Text>
-                                      <Tag color={getProtocolColor(node.server.protocol)}>
-                                        {node.server.protocol.toUpperCase()}
+                                      <Tag color={getProtocolColor(node.server.type as string)}>
+                                        {(node.server.type as string).toUpperCase()}
                                       </Tag>
                                       {node.config && (
                                         <Tag color="orange" icon={<SettingOutlined />}>
@@ -505,7 +519,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                                   </div>
                                   <div className="node-details">
                                     <Text type="secondary">
-                                      {node.server.host}:{node.server.port}
+                                      {node.server.server}:{node.server.port}
                                     </Text>
                                   </div>
                                 </div>
