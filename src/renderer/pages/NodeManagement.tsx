@@ -29,7 +29,7 @@ import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import { latencyTester } from '../utils/latencyTester';
-import { useNodeStore, NodeStore } from '../utils/stores'; // 导入 Zustand store 和类型
+import { useNodeStore } from '../utils/stores'; // 导入 Zustand store
 import { ProxyNode } from '../../shared/types';
 import { DefaultSettings } from '../utils/defaultSettings';
 import './NodeManagement.css';

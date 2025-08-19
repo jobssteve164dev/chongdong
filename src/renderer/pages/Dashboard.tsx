@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Row,
@@ -39,14 +39,17 @@ import { Storage, STORAGE_KEYS } from '../utils/storage';
 import { proxyEngine } from '../utils/proxyEngine';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { latencyTester } from '../utils/latencyTester';
+console.log('🔍 Dashboard: 开始导入 geolocationTester');
 import { geolocationTester } from '../utils/geolocationTester';
+console.log('🔍 Dashboard: geolocationTester 导入完成:', typeof geolocationTester);
 import { DefaultSettings } from '../utils/defaultSettings';
 import './Dashboard.css';
 
 const { Title, Text } = Typography;
 
 const Dashboard: React.FC = () => {
-  console.log('Dashboard 组件开始渲染');
+  console.log('🔍 Dashboard: 组件开始渲染');
+  console.log('🔍 Dashboard: 导入检查 - geolocationTester:', typeof geolocationTester);
   
   const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
@@ -107,6 +110,26 @@ const Dashboard: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [proxyConnected, setTrafficStats]);
+
+  // IP地理位置自动测试
+  useEffect(() => {
+    console.log('🔍 IP地理位置自动测试 useEffect: 触发');
+    console.log('🔍 proxyConnected:', proxyConnected);
+    console.log('🔍 currentGeolocation:', currentGeolocation);
+    console.log('🔍 isGeolocationValid():', isGeolocationValid());
+    
+    // 当代理连接状态改变时，自动测试IP地理位置
+    if (proxyConnected && (!currentGeolocation || !isGeolocationValid())) {
+      console.log('🔍 准备自动测试IP地理位置');
+      // 延迟2秒后测试，确保代理完全启动
+      const timer = setTimeout(() => {
+        console.log('🔍 执行自动IP地理位置测试');
+        handleTestGeolocation();
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [proxyConnected, currentGeolocation, isGeolocationValid, handleTestGeolocation]);
 
   // 启动单个节点代理
   const handleStartNodeProxy = async (nodeId?: string) => {
@@ -450,6 +473,75 @@ const Dashboard: React.FC = () => {
     return formatBytes(bytesPerSecond) + '/s';
   };
 
+  // 安全的地理位置格式化函数
+  const formatGeolocation = useCallback((geolocation: any): string => {
+    try {
+      if (!geolocation || !geolocation.ip) {
+        return '未知位置';
+      }
+      
+      const parts = [];
+      
+      if (geolocation.city) {
+        parts.push(geolocation.city);
+      }
+      
+      if (geolocation.region) {
+        parts.push(geolocation.region);
+      }
+      
+      if (geolocation.country) {
+        parts.push(geolocation.country);
+      }
+
+      if (parts.length === 0) {
+        return geolocation.ip || '未知位置';
+      }
+
+      return parts.join(', ');
+    } catch (error) {
+      console.error('格式化地理位置失败:', error);
+      return '格式化失败';
+    }
+  }, []);
+
+  // IP地理位置测试
+  const handleTestGeolocation = useCallback(async () => {
+    console.log('🔍 handleTestGeolocation: 开始执行');
+    console.log('🔍 handleTestGeolocation: geolocationTester:', geolocationTester);
+    try {
+      message.info('正在测试IP地址地理位置...');
+      
+      let result;
+      
+      if (proxyConnected) {
+        // 如果代理已连接，通过代理测试
+        const proxyUrl = `http://127.0.0.1:${7890}`; // 使用默认代理端口
+        result = await geolocationTester.getInstance().testIPLocationViaProxy(proxyUrl);
+      } else {
+        // 如果代理未连接，直接测试
+        result = await geolocationTester.getInstance().testCurrentIPLocation();
+      }
+      
+      if (result.success) {
+        setCurrentGeolocation({
+          ip: result.ip,
+          country: result.country,
+          region: result.region,
+          city: result.city,
+          isp: result.isp,
+          timezone: result.timezone,
+          timestamp: result.timestamp
+        });
+        message.success('IP地理位置测试完成');
+      } else {
+        message.error(`IP地理位置测试失败: ${result.error}`);
+      }
+    } catch (error) {
+      message.error(`IP地理位置测试失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [proxyConnected, setCurrentGeolocation]);
+
   // 构建下拉菜单
   const buildDropdownMenu = () => {
     const menuItems = [];
@@ -593,6 +685,9 @@ const Dashboard: React.FC = () => {
                   <Text type="secondary">
                     运行时间: {proxyStartTime ? Math.floor((Date.now() - proxyStartTime) / 1000) : 0}秒
                   </Text>
+                  <Text type="secondary">
+                    IP地址: {currentGeolocation?.ip ? `${currentGeolocation.ip} (${formatGeolocation(currentGeolocation)})` : '获取中...'}
+                  </Text>
                 </div>
               )}
             </div>
@@ -657,6 +752,15 @@ const Dashboard: React.FC = () => {
               </Button>
               <Button block icon={<CloudOutlined />} size="large">
                 订阅管理
+              </Button>
+              <Button 
+                block 
+                icon={<GlobalOutlined />} 
+                size="large"
+                onClick={handleTestGeolocation}
+                loading={!currentGeolocation?.ip && proxyConnected}
+              >
+                {currentGeolocation?.ip ? '刷新IP位置' : '测试IP位置'}
               </Button>
             </Space>
           </Card>

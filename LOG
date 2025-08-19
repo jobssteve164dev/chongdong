@@ -1,112 +1,35 @@
-Dashboard 组件开始渲染
-index-qqq5AUK6.js:454 按钮被点击了！
-index-qqq5AUK6.js:454 === handleStartNodeProxy 开始执行 ===
-index-qqq5AUK6.js:454 参数 nodeId: undefined
-index-qqq5AUK6.js:454 延迟测试失败: TypeError: t(...).nodeLatencies.get is not a function
-    at isLatencyValid (index-qqq5AUK6.js:449:22727)
-    at index-qqq5AUK6.js:454:1832
-    at Array.filter (<anonymous>)
-    at S (index-qqq5AUK6.js:454:1821)
-    at Object.onClick (index-qqq5AUK6.js:454:6779)
-    at index-qqq5AUK6.js:198:16212
-    at Object.vM (index-qqq5AUK6.js:37:9864)
-    at yM (index-qqq5AUK6.js:37:10018)
-    at bM (index-qqq5AUK6.js:37:10075)
-    at sx (index-qqq5AUK6.js:37:31462)
-S @ index-qqq5AUK6.js:454
-index-qqq5AUK6.js:449 === getBestNode 调试信息 ===
-index-qqq5AUK6.js:449 state.nodes.length: 45
-index-qqq5AUK6.js:449 state.nodeLatencies 类型: object false
-index-qqq5AUK6.js:449 nodeLatencies 不是 Map 对象，重新初始化
-getBestNode @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:449 nodeLatencies 内容: Object
-index-qqq5AUK6.js:449 返回第一个节点: Object
-index-qqq5AUK6.js:454 === 自动启动代理调试信息 ===
-index-qqq5AUK6.js:454 当前节点数量: 45
-index-qqq5AUK6.js:454 节点列表: Array(45)
-index-qqq5AUK6.js:454 延迟信息类型: object false
-index-qqq5AUK6.js:454 延迟信息内容: Object
-index-qqq5AUK6.js:454 选中的节点: Object
-index-qqq5AUK6.js:449 === getBestNode 调试信息 ===
-index-qqq5AUK6.js:449 state.nodes.length: 45
-index-qqq5AUK6.js:449 state.nodeLatencies 类型: object false
-index-qqq5AUK6.js:449 nodeLatencies 不是 Map 对象，重新初始化
-getBestNode @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:449 nodeLatencies 内容: Object
-index-qqq5AUK6.js:449 返回第一个节点: Object
-index-qqq5AUK6.js:454 getBestNode 函数结果: Object
-index-qqq5AUK6.js:454 === 调试信息结束 ===
-index-qqq5AUK6.js:454 Dashboard 组件开始渲染
-index-qqq5AUK6.js:449 [2025-08-19T04:09:15.014Z] [ERROR] [Dashboard] 切换代理状态失败 Error: Unsupported proxy type: sing-box
-    at ul.startWithNode (index-qqq5AUK6.js:449:26622)
-    at S (index-qqq5AUK6.js:454:3079)
-    at Object.onClick (index-qqq5AUK6.js:454:6779)
-    at index-qqq5AUK6.js:198:16212
-    at Object.vM (index-qqq5AUK6.js:37:9864)
-    at yM (index-qqq5AUK6.js:37:10018)
-    at bM (index-qqq5AUK6.js:37:10075)
-    at sx (index-qqq5AUK6.js:37:31462)
-    at B3 (index-qqq5AUK6.js:37:31879)
-    at index-qqq5AUK6.js:37:36792
-outputToConsole @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:454 Dashboard 组件开始渲染
-index-qqq5AUK6.js:454 按钮被点击了！
-index-qqq5AUK6.js:454 === handleStartNodeProxy 开始执行 ===
-index-qqq5AUK6.js:454 参数 nodeId: undefined
-index-qqq5AUK6.js:454 延迟测试失败: TypeError: t(...).nodeLatencies.get is not a function
-    at isLatencyValid (index-qqq5AUK6.js:449:22727)
-    at index-qqq5AUK6.js:454:1832
-    at Array.filter (<anonymous>)
-    at S (index-qqq5AUK6.js:454:1821)
-    at Object.onClick (index-qqq5AUK6.js:454:6779)
-    at index-qqq5AUK6.js:198:16212
-    at Object.vM (index-qqq5AUK6.js:37:9864)
-    at yM (index-qqq5AUK6.js:37:10018)
-    at bM (index-qqq5AUK6.js:37:10075)
-    at sx (index-qqq5AUK6.js:37:31462)
-S @ index-qqq5AUK6.js:454
-index-qqq5AUK6.js:449 === getBestNode 调试信息 ===
-index-qqq5AUK6.js:449 state.nodes.length: 45
-index-qqq5AUK6.js:449 state.nodeLatencies 类型: object false
-index-qqq5AUK6.js:449 nodeLatencies 不是 Map 对象，重新初始化
-getBestNode @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:449 nodeLatencies 内容: Object
-index-qqq5AUK6.js:449 返回第一个节点: Object
-index-qqq5AUK6.js:454 === 自动启动代理调试信息 ===
-index-qqq5AUK6.js:454 当前节点数量: 45
-index-qqq5AUK6.js:454 节点列表: Array(45)
-index-qqq5AUK6.js:454 延迟信息类型: object false
-index-qqq5AUK6.js:454 延迟信息内容: Object
-index-qqq5AUK6.js:454 选中的节点: Object
-index-qqq5AUK6.js:449 === getBestNode 调试信息 ===
-index-qqq5AUK6.js:449 state.nodes.length: 45
-index-qqq5AUK6.js:449 state.nodeLatencies 类型: object false
-index-qqq5AUK6.js:449 nodeLatencies 不是 Map 对象，重新初始化
-getBestNode @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:449 nodeLatencies 内容: Object
-index-qqq5AUK6.js:449 返回第一个节点: Object
-index-qqq5AUK6.js:454 getBestNode 函数结果: Object
-index-qqq5AUK6.js:454 === 调试信息结束 ===
-index-qqq5AUK6.js:454 Dashboard 组件开始渲染
-index-qqq5AUK6.js:449 [2025-08-19T04:09:20.507Z] [ERROR] [Dashboard] 切换代理状态失败 Error: Unsupported proxy type: sing-box
-    at ul.startWithNode (index-qqq5AUK6.js:449:26622)
-    at S (index-qqq5AUK6.js:454:3079)
-    at Object.onClick (index-qqq5AUK6.js:454:6779)
-    at index-qqq5AUK6.js:198:16212
-    at Object.vM (index-qqq5AUK6.js:37:9864)
-    at yM (index-qqq5AUK6.js:37:10018)
-    at bM (index-qqq5AUK6.js:37:10075)
-    at sx (index-qqq5AUK6.js:37:31462)
-    at B3 (index-qqq5AUK6.js:37:31879)
-    at index-qqq5AUK6.js:37:36792
-outputToConsole @ index-qqq5AUK6.js:449
-index-qqq5AUK6.js:454 Dashboard 组件开始渲染
-index-qqq5AUK6.js:526 已修复引擎设置：sing-box -> singbox
-index-qqq5AUK6.js:526 调用窗口置顶API: false
-index-qqq5AUK6.js:526 窗口置顶API结果: Object
-index-qqq5AUK6.js:449 [2025-08-19T04:09:25.699Z] [INFO] [Settings] 窗口置顶设置已应用 Object
-index-qqq5AUK6.js:526 调用菜单栏隐藏API: true
-index-qqq5AUK6.js:526 菜单栏隐藏API结果: Object
-index-qqq5AUK6.js:449 [2025-08-19T04:09:25.711Z] [INFO] [Settings] 菜单栏自动隐藏设置已应用 Object
-index-qqq5AUK6.js:449 [2025-08-19T04:09:25.714Z] [INFO] [Settings] 加载已保存的设置 Object
-2index-qqq5AUK6.js:454 Dashboard 组件开始渲染
+🔍 geolocationTester.ts: Starting module initialization
+index-BHtowQge.js:450 🔍 geolocationTester.ts: Module initialization complete
+index-BHtowQge.js:454 🔍 Dashboard: 开始导入 geolocationTester
+index-BHtowQge.js:454 🔍 Dashboard: geolocationTester 导入完成: object
+index-BHtowQge.js:454 🔍 Dashboard: 组件开始渲染
+index-BHtowQge.js:454 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-BHtowQge.js:454 🔍 Dashboard: 组件开始渲染
+index-BHtowQge.js:454 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-BHtowQge.js:454 🔍 Dashboard: 组件开始渲染
+index-BHtowQge.js:454 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-BHtowQge.js:454 🔍 Dashboard: 组件开始渲染
+index-BHtowQge.js:454 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-BHtowQge.js:40 ReferenceError: Cannot access 'L' before initialization
+    at Ere (index-BHtowQge.js:454:1636)
+    at h1 (index-BHtowQge.js:38:17018)
+    at _I (index-BHtowQge.js:40:44058)
+    at kI (index-BHtowQge.js:40:39790)
+    at ZM (index-BHtowQge.js:40:39718)
+    at Km (index-BHtowQge.js:40:39570)
+    at J0 (index-BHtowQge.js:40:35934)
+    at LI (index-BHtowQge.js:40:34883)
+    at C (index-BHtowQge.js:25:1540)
+    at MessagePort.M (index-BHtowQge.js:25:1899)
+F0 @ index-BHtowQge.js:40
+index-BHtowQge.js:449 [2025-08-19T04:57:38.802Z] [ERROR] [ErrorBoundary] React Error Boundary caught an error Object
+outputToConsole @ index-BHtowQge.js:449
+VM163 renderer_init:2 Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+warnAboutInsecureCSP @ VM163 renderer_init:2
