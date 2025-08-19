@@ -9,14 +9,10 @@ import {
   Space,
   Typography,
   Alert,
-  List,
-  Avatar,
   Tag,
-  Switch,
-  Divider,
   Dropdown,
-  Menu,
   message,
+  Modal,
 } from 'antd';
 import {
   ThunderboltOutlined,
@@ -31,8 +27,8 @@ import {
   DownOutlined,
   LinkOutlined,
 } from '@ant-design/icons';
-import { useTheme } from '../contexts/ThemeContext';
-import { ConnectionStatus, TrafficStats, ChainConfig } from '../../shared/types/index';
+// import { useTheme } from '../contexts/ThemeContext';
+import { ChainConfig, AppSettings } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { useNodeStore, NodeStore } from '../utils/stores';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
@@ -51,7 +47,7 @@ const Dashboard: React.FC = () => {
   console.log('🔍 Dashboard: 组件开始渲染');
   console.log('🔍 Dashboard: 导入检查 - geolocationTester:', typeof geolocationTester);
   
-  const { theme } = useTheme();
+  // const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
@@ -85,6 +81,44 @@ const Dashboard: React.FC = () => {
     setChainConfigs(savedChainConfigs);
   }, []);
 
+  // 设置端口占用弹窗监听器
+  useEffect(() => {
+    const handlePortInUse = (data: { port: number; processId: string }) => {
+      Modal.confirm({
+        title: '端口被占用',
+        content: (
+          <div>
+            <p>端口 {data.port} 已被其他进程占用，无法启动代理服务。</p>
+            <p>可能的原因：</p>
+            <ul>
+              <li>之前的代理进程未完全退出</li>
+              <li>其他应用正在使用该端口</li>
+              <li>系统代理已启用</li>
+            </ul>
+            <p>是否要终止占用该端口的进程？</p>
+          </div>
+        ),
+        okText: '终止进程',
+        cancelText: '取消',
+        onOk: async () => {
+          const result = await window.electron.ipcRenderer.invoke('proxy:killProcessOnPort', data.port);
+          if (result.success) {
+            message.success(result.message);
+          } else {
+            message.error(result.message || '操作失败');
+          }
+        }
+      });
+    };
+
+    window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
+
+    return () => {
+      // 清理IPC监听器 - 当前IPC实现不支持removeAllListeners
+      // window.electron.ipcRenderer.removeAllListeners('proxy:portInUse');
+    };
+  }, []);
+
   // 真实数据更新
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -110,6 +144,51 @@ const Dashboard: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [proxyConnected, setTrafficStats]);
+
+  // IP地理位置测试
+  const handleTestGeolocation = useCallback(async () => {
+    console.log('🔍 handleTestGeolocation: 开始执行');
+    console.log('🔍 handleTestGeolocation: geolocationTester:', geolocationTester);
+    try {
+      message.info('正在测试IP地址地理位置...');
+      
+      let result;
+      
+      if (proxyConnected) {
+        // 如果代理已连接，通过代理测试
+        // 使用正确的代理端口配置
+        const settings = Storage.get(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
+        const proxyPort = settings?.proxyPort || 7890;
+        // const socksPort = settings?.socksPort || 7891;
+        // 优先使用HTTP代理端口，如果不可用则使用SOCKS端口
+        const proxyUrl = `http://127.0.0.1:${proxyPort}`;
+        console.log('🔍 通过代理测试，代理URL:', proxyUrl);
+        result = await geolocationTester.testIPLocationViaProxy(proxyUrl);
+      } else {
+        // 如果代理未连接，直接测试
+        console.log('🔍 直接测试当前IP地理位置');
+        result = await geolocationTester.testCurrentIPLocation();
+      }
+      
+      if (result.success) {
+        setCurrentGeolocation({
+          ip: result.ip,
+          country: result.country,
+          region: result.region,
+          city: result.city,
+          isp: result.isp,
+          timezone: result.timezone,
+          timestamp: result.timestamp
+        });
+        message.success('IP地理位置测试完成');
+      } else {
+        message.error(`IP地理位置测试失败: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('🔍 地理位置测试异常:', error);
+      message.error(`IP地理位置测试失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [proxyConnected, setCurrentGeolocation]);
 
   // IP地理位置自动测试
   useEffect(() => {
@@ -152,8 +231,8 @@ const Dashboard: React.FC = () => {
         
         // 1. 刷新所有启用的订阅
         try {
-          const subscriptions = Storage.get('subscriptions', []);
-          const enabledSubscriptions = subscriptions.filter((sub: any) => sub.enabled);
+                  const subscriptions = Storage.get('subscriptions', []) || [];
+        const enabledSubscriptions = subscriptions.filter((sub: any) => sub.enabled);
           
           if (enabledSubscriptions.length > 0) {
             message.info(`正在刷新 ${enabledSubscriptions.length} 个订阅...`);
@@ -162,17 +241,17 @@ const Dashboard: React.FC = () => {
               try {
                 const result = await subscriptionManager.updateSubscription(subscription);
                 if (result.success) {
-                  console.log(`订阅 ${subscription.name} 刷新成功`);
+                  console.log(`订阅 ${(subscription as any).name} 刷新成功`);
                 } else {
-                  console.warn(`订阅 ${subscription.name} 刷新失败:`, result.error);
+                  console.warn(`订阅 ${(subscription as any).name} 刷新失败:`, result.error);
                 }
               } catch (error) {
-                console.error(`订阅 ${subscription.name} 刷新出错:`, error);
+                console.error(`订阅 ${(subscription as any).name} 刷新出错:`, error);
               }
             }
             
             // 重新加载节点列表
-            const updatedNodes = Storage.get('nodes', []);
+            const updatedNodes = Storage.get('nodes', []) || [];
             if (updatedNodes.length > 0) {
               // 更新store中的节点
               const setNodes = useNodeStore.getState().setNodes;
@@ -298,8 +377,9 @@ const Dashboard: React.FC = () => {
       await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
       
       const nodeLatencies = useNodeStore.getState().nodeLatencies;
-      const latency = nodeLatencies instanceof Map ? nodeLatencies.get(selectedNode.id) : undefined;
-      const latencyText = latency && latency > 0 ? ` (${latency}ms)` : '';
+      const latencyInfo = nodeLatencies instanceof Map ? nodeLatencies.get(selectedNode.id) : undefined;
+      const latency = latencyInfo?.latency || 0;
+      const latencyText = latency > 0 ? ` (${latency}ms)` : '';
       message.success(`代理启动成功 - ${selectedNode.name}${latencyText}`);
       
       // 更新全局状态
@@ -324,27 +404,27 @@ const Dashboard: React.FC = () => {
       message.info('正在刷新订阅和测试节点延迟...');
       
       // 1. 刷新所有启用的订阅
-      const subscriptions = Storage.get('subscriptions', []);
+      const subscriptions = Storage.get('subscriptions', []) || [];
       const enabledSubscriptions = subscriptions.filter((sub: any) => sub.enabled);
       
       if (enabledSubscriptions.length > 0) {
         message.info(`正在刷新 ${enabledSubscriptions.length} 个订阅...`);
         
-        for (const subscription of enabledSubscriptions) {
-          try {
-            const result = await subscriptionManager.updateSubscription(subscription);
-            if (result.success) {
-              console.log(`订阅 ${subscription.name} 刷新成功`);
-            } else {
-              console.warn(`订阅 ${subscription.name} 刷新失败:`, result.error);
+                  for (const subscription of enabledSubscriptions) {
+            try {
+              const result = await subscriptionManager.updateSubscription(subscription);
+              if (result.success) {
+                console.log(`订阅 ${(subscription as any).name} 刷新成功`);
+              } else {
+                console.warn(`订阅 ${(subscription as any).name} 刷新失败:`, result.error);
+              }
+            } catch (error) {
+              console.error(`订阅 ${(subscription as any).name} 刷新出错:`, error);
             }
-          } catch (error) {
-            console.error(`订阅 ${subscription.name} 刷新出错:`, error);
           }
-        }
         
         // 重新加载节点列表
-        const updatedNodes = Storage.get('nodes', []);
+        const updatedNodes = Storage.get('nodes', []) || [];
         if (updatedNodes.length > 0) {
           // 更新store中的节点
           const setNodes = useNodeStore.getState().setNodes;
@@ -505,62 +585,27 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
-  // IP地理位置测试
-  const handleTestGeolocation = useCallback(async () => {
-    console.log('🔍 handleTestGeolocation: 开始执行');
-    console.log('🔍 handleTestGeolocation: geolocationTester:', geolocationTester);
-    try {
-      message.info('正在测试IP地址地理位置...');
-      
-      let result;
-      
-      if (proxyConnected) {
-        // 如果代理已连接，通过代理测试
-        const proxyUrl = `http://127.0.0.1:${7890}`; // 使用默认代理端口
-        result = await geolocationTester.getInstance().testIPLocationViaProxy(proxyUrl);
-      } else {
-        // 如果代理未连接，直接测试
-        result = await geolocationTester.getInstance().testCurrentIPLocation();
-      }
-      
-      if (result.success) {
-        setCurrentGeolocation({
-          ip: result.ip,
-          country: result.country,
-          region: result.region,
-          city: result.city,
-          isp: result.isp,
-          timezone: result.timezone,
-          timestamp: result.timestamp
-        });
-        message.success('IP地理位置测试完成');
-      } else {
-        message.error(`IP地理位置测试失败: ${result.error}`);
-      }
-    } catch (error) {
-      message.error(`IP地理位置测试失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }, [proxyConnected, setCurrentGeolocation]);
-
   // 构建下拉菜单
   const buildDropdownMenu = () => {
     const menuItems = [];
 
     // 所有可用节点
     const availableNodes = nodes.filter(node => {
-      const latency = nodeLatencies instanceof Map ? nodeLatencies.get(node.id) : undefined;
-      return latency && latency > 0;
+      const latencyInfo = nodeLatencies instanceof Map ? nodeLatencies.get(node.id) : undefined;
+      const latency = latencyInfo?.latency || 0;
+      return latency > 0;
     });
 
     if (availableNodes.length > 0) {
       availableNodes.forEach(node => {
-        const latency = nodeLatencies instanceof Map ? nodeLatencies.get(node.id) : undefined;
+        const latencyInfo = nodeLatencies instanceof Map ? nodeLatencies.get(node.id) : undefined;
+        const latency = latencyInfo?.latency || 0;
         menuItems.push({
           key: `node-${node.id}`,
           label: (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{node.name}</span>
-              <Tag color="blue" size="small">{latency}ms</Tag>
+              <Tag color="blue">{latency}ms</Tag>
             </div>
           ),
           icon: <WifiOutlined />,
@@ -584,7 +629,7 @@ const Dashboard: React.FC = () => {
           label: (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>启动代理链 (默认)</span>
-              <Tag color="purple" size="small">默认</Tag>
+              <Tag color="purple">默认</Tag>
             </div>
           ),
           icon: <LinkOutlined />,
@@ -599,7 +644,7 @@ const Dashboard: React.FC = () => {
           label: (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{chain.name}</span>
-              {chain.id === defaultChainId && <Tag color="purple" size="small">默认</Tag>}
+              {chain.id === defaultChainId && <Tag color="purple">默认</Tag>}
             </div>
           ),
           icon: <LinkOutlined />,

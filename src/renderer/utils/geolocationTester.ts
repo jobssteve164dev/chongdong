@@ -14,18 +14,7 @@ export interface GeolocationResult {
   timestamp: number;
 }
 
-export class GeolocationTester {
-  private static instance: GeolocationTester;
-
-  public static getInstance(): GeolocationTester {
-    console.log('🔍 GeolocationTester.getInstance() called');
-    if (!GeolocationTester.instance) {
-      console.log('🔍 Creating new GeolocationTester instance');
-      GeolocationTester.instance = new GeolocationTester();
-    }
-    return GeolocationTester.instance;
-  }
-
+class GeolocationTester {
   /**
    * 测试当前IP地址的地理位置
    */
@@ -183,18 +172,6 @@ export class GeolocationTester {
   }
 }
 
-// 延迟初始化实例，避免循环依赖
-let _geolocationTester: GeolocationTester | null = null;
-
-export const geolocationTester = {
-  getInstance: () => {
-    console.log('🔍 geolocationTester.getInstance() called');
-    if (!_geolocationTester) {
-      console.log('🔍 Creating geolocationTester instance');
-      _geolocationTester = GeolocationTester.getInstance();
-    }
-    return _geolocationTester;
-  }
-};
+export const geolocationTester = new GeolocationTester();
 
 console.log('🔍 geolocationTester.ts: Module initialization complete');

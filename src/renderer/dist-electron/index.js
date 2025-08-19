@@ -998,23 +998,16 @@ class ProxyManager {
         console.error(`Sing-box stderr: ${errorMessage}`);
         if (errorMessage.includes("bind: address already in use")) {
           console.log("检测到端口占用错误，进行详细诊断...");
-          this.checkPortStatus(((_b2 = (_a2 = finalConfig.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 1080).then((isPortInUse) => {
-            var _a3, _b3;
-            if (isPortInUse) {
-              console.log("确认端口被占用，发送端口占用通知");
-              this.sendPortInUseNotification(((_b3 = (_a3 = finalConfig.inbounds) == null ? void 0 : _a3[0]) == null ? void 0 : _b3.listen_port) || 1080, processId);
-            } else {
-              console.log("端口未被占用，可能是 Sing-box 配置问题");
-              console.log("当前配置:", JSON.stringify(finalConfig, null, 2));
-            }
-          }).catch((error) => {
-            console.error("端口检查失败:", error);
-          });
+          const port = ((_b2 = (_a2 = finalConfig.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 1080;
+          console.log("立即发送端口占用通知，端口:", port);
+          this.sendPortInUseNotification(port, processId);
           childProcess.kill();
-          if (!resolved) {
-            resolved = true;
-            reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
-          }
+          setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              reject(new Error(`Sing-box 启动失败: 端口 ${port} 已被占用`));
+            }
+          }, 500);
           return;
         }
         if (errorMessage.includes("decode config")) {
@@ -1455,27 +1448,6 @@ class ProxyManager {
     if (existingProcesses.length > 0) {
       await new Promise((resolve) => setTimeout(resolve, 1e3));
     }
-  }
-  /**
-   * 检查指定端口是否被占用
-   */
-  async checkPortStatus(port) {
-    return new Promise((resolve) => {
-      const net = require("net");
-      const server = net.createServer();
-      server.on("error", (err) => {
-        if (err.code === "EADDRINUSE") {
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      });
-      server.on("listening", () => {
-        server.close();
-        resolve(false);
-      });
-      server.listen(port);
-    });
   }
   /**
    * 发送端口占用通知

@@ -193,28 +193,21 @@ export class ProxyManager {
         if (errorMessage.includes('bind: address already in use')) {
           console.log('检测到端口占用错误，进行详细诊断...');
           
-          // 先检查是否真的是端口占用
-          this.checkPortStatus(finalConfig.inbounds?.[0]?.listen_port || 1080).then(isPortInUse => {
-            if (isPortInUse) {
-              console.log('确认端口被占用，发送端口占用通知');
-              this.sendPortInUseNotification(finalConfig.inbounds?.[0]?.listen_port || 1080, processId);
-            } else {
-              console.log('端口未被占用，可能是 Sing-box 配置问题');
-              console.log('当前配置:', JSON.stringify(finalConfig, null, 2));
-              // 这可能是配置问题，不是端口占用
-            }
-          }).catch(error => {
-            console.error('端口检查失败:', error);
-          });
+          // 立即发送端口占用通知，不等待异步检查
+          const port = finalConfig.inbounds?.[0]?.listen_port || 1080;
+          console.log('立即发送端口占用通知，端口:', port);
+          this.sendPortInUseNotification(port, processId);
           
           // 终止子进程
           childProcess.kill();
           
-          // 使用 reject 而不是 throw，避免未捕获的异常
-          if (!resolved) {
-            resolved = true;
-            reject(new Error(`Sing-box 启动失败: ${errorMessage}`));
-          }
+          // 延迟一点时间再 reject，确保通知能够发送
+          setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              reject(new Error(`Sing-box 启动失败: 端口 ${port} 已被占用`));
+            }
+          }, 500);
           return;
         }
         
@@ -732,31 +725,6 @@ export class ProxyManager {
     if (existingProcesses.length > 0) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-  }
-
-  /**
-   * 检查指定端口是否被占用
-   */
-  private async checkPortStatus(port: number): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const net = require('net');
-      const server = net.createServer();
-
-      server.on('error', (err: any) => {
-        if (err.code === 'EADDRINUSE') {
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      });
-
-      server.on('listening', () => {
-        server.close();
-        resolve(false);
-      });
-
-      server.listen(port);
-    });
   }
 
   /**

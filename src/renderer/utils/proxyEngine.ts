@@ -334,14 +334,14 @@ export class ProxyEngine {
           type: 'socks',
           tag: 'socks-in',
           listen: '127.0.0.1',
-          listen_port: 1080,
+          listen_port: networkSettings?.socksPort || 7891,
           users: []
         },
         {
           type: 'http',
           tag: 'http-in',
           listen: '127.0.0.1',
-          listen_port: 8080
+          listen_port: networkSettings?.proxyPort || 7890
         }
       ],
       outbounds: [
