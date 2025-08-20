@@ -1,4 +1,4 @@
-import { AppSettings } from '../../shared/types';
+
 
 /**
  * 日志级别枚举
@@ -156,7 +156,7 @@ export class Logger {
 
     // 文件输出
     if (this.config.enableFile) {
-      this.writeToFile(entry);
+      this.writeToFile();
     }
 
     // 存储输出
@@ -204,7 +204,7 @@ export class Logger {
   /**
    * 写入文件
    */
-  private writeToFile(entry: LogEntry): void {
+  private writeToFile(): void {
     // 文件写入功能待实现
     // 这里可以集成文件系统API
   }

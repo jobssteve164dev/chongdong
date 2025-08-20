@@ -14,9 +14,9 @@ export class DefaultSettings {
       language: 'zh-CN',
       autoStart: false,
       systemProxy: true,
-      proxyPort: 7890,
-      socksPort: 7891,
-      mixedPort: 7890,
+      proxyPort: 7897, // HTTP端口
+      socksPort: 7896, // SOCKS端口
+      mixedPort: 7897, // 混合端口使用HTTP端口
       allowLan: false,
       mode: 'rule',
       logLevel: 'info',

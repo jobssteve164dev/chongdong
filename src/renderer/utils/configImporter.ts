@@ -22,7 +22,7 @@ export class ConfigImporter {
   /**
    * 从JSON字符串导入配置
    */
-  static importFromJson(jsonString: string, mergeMode: boolean = false): ApiResponse<AppState> {
+  static importFromJson(jsonString: string): ApiResponse<AppState> {
     try {
       let parsedData: any;
       
@@ -74,7 +74,7 @@ export class ConfigImporter {
   /**
    * 从YAML字符串导入配置
    */
-  static importFromYaml(yamlString: string, mergeMode: boolean = false): ApiResponse<AppState> {
+  static importFromYaml(yamlString: string): ApiResponse<AppState> {
     try {
       // 这里需要YAML解析库，暂时使用简单的解析
       // 在实际项目中应该使用 js-yaml 或其他YAML解析库
@@ -281,7 +281,8 @@ export class ConfigImporter {
         autoUpdate: true,
         updateInterval: 3600, // 1小时
         servers: [],
-        groups: []
+        groups: [],
+        rules: []
       };
 
       // 验证订阅配置
@@ -353,7 +354,31 @@ export class ConfigImporter {
         enableDns: true,
         dnsServer: '8.8.8.8',
         enableDoh: false,
-        dohServer: 'https://dns.google/dns-query'
+        dohServer: 'https://dns.google/dns-query',
+        enableDot: false,
+        dotServer: 'tls://1.1.1.1:853',
+        enableDnsCache: true,
+        dnsCacheSize: 1000,
+        dnsCacheTtl: 300,
+        enableDnsLoadBalance: true,
+        dnsServers: ['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1'],
+        enableDnsLogging: false,
+        enableDnsLeakProtection: true,
+        dnsLeakProtectionMode: 'strict',
+        enableDnsRules: true,
+        dnsRules: [],
+        enableDnsFallback: true,
+        dnsFallbackServers: ['114.114.114.114', '223.5.5.5'],
+        proxyEngine: 'singbox',
+        engineSettings: {},
+        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+        latencyTestTimeout: 10000,
+        latencyTestRetries: 3,
+        latencyTestInterval: 10,
+        enableAutoLatencyTest: false,
+        latencyTestConcurrency: 3,
+        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com',
+        latencyTestValidityPeriod: 30
       },
       preferences: {
         windowSize: { width: 1200, height: 800 },
@@ -402,7 +427,7 @@ export class ConfigImporter {
     if (clashConfig['proxy-groups'] && Array.isArray(clashConfig['proxy-groups'])) {
       convertedConfig.groups = clashConfig['proxy-groups'].map((group: any) => 
         this.convertClashGroupToGroup(group)
-      ).filter(Boolean);
+      ).filter((group): group is ProxyGroup => group !== null);
     }
 
     return convertedConfig;
@@ -506,7 +531,31 @@ export class ConfigImporter {
         enableDns: true,
         dnsServer: '8.8.8.8',
         enableDoh: false,
-        dohServer: 'https://dns.google/dns-query'
+        dohServer: 'https://dns.google/dns-query',
+        enableDot: false,
+        dotServer: 'tls://1.1.1.1:853',
+        enableDnsCache: true,
+        dnsCacheSize: 1000,
+        dnsCacheTtl: 300,
+        enableDnsLoadBalance: true,
+        dnsServers: ['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1'],
+        enableDnsLogging: false,
+        enableDnsLeakProtection: true,
+        dnsLeakProtectionMode: 'strict',
+        enableDnsRules: true,
+        dnsRules: [],
+        enableDnsFallback: true,
+        dnsFallbackServers: ['114.114.114.114', '223.5.5.5'],
+        proxyEngine: 'singbox',
+        engineSettings: {},
+        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+        latencyTestTimeout: 10000,
+        latencyTestRetries: 3,
+        latencyTestInterval: 10,
+        enableAutoLatencyTest: false,
+        latencyTestConcurrency: 3,
+        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com',
+        latencyTestValidityPeriod: 30
       },
       preferences: {
         windowSize: { width: 1200, height: 800 },
@@ -629,7 +678,31 @@ export class ConfigImporter {
         enableDns: true,
         dnsServer: '8.8.8.8',
         enableDoh: false,
-        dohServer: 'https://dns.google/dns-query'
+        dohServer: 'https://dns.google/dns-query',
+        enableDot: false,
+        dotServer: 'tls://1.1.1.1:853',
+        enableDnsCache: true,
+        dnsCacheSize: 1000,
+        dnsCacheTtl: 300,
+        enableDnsLoadBalance: true,
+        dnsServers: ['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1'],
+        enableDnsLogging: false,
+        enableDnsLeakProtection: true,
+        dnsLeakProtectionMode: 'strict',
+        enableDnsRules: true,
+        dnsRules: [],
+        enableDnsFallback: true,
+        dnsFallbackServers: ['114.114.114.114', '223.5.5.5'],
+        proxyEngine: 'singbox',
+        engineSettings: {},
+        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+        latencyTestTimeout: 10000,
+        latencyTestRetries: 3,
+        latencyTestInterval: 10,
+        enableAutoLatencyTest: false,
+        latencyTestConcurrency: 3,
+        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com',
+        latencyTestValidityPeriod: 30
       },
       preferences: {
         windowSize: { width: 1200, height: 800 },
@@ -824,7 +897,6 @@ export class ConfigImporter {
       const result: any = {};
       let currentKey = '';
       let currentValue: any = null;
-      let indentLevel = 0;
 
       for (const line of lines) {
         const trimmedLine = line.trim();

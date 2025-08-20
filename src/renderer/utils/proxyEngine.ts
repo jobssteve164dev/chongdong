@@ -14,6 +14,7 @@ declare global {
 const { ipcRenderer } = window.electron;
 
 import { ProxyNode, AppSettings } from '../../shared/types';
+import { dnsManager } from './dnsManager';
 
 export interface ProxyConfig {
   id: string;
@@ -319,6 +320,11 @@ export class ProxyEngine {
    * 转换为Sing-box配置格式
    */
   private convertToSingboxConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
+    // 初始化DNS管理器
+    if (networkSettings) {
+      dnsManager.init(networkSettings);
+    }
+
     // 基础Sing-box配置结构
     const singboxConfig: any = {
       log: {
@@ -332,14 +338,8 @@ export class ProxyEngine {
           secret: ''
         }
       },
-      dns: networkSettings?.enableDns ? {
-        servers: this.buildDnsServers(networkSettings),
-        rules: this.buildDnsRules(networkSettings),
-        final: 'default',
-        cache_size: networkSettings?.enableDnsCache ? (networkSettings.dnsCacheSize || 1000) : 0,
-        cache_ttl: networkSettings?.enableDnsCache ? (networkSettings.dnsCacheTtl || 300) : 0,
-        strategy: networkSettings?.enableDnsLoadBalance ? 'prefer_ipv4' : 'ipv4_only'
-      } : {
+      // 从独立的DNS管理器获取DNS配置
+      dns: dnsManager.getDnsConfig() || {
         servers: [
           {
             tag: 'default',
@@ -365,14 +365,14 @@ export class ProxyEngine {
           type: 'socks',
           tag: 'socks-in',
           listen: '127.0.0.1',
-          listen_port: networkSettings?.socksPort || 7891,
+          listen_port: networkSettings?.socksPort || 7896, // 修复SOCKS端口
           users: []
         },
         {
           type: 'http',
           tag: 'http-in',
           listen: '127.0.0.1',
-          listen_port: networkSettings?.proxyPort || 7890
+          listen_port: networkSettings?.proxyPort || 7897 // 修复HTTP端口
         }
       ],
       outbounds: [
@@ -561,7 +561,7 @@ export class ProxyEngine {
         enable: true,
         listen: '0.0.0.0:53',
         'default-nameserver': ['8.8.8.8', '8.8.4.4'],
-        nameserver: this.buildClashDnsServers(networkSettings),
+        nameserver: networkSettings?.dnsServers || ['8.8.8.8', '8.8.4.4'],
         'enhanced-mode': networkSettings?.enableFakeIp ? 'fake-ip' : 'redir-host',
         'fake-ip-range': networkSettings?.fakeIpRange || '198.18.0.1/16',
         'fake-ip-filter': [
@@ -622,165 +622,14 @@ export class ProxyEngine {
     return clashConfig;
   }
 
-  /**
-   * 构建DNS服务器配置
-   */
-  private buildDnsServers(networkSettings: AppSettings): any[] {
-    const servers: any[] = [];
-    
-    // 添加主DNS服务器
-    if (networkSettings.dnsServer) {
-      servers.push({
-        tag: 'default',
-        address: networkSettings.dnsServer,
-        detour: 'direct'
-      });
-    }
-    
-    // 添加DoH服务器
-    if (networkSettings.enableDoh && networkSettings.dohServer) {
-      servers.push({
-        tag: 'doh',
-        address: networkSettings.dohServer,
-        detour: 'direct'
-      });
-    }
-    
-    // 添加DoT服务器
-    if (networkSettings.enableDot && networkSettings.dotServer) {
-      servers.push({
-        tag: 'dot',
-        address: networkSettings.dotServer,
-        detour: 'direct'
-      });
-    }
-    
-    // 添加多DNS服务器负载均衡
-    if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
-      networkSettings.dnsServers.forEach((server, index) => {
-        if (server && server !== networkSettings.dnsServer) {
-          servers.push({
-            tag: `dns-${index}`,
-            address: server,
-            detour: 'direct'
-          });
-        }
-      });
-    }
-    
-    // 添加DNS故障转移服务器
-    if (networkSettings.enableDnsFallback && networkSettings.dnsFallbackServers) {
-      networkSettings.dnsFallbackServers.forEach((server, index) => {
-        servers.push({
-          tag: `fallback-${index}`,
-          address: server,
-          detour: 'direct'
-        });
-      });
-    }
-    
-    return servers.length > 0 ? servers : [{
-      tag: 'default',
-      address: '8.8.8.8',
-      detour: 'direct'
-    }];
-  }
+  // DNS功能已分离到独立的DNS管理器中
+  // 不再需要buildDnsServers方法
 
-  /**
-   * 构建Clash DNS服务器配置
-   */
-  private buildClashDnsServers(networkSettings: AppSettings): string[] {
-    const servers: string[] = [];
-    
-    // 添加主DNS服务器
-    if (networkSettings.dnsServer) {
-      servers.push(networkSettings.dnsServer);
-    }
-    
-    // 添加DoH服务器
-    if (networkSettings.enableDoh && networkSettings.dohServer) {
-      servers.push(networkSettings.dohServer);
-    }
-    
-    // 添加DoT服务器
-    if (networkSettings.enableDot && networkSettings.dotServer) {
-      servers.push(networkSettings.dotServer);
-    }
-    
-    // 添加多DNS服务器负载均衡
-    if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
-      networkSettings.dnsServers.forEach(server => {
-        if (server && server !== networkSettings.dnsServer && !servers.includes(server)) {
-          servers.push(server);
-        }
-      });
-    }
-    
-    return servers.length > 0 ? servers : ['8.8.8.8'];
-  }
+  // DNS功能已分离到独立的DNS管理器中
+  // 不再需要buildClashDnsServers方法
 
-  /**
-   * 构建DNS规则配置
-   */
-  private buildDnsRules(networkSettings: AppSettings): any[] {
-    const rules: any[] = [];
-    
-    // 添加DNS泄露防护规则
-    if (networkSettings.enableDnsLeakProtection) {
-      if (networkSettings.dnsLeakProtectionMode === 'strict') {
-        // 严格模式：所有DNS查询都通过代理
-        rules.push({
-          outbound: 'proxy',
-          server: 'default'
-        });
-      } else {
-        // 宽松模式：只对特定域名使用代理DNS
-        rules.push({
-          domain_suffix: ['.google.com', '.facebook.com', '.youtube.com', '.twitter.com'],
-          outbound: 'proxy',
-          server: 'default'
-        });
-      }
-    }
-    
-    // 添加自定义DNS规则
-    if (networkSettings.enableDnsRules && networkSettings.dnsRules) {
-      networkSettings.dnsRules.forEach(rule => {
-        if (rule.enabled) {
-          const dnsRule: any = {
-            outbound: rule.action === 'direct' ? 'direct' : 'proxy',
-            server: rule.action === 'custom' ? rule.customServer : 'default'
-          };
-          
-          switch (rule.patternType) {
-            case 'domain':
-              dnsRule.domain = [rule.pattern];
-              break;
-            case 'suffix':
-              dnsRule.domain_suffix = [rule.pattern];
-              break;
-            case 'keyword':
-              dnsRule.domain_keyword = [rule.pattern];
-              break;
-            case 'regex':
-              dnsRule.domain_regex = [rule.pattern];
-              break;
-          }
-          
-          rules.push(dnsRule);
-        }
-      });
-    }
-    
-    // 添加本地域名直连规则
-    rules.push({
-      domain_suffix: ['.local', '.localhost'],
-      outbound: 'direct',
-      server: 'default'
-    });
-    
-    return rules;
-  }
+  // DNS功能已分离到独立的DNS管理器中
+  // 不再需要buildDnsRules方法
 
   /**
    * 开始状态监控

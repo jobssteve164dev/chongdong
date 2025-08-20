@@ -120,7 +120,7 @@ const ProxyManagement: React.FC = () => {
         // 使用设置中的实际端口配置
         const finalSettings = settings || defaultSettings;
         // 从设置界面可以看到用户配置的SOCKS端口是7896
-        const proxyPort = finalSettings.socksPort || 7891; // 使用SOCKS端口
+        const proxyPort = finalSettings.socksPort || 7896; // 使用SOCKS端口
         console.log('当前设置中的端口配置:', {
           proxyPort: finalSettings.proxyPort,
           socksPort: finalSettings.socksPort,

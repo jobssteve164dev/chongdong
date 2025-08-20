@@ -1341,8 +1341,9 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
     const proxyUrlObj = new URL(proxyUrl);
     const appSettings = settingsManager.getSettings();
     const proxyHost = proxyUrlObj.hostname || '127.0.0.1';
-    const proxyPort = Number(appSettings?.proxyPort) || Number(proxyUrlObj.port) || 7890;
-    const socksPort = Number(appSettings?.socksPort) || 7891;
+    // 修复端口配置：使用正确的Sing-box端口
+    const proxyPort = Number(appSettings?.proxyPort) || Number(proxyUrlObj.port) || 7897; // HTTP端口
+    const socksPort = Number(appSettings?.socksPort) || 7896; // SOCKS端口
 
     // 可能存在代理认证信息
     const proxyAuthHeader = (proxyUrlObj.username || proxyUrlObj.password)

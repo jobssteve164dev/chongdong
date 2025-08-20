@@ -158,8 +158,8 @@ const Dashboard: React.FC = () => {
         // 如果代理已连接，通过代理测试
         // 使用正确的代理端口配置
         const settings = Storage.get(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
-        const proxyPort = settings?.proxyPort || 7890;
-        // const socksPort = settings?.socksPort || 7891;
+        const proxyPort = settings?.proxyPort || 7897; // 修复HTTP端口
+        // const socksPort = settings?.socksPort || 7896; // SOCKS端口
         // 优先使用HTTP代理端口，如果不可用则使用SOCKS端口
         const proxyUrl = `http://127.0.0.1:${proxyPort}`;
         console.log('🔍 通过代理测试，代理URL:', proxyUrl);
