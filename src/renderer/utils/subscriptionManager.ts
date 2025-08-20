@@ -129,10 +129,21 @@ export class SubscriptionManager {
     try {
       log.info('开始从订阅链接导入规则', { url }, 'SubscriptionManager');
 
+      // 验证URL格式
+      if (!url || !url.startsWith('http')) {
+        throw new Error('无效的订阅链接格式，请确保链接以http或https开头');
+      }
+
       const parseResult = await this.parseSubscription(url);
       
       if (parseResult.error) {
-        throw new Error(parseResult.error);
+        throw new Error(`订阅解析失败: ${parseResult.error}`);
+      }
+
+      // 检查是否解析到规则
+      if (!parseResult.rules || parseResult.rules.length === 0) {
+        log.warn('订阅链接中未找到规则', { url }, 'SubscriptionManager');
+        throw new Error('该订阅链接中未包含任何规则，请检查订阅内容');
       }
 
       // 将解析的规则转换为导入格式
@@ -420,6 +431,9 @@ export class SubscriptionManager {
    */
   private parseClash(content: string): SubscriptionParseResult {
     try {
+      // 添加调试日志
+      log.debug('开始解析Clash格式', { contentLength: content.length }, 'SubscriptionManager');
+      
       const config = JSON.parse(content);
       const servers: ProxyServer[] = [];
       const groups: ProxyGroup[] = [];
@@ -455,13 +469,25 @@ export class SubscriptionManager {
         }
       }
 
+      log.debug('Clash格式解析完成', { 
+        serverCount: servers.length, 
+        groupCount: groups.length, 
+        ruleCount: rules.length 
+      }, 'SubscriptionManager');
+
       return { servers, groups, rules };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      log.error('Clash格式解析失败', { 
+        error: errorMessage, 
+        contentPreview: content.substring(0, 200) + '...' 
+      }, 'SubscriptionManager');
+      
       return {
         servers: [],
         groups: [],
         rules: [],
-        error: 'Clash格式解析失败'
+        error: `Clash格式解析失败: ${errorMessage}`
       };
     }
   }
@@ -471,6 +497,8 @@ export class SubscriptionManager {
    */
   private parseSingbox(content: string): SubscriptionParseResult {
     try {
+      log.debug('开始解析Sing-box格式', { contentLength: content.length }, 'SubscriptionManager');
+      
       const config = JSON.parse(content);
       const servers: ProxyServer[] = [];
       const groups: ProxyGroup[] = [];
@@ -496,13 +524,24 @@ export class SubscriptionManager {
         }
       }
 
+      log.debug('Sing-box格式解析完成', { 
+        serverCount: servers.length, 
+        ruleCount: rules.length 
+      }, 'SubscriptionManager');
+
       return { servers, groups: [], rules };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      log.error('Sing-box格式解析失败', { 
+        error: errorMessage, 
+        contentPreview: content.substring(0, 200) + '...' 
+      }, 'SubscriptionManager');
+      
       return {
         servers: [],
         groups: [],
         rules: [],
-        error: 'Sing-box格式解析失败'
+        error: `Sing-box格式解析失败: ${errorMessage}`
       };
     }
   }
@@ -512,6 +551,8 @@ export class SubscriptionManager {
    */
   private parseV2Ray(content: string): SubscriptionParseResult {
     try {
+      log.debug('开始解析V2Ray格式', { contentLength: content.length }, 'SubscriptionManager');
+      
       const config = JSON.parse(content);
       const servers: ProxyServer[] = [];
 
@@ -525,13 +566,21 @@ export class SubscriptionManager {
         }
       }
 
+      log.debug('V2Ray格式解析完成', { serverCount: servers.length }, 'SubscriptionManager');
+
       return { servers, groups: [], rules: [] };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      log.error('V2Ray格式解析失败', { 
+        error: errorMessage, 
+        contentPreview: content.substring(0, 200) + '...' 
+      }, 'SubscriptionManager');
+      
       return {
         servers: [],
         groups: [],
         rules: [],
-        error: 'V2Ray格式解析失败'
+        error: `V2Ray格式解析失败: ${errorMessage}`
       };
     }
   }

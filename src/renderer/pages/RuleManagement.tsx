@@ -1021,7 +1021,8 @@ const RuleManagement: React.FC = () => {
                   detectConflicts();
                   log.info('从订阅导入规则', { url: values.url, count }, 'RuleManagement');
                 } catch (error: unknown) {
-                  message.error('导入失败');
+                  const errorMessage = error instanceof Error ? error.message : '未知错误';
+                  message.error(`导入失败: ${errorMessage}`);
                   log.error('从订阅导入规则失败', error, 'RuleManagement');
                 } finally {
                   setImportLoading(false);
@@ -1031,7 +1032,13 @@ const RuleManagement: React.FC = () => {
               <Form.Item
                 name="url"
                 label="订阅链接"
-                rules={[{ required: true, message: '请输入订阅链接' }]}
+                rules={[
+                  { required: true, message: '请输入订阅链接' },
+                  { 
+                    pattern: /^https?:\/\/.+/, 
+                    message: '请输入有效的订阅链接，以http或https开头' 
+                  }
+                ]}
               >
                 <Input placeholder="例如：https://example.com/subscription.txt" />
               </Form.Item>
@@ -1039,6 +1046,39 @@ const RuleManagement: React.FC = () => {
                 <Space>
                   <Button type="primary" htmlType="submit" loading={importLoading}>
                     导入
+                  </Button>
+                  <Button 
+                    onClick={async () => {
+                      const url = importForm.getFieldValue('url');
+                      if (!url) {
+                        message.warning('请先输入订阅链接');
+                        return;
+                      }
+                      setImportLoading(true);
+                      try {
+                        // 测试订阅链接
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        const content = await response.text();
+                        const format = content.includes('proxies:') ? 'Clash' : 
+                                     content.includes('"outbounds"') ? 'Sing-box' : 
+                                     content.includes('"protocol"') ? 'V2Ray' : '未知格式';
+                        
+                        message.success(`订阅链接测试成功！\n格式: ${format}\n内容长度: ${content.length} 字符`);
+                        log.info('订阅链接测试成功', { url, format, contentLength: content.length }, 'RuleManagement');
+                      } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : '未知错误';
+                        message.error(`订阅链接测试失败: ${errorMessage}`);
+                        log.error('订阅链接测试失败', error, 'RuleManagement');
+                      } finally {
+                        setImportLoading(false);
+                      }
+                    }}
+                    loading={importLoading}
+                  >
+                    测试链接
                   </Button>
                   <Button onClick={() => setImportModalVisible(false)}>
                     取消
