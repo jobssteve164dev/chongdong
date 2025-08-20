@@ -123,6 +123,39 @@ export class SubscriptionManager {
   }
 
   /**
+   * 从订阅链接导入规则
+   */
+  public async importFromUrl(url: string): Promise<RoutingRule[]> {
+    try {
+      log.info('开始从订阅链接导入规则', { url }, 'SubscriptionManager');
+
+      const parseResult = await this.parseSubscription(url);
+      
+      if (parseResult.error) {
+        throw new Error(parseResult.error);
+      }
+
+      // 将解析的规则转换为导入格式
+      const importedRules = parseResult.rules.map(rule => ({
+        ...rule,
+        source: RuleSource.SUBSCRIPTION as RuleSource,
+        enabled: true
+      }));
+
+      log.info('从订阅链接导入规则完成', { 
+        url, 
+        ruleCount: importedRules.length 
+      }, 'SubscriptionManager');
+
+      return importedRules;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      log.error('从订阅链接导入规则失败', { url, error: errorMessage }, 'SubscriptionManager');
+      throw error;
+    }
+  }
+
+  /**
    * 解析订阅链接
    */
   public async parseSubscription(url: string): Promise<SubscriptionParseResult> {

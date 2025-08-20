@@ -85,7 +85,6 @@ import {
   CodeOutlined,
   BugOutlined,
   SafetyOutlined,
-  ShieldOutlined,
   LockOutlined,
   UnlockOutlined,
   KeyOutlined,
@@ -144,6 +143,7 @@ import {
 } from '../../shared/types';
 import { ruleManager } from '../utils/ruleManager';
 import { ruleExporter } from '../utils/ruleExporter';
+import { subscriptionManager } from '../utils/subscriptionManager';
 import { log } from '../utils/logger';
 import './RuleManagement.css';
 
@@ -168,6 +168,9 @@ const RuleManagement: React.FC = () => {
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [previewContent, setPreviewContent] = useState<string>('');
   const [activeTab, setActiveTab] = useState('rules');
+  const [importForm] = Form.useForm();
+  const [importLoading, setImportLoading] = useState(false);
+  const [importActiveTab, setImportActiveTab] = useState('file');
 
   // 加载规则数据
   useEffect(() => {
@@ -983,22 +986,68 @@ const RuleManagement: React.FC = () => {
         onCancel={() => setImportModalVisible(false)}
         footer={null}
       >
-        <Upload.Dragger
-          accept=".json,.yaml,.yml,.txt"
-          beforeUpload={(file) => {
-            handleImport(file);
-            return false;
-          }}
-          showUploadList={false}
-        >
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-          <p className="ant-upload-hint">
-            支持 JSON、YAML、TXT 格式的规则文件
-          </p>
-        </Upload.Dragger>
+        <Tabs activeKey={importActiveTab} onChange={setImportActiveTab}>
+          <TabPane tab="文件导入" key="file">
+            <Upload.Dragger
+              accept=".json,.yaml,.yml,.txt"
+              beforeUpload={(file) => {
+                handleImport(file);
+                return false;
+              }}
+              showUploadList={false}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+              <p className="ant-upload-hint">
+                支持 JSON、YAML、TXT 格式的规则文件
+              </p>
+            </Upload.Dragger>
+          </TabPane>
+          <TabPane tab="订阅导入" key="subscription">
+            <Form
+              form={importForm}
+              layout="vertical"
+              onFinish={async (values) => {
+                setImportLoading(true);
+                try {
+                  const importedRules = await subscriptionManager.importFromUrl(values.url);
+                  const count = ruleManager.importRules(importedRules);
+                  message.success(`成功导入 ${count} 条规则`);
+                  setImportModalVisible(false);
+                  loadRules();
+                  loadStats();
+                  detectConflicts();
+                  log.info('从订阅导入规则', { url: values.url, count }, 'RuleManagement');
+                } catch (error: unknown) {
+                  message.error('导入失败');
+                  log.error('从订阅导入规则失败', error, 'RuleManagement');
+                } finally {
+                  setImportLoading(false);
+                }
+              }}
+            >
+              <Form.Item
+                name="url"
+                label="订阅链接"
+                rules={[{ required: true, message: '请输入订阅链接' }]}
+              >
+                <Input placeholder="例如：https://example.com/subscription.txt" />
+              </Form.Item>
+              <Form.Item>
+                <Space>
+                  <Button type="primary" htmlType="submit" loading={importLoading}>
+                    导入
+                  </Button>
+                  <Button onClick={() => setImportModalVisible(false)}>
+                    取消
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </TabPane>
+        </Tabs>
       </Modal>
 
       {/* 导出模态框 */}
