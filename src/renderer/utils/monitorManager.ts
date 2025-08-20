@@ -1,5 +1,6 @@
 import { TrafficStats, ConnectionStatus } from '../../shared/types';
 import { log } from './logger';
+import { proxyEngine } from './proxyEngine'; // 导入 proxyEngine
 
 export interface SystemMetrics {
   cpuUsage: number;
@@ -57,6 +58,7 @@ export class MonitorManager {
   private performanceMetrics: PerformanceMetrics[] = [];
   private updateInterval: NodeJS.Timeout | null = null;
   private isMonitoring = false;
+  private lastTrafficStats: { upload: number; download: number; timestamp: number } = { upload: 0, download: 0, timestamp: Date.now() };
 
   private constructor() {}
 
@@ -218,11 +220,68 @@ export class MonitorManager {
   /**
    * 更新指标
    */
-  private updateMetrics(): void {
-    // 更新系统指标
+  private async updateMetrics(): Promise<void> {
+    // 只有在代理运行时才更新统计数据
+    if (proxyEngine.isRunning()) {
+      try {
+        const stats = await proxyEngine.getStats();
+        if (stats) {
+          const now = Date.now();
+          const timeDelta = (now - this.lastTrafficStats.timestamp) / 1000; // a seconds
+
+          const uploadSpeed = timeDelta > 0 ? (stats.totalUpload - this.lastTrafficStats.upload) / timeDelta : 0;
+          const downloadSpeed = timeDelta > 0 ? (stats.totalDownload - this.lastTrafficStats.download) / timeDelta : 0;
+          
+          this.trafficStats = {
+            upload: stats.totalUpload,
+            download: stats.totalDownload,
+            uploadSpeed: uploadSpeed > 0 ? uploadSpeed : 0,
+            downloadSpeed: downloadSpeed > 0 ? downloadSpeed : 0,
+            timestamp: now
+          };
+
+          this.lastTrafficStats = {
+            upload: stats.totalUpload,
+            download: stats.totalDownload,
+            timestamp: now,
+          };
+          
+          this.connectionStatus = {
+            ...this.connectionStatus,
+            connected: true,
+            upload: this.trafficStats.upload,
+            download: this.trafficStats.download,
+            uploadSpeed: this.trafficStats.uploadSpeed,
+            downloadSpeed: this.trafficStats.downloadSpeed,
+          };
+
+          // 更新连接历史
+          if (stats.connections) {
+            this.connectionHistory = stats.connections.map(c => ({
+              id: c.id,
+              server: `${c.metadata.host}:${c.metadata.destinationPort}`,
+              protocol: c.metadata.network,
+              startTime: new Date(c.start).getTime(),
+              upload: c.upload,
+              download: c.download,
+              status: 'active',
+              rule: c.rule,
+              chains: c.chains.join(' -> '),
+            }));
+          }
+        }
+      } catch (error) {
+        log.error('更新代理统计失败', error, 'MonitorManager');
+        this.connectionStatus.connected = false;
+      }
+    } else {
+      this.connectionStatus.connected = false;
+    }
+    
+    // 更新系统指标 (保留模拟数据，或替换为真实API调用)
     this.updateSystemMetrics();
     
-    // 更新性能指标
+    // 更新性能指标 (保留模拟数据，或替换为真实API调用)
     this.updatePerformanceMetrics();
   }
 

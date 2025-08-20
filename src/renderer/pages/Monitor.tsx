@@ -51,7 +51,8 @@ import {
 import { TrafficStats, ConnectionStatus } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { useTheme } from '../contexts/ThemeContext';
-import { monitorManager } from '../utils/monitorManager';
+import { monitorManager, ConnectionHistory } from '../utils/monitorManager';
+import { formatBytes, formatSpeed } from '../utils/format';
 import './Monitor.css';
 
 const { Title, Text } = Typography;
@@ -63,6 +64,7 @@ const Monitor: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(monitorManager.getConnectionStatus());
   const [systemMetrics, setSystemMetrics] = useState(monitorManager.getSystemMetrics());
   const [performanceMetrics, setPerformanceMetrics] = useState(monitorManager.getPerformanceMetrics(1)[0]);
+  const [connectionHistory, setConnectionHistory] = useState<ConnectionHistory[]>([]);
 
   // 启动监控
   useEffect(() => {
@@ -73,6 +75,7 @@ const Monitor: React.FC = () => {
       setTrafficStats(monitorManager.getTrafficStats());
       setConnectionStatus(monitorManager.getConnectionStatus());
       setSystemMetrics(monitorManager.getSystemMetrics());
+      setConnectionHistory(monitorManager.getConnectionHistory()); // 更新连接历史
       const latestMetrics = monitorManager.getPerformanceMetrics(1)[0];
       if (latestMetrics) {
         setPerformanceMetrics(latestMetrics);
@@ -167,6 +170,16 @@ const Monitor: React.FC = () => {
     },
   ];
 
+  const connectionColumns = [
+    { title: '域名/IP', dataIndex: 'server', key: 'server' },
+    { title: '类型', dataIndex: 'protocol', key: 'protocol' },
+    { title: '规则', dataIndex: 'rule', key: 'rule' },
+    { title: '链路', dataIndex: 'chains', key: 'chains' },
+    { title: '上传', dataIndex: 'upload', key: 'upload', render: (val) => `${(val / 1024).toFixed(2)} KB` },
+    { title: '下载', dataIndex: 'download', key: 'download', render: (val) => `${(val / 1024).toFixed(2)} KB` },
+    { title: '时间', dataIndex: 'startTime', key: 'startTime', render: (val) => new Date(val).toLocaleTimeString() },
+  ];
+
   return (
     <div className="monitor-page">
       <div className="page-header">
@@ -198,9 +211,8 @@ const Monitor: React.FC = () => {
           <Card>
             <Statistic
               title="上传流量"
-              value={trafficStats.upload}
+              value={formatBytes(trafficStats.upload)}
               prefix={<CloudOutlined />}
-              suffix="MB"
               valueStyle={{ color: '#1890ff' }}
             />
           </Card>
@@ -209,9 +221,8 @@ const Monitor: React.FC = () => {
           <Card>
             <Statistic
               title="下载流量"
-              value={trafficStats.download}
+              value={formatBytes(trafficStats.download)}
               prefix={<CloudOutlined />}
-              suffix="MB"
               valueStyle={{ color: '#52c41a' }}
             />
           </Card>
@@ -220,9 +231,8 @@ const Monitor: React.FC = () => {
           <Card>
             <Statistic
               title="上传速度"
-              value={trafficStats.uploadSpeed}
+              value={formatSpeed(trafficStats.uploadSpeed)}
               prefix={<ThunderboltOutlined />}
-              suffix="KB/s"
               valueStyle={{ color: '#faad14' }}
             />
           </Card>
@@ -231,9 +241,8 @@ const Monitor: React.FC = () => {
           <Card>
             <Statistic
               title="下载速度"
-              value={trafficStats.downloadSpeed}
+              value={formatSpeed(trafficStats.downloadSpeed)}
               prefix={<ThunderboltOutlined />}
-              suffix="KB/s"
               valueStyle={{ color: '#f5222d' }}
             />
           </Card>
@@ -303,9 +312,13 @@ const Monitor: React.FC = () => {
 
       {/* 连接历史 */}
       <Card title="连接历史" extra={<ClockCircleOutlined />}>
-        <div className="connection-history">
-          <Text type="secondary">暂无连接历史数据</Text>
-        </div>
+        <Table
+          dataSource={connectionHistory}
+          columns={connectionColumns}
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 10 }}
+        />
       </Card>
     </div>
   );

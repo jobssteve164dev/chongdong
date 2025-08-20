@@ -1359,16 +1359,18 @@ class ProxyManager {
       let activeConnections = 0;
       let uploadSpeed = 0;
       let downloadSpeed = 0;
+      let connections = [];
       for (const [processId, processInfo] of this.processes.entries()) {
         try {
           if (processInfo.type === "singbox") {
             const stats = await this.getSingboxStats();
-            if (stats) {
-              totalUpload += stats.upload || 0;
-              totalDownload += stats.download || 0;
+            if (stats && stats.connections) {
+              totalUpload += stats.uploadTotal || 0;
+              totalDownload += stats.downloadTotal || 0;
               uploadSpeed += stats.uploadSpeed || 0;
               downloadSpeed += stats.downloadSpeed || 0;
-              activeConnections += stats.connections || 0;
+              activeConnections = stats.connections.length;
+              connections = stats.connections;
             }
           }
         } catch (error) {
@@ -1381,6 +1383,8 @@ class ProxyManager {
         uploadSpeed,
         downloadSpeed,
         activeConnections,
+        connections,
+        // 返回连接历史
         totalConnections: this.processes.size
       };
     } catch (error) {
@@ -1391,6 +1395,8 @@ class ProxyManager {
         uploadSpeed: 0,
         downloadSpeed: 0,
         activeConnections: 0,
+        connections: [],
+        // 确保错误时也返回空数组
         totalConnections: 0
       };
     }
@@ -1401,37 +1407,42 @@ class ProxyManager {
   async getSingboxStats() {
     try {
       const http = require("http");
-      return new Promise((resolve) => {
+      const fetchApi = (path2) => new Promise((resolve) => {
         const req = http.request({
           hostname: "127.0.0.1",
           port: 9090,
-          // Sing-box默认API端口
-          path: "/stats",
+          // Sing-box Clash API 端口
+          path: path2,
           method: "GET",
           timeout: 1e3
         }, (res) => {
           let data = "";
-          res.on("data", (chunk) => {
-            data += chunk;
-          });
+          res.on("data", (chunk) => data += chunk);
           res.on("end", () => {
             try {
-              const stats = JSON.parse(data);
-              resolve(stats);
+              resolve(JSON.parse(data));
             } catch (error) {
               resolve(null);
             }
           });
         });
-        req.on("error", () => {
-          resolve(null);
-        });
+        req.on("error", () => resolve(null));
         req.on("timeout", () => {
           req.destroy();
           resolve(null);
         });
         req.end();
       });
+      const [traffic, connectionsData] = await Promise.all([
+        fetchApi("/traffic"),
+        fetchApi("/connections")
+      ]);
+      if (!connectionsData) return null;
+      return {
+        uploadTotal: traffic == null ? void 0 : traffic.up,
+        downloadTotal: traffic == null ? void 0 : traffic.down,
+        connections: connectionsData.connections || []
+      };
     } catch (error) {
       return null;
     }

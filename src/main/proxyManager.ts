@@ -673,6 +673,7 @@ export class ProxyManager {
       let activeConnections = 0;
       let uploadSpeed = 0;
       let downloadSpeed = 0;
+      let connections = []; // 用于存储连接历史
 
       // 遍历所有活跃进程
       for (const [processId, processInfo] of this.processes.entries()) {
@@ -681,12 +682,14 @@ export class ProxyManager {
           if (processInfo.type === 'singbox') {
             // Sing-box通常在9090端口提供API
             const stats = await this.getSingboxStats();
-            if (stats) {
-              totalUpload += stats.upload || 0;
-              totalDownload += stats.download || 0;
+            if (stats && stats.connections) {
+              // 累加流量和速度
+              totalUpload += stats.uploadTotal || 0;
+              totalDownload += stats.downloadTotal || 0;
               uploadSpeed += stats.uploadSpeed || 0;
               downloadSpeed += stats.downloadSpeed || 0;
-              activeConnections += stats.connections || 0;
+              activeConnections = stats.connections.length; // 连接数是数组长度
+              connections = stats.connections; // 获取详细连接历史
             }
           }
         } catch (error) {
@@ -700,6 +703,7 @@ export class ProxyManager {
         uploadSpeed,
         downloadSpeed,
         activeConnections,
+        connections, // 返回连接历史
         totalConnections: this.processes.size
       };
     } catch (error) {
@@ -710,6 +714,7 @@ export class ProxyManager {
         uploadSpeed: 0,
         downloadSpeed: 0,
         activeConnections: 0,
+        connections: [], // 确保错误时也返回空数组
         totalConnections: 0
       };
     }
@@ -721,42 +726,47 @@ export class ProxyManager {
   private async getSingboxStats(): Promise<any> {
     try {
       // 尝试通过HTTP API获取Sing-box统计信息
-      // 注意：这需要Sing-box配置了API端点
       const http = require('http');
       
-      return new Promise((resolve) => {
+      const fetchApi = (path: string): Promise<any> => new Promise((resolve) => {
         const req = http.request({
           hostname: '127.0.0.1',
-          port: 9090, // Sing-box默认API端口
-          path: '/stats',
+          port: 9090, // Sing-box Clash API 端口
+          path: path,
           method: 'GET',
           timeout: 1000
         }, (res: any) => {
           let data = '';
-          res.on('data', (chunk: any) => {
-            data += chunk;
-          });
+          res.on('data', (chunk: any) => (data += chunk));
           res.on('end', () => {
             try {
-              const stats = JSON.parse(data);
-              resolve(stats);
+              resolve(JSON.parse(data));
             } catch (error) {
               resolve(null);
             }
           });
         });
-
-        req.on('error', () => {
-          resolve(null);
-        });
-
+        req.on('error', () => resolve(null));
         req.on('timeout', () => {
           req.destroy();
           resolve(null);
         });
-
         req.end();
       });
+      
+      // 并行获取流量和连接信息
+      const [traffic, connectionsData] = await Promise.all([
+        fetchApi('/traffic'),
+        fetchApi('/connections')
+      ]);
+
+      if (!connectionsData) return null;
+      
+      return {
+        uploadTotal: traffic?.up,
+        downloadTotal: traffic?.down,
+        connections: connectionsData.connections || []
+      };
     } catch (error) {
       return null;
     }

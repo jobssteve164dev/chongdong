@@ -13,6 +13,7 @@ import {
   Dropdown,
   message,
   Modal,
+  Divider,
 } from 'antd';
 import {
   ThunderboltOutlined,
@@ -39,6 +40,9 @@ console.log('🔍 Dashboard: 开始导入 geolocationTester');
 import { geolocationTester } from '../utils/geolocationTester';
 console.log('🔍 Dashboard: geolocationTester 导入完成:', typeof geolocationTester);
 import { DefaultSettings } from '../utils/defaultSettings';
+import { useProxyStore, useNodeStore } from '../utils/stores';
+import { monitorManager } from '../utils/monitorManager';
+import { formatBytes, formatSpeed } from '../utils/format';
 import './Dashboard.css';
 
 const { Title, Text } = Typography;
@@ -546,18 +550,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatSpeed = (bytesPerSecond: number): string => {
-    return formatBytes(bytesPerSecond) + '/s';
-  };
-
   // 安全的地理位置格式化函数
   const formatGeolocation = useCallback((geolocation: any): string => {
     try {
@@ -747,47 +739,29 @@ const Dashboard: React.FC = () => {
 
       {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6}>
+        <Col span={6}>
           <Card>
-            <Statistic
-              title="上传流量"
-              value={formatBytes(trafficStats.upload)}
-              prefix={<CloudOutlined />}
-              valueStyle={{ color: '#1890ff' }}
-            />
+            <Statistic title="上传流量" value={formatBytes(monitorManager.getTrafficStats().upload)} />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col span={6}>
           <Card>
-            <Statistic
-              title="下载流量"
-              value={formatBytes(trafficStats.download)}
-              prefix={<CloudOutlined />}
-              valueStyle={{ color: '#52c41a' }}
-            />
+            <Statistic title="下载流量" value={formatBytes(monitorManager.getTrafficStats().download)} />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col span={6}>
           <Card>
-            <Statistic
-              title="上传速度"
-              value={formatSpeed(trafficStats.uploadSpeed)}
-              prefix={<ThunderboltOutlined />}
-              valueStyle={{ color: '#faad14' }}
-            />
+            <Statistic title="上传速度" value={formatSpeed(monitorManager.getTrafficStats().uploadSpeed)} />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col span={6}>
           <Card>
-            <Statistic
-              title="下载速度"
-              value={formatSpeed(trafficStats.downloadSpeed)}
-              prefix={<ThunderboltOutlined />}
-              valueStyle={{ color: '#f5222d' }}
-            />
+            <Statistic title="下载速度" value={formatSpeed(monitorManager.getTrafficStats().downloadSpeed)} />
           </Card>
         </Col>
       </Row>
+
+      <Divider />
 
       {/* 功能卡片 */}
       <Row gutter={[16, 16]}>
