@@ -466,6 +466,75 @@ const RuleManagement: React.FC = () => {
     }
   };
 
+  const handleAddDomainRule = () => {
+    const domain = form.getFieldValue('newDomain');
+    const type = form.getFieldValue('newDomainType') || RuleType.DOMAIN;
+    const action = form.getFieldValue('newDomainAction') || RuleAction.PROXY;
+    
+    if (!domain || !domain.trim()) {
+      message.error('请输入域名');
+      return;
+    }
+    
+    if (!editingGroup) {
+      message.error('没有正在编辑的分流规则组');
+      return;
+    }
+    
+    const newRule: RoutingRule = {
+      id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: `${type}规则`,
+      type,
+      value: domain.trim(),
+      action,
+      target: action === RuleAction.PROXY ? editingGroup.defaultProxy : undefined,
+      priority: editingGroup.priority,
+      source: RuleSource.USER,
+      enabled: true,
+      description: `手动添加的${type}规则`,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const updatedRules = [...editingGroup.rules, newRule];
+    const updatedGroup = {
+      ...editingGroup,
+      rules: updatedRules
+    };
+    
+    setEditingGroup(updatedGroup);
+    form.setFieldsValue({ newDomain: '' });
+    message.success('规则已添加');
+    
+    log.info('手动添加域名规则', { 
+      domain, 
+      type, 
+      action, 
+      groupId: editingGroup.id 
+    }, 'RuleManagement');
+  };
+
+  const handleRemoveRule = (index: number) => {
+    if (!editingGroup) return;
+    
+    const updatedRules = [...editingGroup.rules];
+    const removedRule = updatedRules.splice(index, 1)[0];
+    
+    const updatedGroup = {
+      ...editingGroup,
+      rules: updatedRules
+    };
+    
+    setEditingGroup(updatedGroup);
+    message.success('规则已删除');
+    
+    log.info('删除规则', { 
+      ruleId: removedRule.id, 
+      ruleName: removedRule.name,
+      groupId: editingGroup.id 
+    }, 'RuleManagement');
+  };
+
   const getCategoryIcon = (category: string): React.ReactNode => {
     const iconMap: Record<string, React.ReactNode> = {
       social: '🌐',
@@ -906,6 +975,103 @@ const RuleManagement: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          {/* 手动添加域名规则 */}
+          <Form.Item label="手动添加域名规则">
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Form.Item
+                name="newDomain"
+                label="域名"
+                style={{ marginBottom: 8 }}
+              >
+                <Input 
+                  placeholder="例如：example.com" 
+                  addonAfter={
+                    <Button 
+                      type="link" 
+                      size="small"
+                      onClick={handleAddDomainRule}
+                      disabled={!form.getFieldValue('newDomain')}
+                    >
+                      添加
+                    </Button>
+                  }
+                />
+              </Form.Item>
+              <Form.Item
+                name="newDomainType"
+                label="规则类型"
+                style={{ marginBottom: 8 }}
+              >
+                <Select defaultValue={RuleType.DOMAIN} size="small">
+                  <Option value={RuleType.DOMAIN}>域名 (DOMAIN)</Option>
+                  <Option value={RuleType.DOMAIN_SUFFIX}>域名后缀 (DOMAIN-SUFFIX)</Option>
+                  <Option value={RuleType.DOMAIN_KEYWORD}>域名关键词 (DOMAIN-KEYWORD)</Option>
+                  <Option value={RuleType.IP_CIDR}>IP段 (IP-CIDR)</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item
+                name="newDomainAction"
+                label="动作"
+                style={{ marginBottom: 8 }}
+              >
+                <Select defaultValue={RuleAction.PROXY} size="small">
+                  <Option value={RuleAction.PROXY}>代理 (PROXY)</Option>
+                  <Option value={RuleAction.DIRECT}>直连 (DIRECT)</Option>
+                  <Option value={RuleAction.BLOCK}>阻止 (BLOCK)</Option>
+                </Select>
+              </Form.Item>
+            </Card>
+          </Form.Item>
+
+          {/* 当前规则列表 */}
+          <Form.Item label="当前规则列表">
+            <Card size="small">
+              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                {editingGroup?.rules && editingGroup.rules.length > 0 ? (
+                  <List
+                    size="small"
+                    dataSource={editingGroup.rules}
+                    renderItem={(rule, index) => (
+                      <List.Item
+                        actions={[
+                          <Button 
+                            type="link" 
+                            size="small" 
+                            danger
+                            onClick={() => handleRemoveRule(index)}
+                          >
+                            删除
+                          </Button>
+                        ]}
+                      >
+                        <List.Item.Meta
+                          title={
+                            <Space>
+                              <Tag color="blue">{rule.type}</Tag>
+                              <Text code>{rule.value}</Text>
+                            </Space>
+                          }
+                          description={
+                            <Space>
+                              <Tag color="green">{rule.action}</Tag>
+                              {rule.target && <Tag color="orange">{rule.target}</Tag>}
+                            </Space>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty 
+                    description="暂无规则" 
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    style={{ padding: '20px 0' }}
+                  />
+                )}
+              </div>
+            </Card>
+          </Form.Item>
 
           <Form.Item>
             <Space>
