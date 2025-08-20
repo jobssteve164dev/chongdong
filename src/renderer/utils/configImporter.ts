@@ -1,5 +1,5 @@
 import { AppState, ApiResponse, ProxyServer, ProxyGroup, Subscription } from '../../shared/types';
-import { logger } from './logger';
+import { log } from './logger';
 import { ConfigValidator } from './configValidator';
 
 /**
@@ -62,7 +62,7 @@ export class ConfigImporter {
         message: '配置导入成功'
       };
     } catch (error) {
-      logger.error('JSON导入失败:', error);
+      log.error('JSON导入失败:', error);
       return {
         success: false,
         error: 'JSON导入失败',
@@ -114,7 +114,7 @@ export class ConfigImporter {
         message: '配置导入成功'
       };
     } catch (error) {
-      logger.error('YAML导入失败:', error);
+      log.error('YAML导入失败:', error);
       return {
         success: false,
         error: 'YAML导入失败',
@@ -158,7 +158,7 @@ export class ConfigImporter {
         message: 'Clash配置导入成功'
       };
     } catch (error) {
-      logger.error('Clash导入失败:', error);
+      log.error('Clash导入失败:', error);
       return {
         success: false,
         error: 'Clash导入失败',
@@ -204,7 +204,7 @@ export class ConfigImporter {
         message: 'V2Ray配置导入成功'
       };
     } catch (error) {
-      logger.error('V2Ray导入失败:', error);
+      log.error('V2Ray导入失败:', error);
       return {
         success: false,
         error: 'V2Ray导入失败',
@@ -250,7 +250,7 @@ export class ConfigImporter {
         message: 'Sing-box配置导入成功'
       };
     } catch (error) {
-      logger.error('Sing-box导入失败:', error);
+      log.error('Sing-box导入失败:', error);
       return {
         success: false,
         error: 'Sing-box导入失败',
@@ -300,7 +300,7 @@ export class ConfigImporter {
         message: '订阅导入成功'
       };
     } catch (error) {
-      logger.error('订阅导入失败:', error);
+      log.error('订阅导入失败:', error);
       return {
         success: false,
         error: '订阅导入失败',
@@ -446,7 +446,7 @@ export class ConfigImporter {
 
       return server;
     } catch (error) {
-      logger.error('转换Clash代理失败:', error);
+      log.error('转换Clash代理失败:', error);
       return null;
     }
   }
@@ -474,7 +474,7 @@ export class ConfigImporter {
 
       return group;
     } catch (error) {
-      logger.error('转换Clash组失败:', error);
+      log.error('转换Clash组失败:', error);
       return null;
     }
   }
@@ -597,7 +597,7 @@ export class ConfigImporter {
 
       return server;
     } catch (error) {
-      logger.error('转换V2Ray出站失败:', error);
+      log.error('转换V2Ray出站失败:', error);
       return null;
     }
   }
@@ -711,7 +711,7 @@ export class ConfigImporter {
 
       return server;
     } catch (error) {
-      logger.error('转换Sing-box出站失败:', error);
+      log.error('转换Sing-box出站失败:', error);
       return null;
     }
   }
@@ -745,6 +745,30 @@ export class ConfigImporter {
         dnsServer: '8.8.8.8',
         enableDoh: false,
         dohServer: 'https://dns.google/dns-query',
+        enableDot: false,
+        dotServer: 'tls://1.1.1.1:853',
+        enableDnsCache: true,
+        dnsCacheSize: 1000,
+        dnsCacheTtl: 300,
+        enableDnsLoadBalance: true,
+        dnsServers: ['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1'],
+        enableDnsLogging: false,
+        enableDnsLeakProtection: true,
+        dnsLeakProtectionMode: 'strict',
+        enableDnsRules: true,
+        dnsRules: [],
+        enableDnsFallback: true,
+        dnsFallbackServers: ['114.114.114.114', '223.5.5.5'],
+        proxyEngine: 'singbox',
+        engineSettings: {},
+        latencyTestUrl: 'http://connectivitycheck.gstatic.com/generate_204',
+        latencyTestTimeout: 10000,
+        latencyTestRetries: 3,
+        latencyTestInterval: 10,
+        enableAutoLatencyTest: false,
+        latencyTestConcurrency: 3,
+        latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com',
+        latencyTestValidityPeriod: 30,
         ...config.settings
       },
       preferences: {
@@ -822,7 +846,7 @@ export class ConfigImporter {
 
       return result;
     } catch (error) {
-      logger.error('YAML解析失败:', error);
+      log.error('YAML解析失败:', error);
       return null;
     }
   }

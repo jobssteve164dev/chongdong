@@ -332,7 +332,14 @@ export class ProxyEngine {
           secret: ''
         }
       },
-      dns: {
+      dns: networkSettings?.enableDns ? {
+        servers: this.buildDnsServers(networkSettings),
+        rules: this.buildDnsRules(networkSettings),
+        final: 'default',
+        cache_size: networkSettings?.enableDnsCache ? (networkSettings.dnsCacheSize || 1000) : 0,
+        cache_ttl: networkSettings?.enableDnsCache ? (networkSettings.dnsCacheTtl || 300) : 0,
+        strategy: networkSettings?.enableDnsLoadBalance ? 'prefer_ipv4' : 'ipv4_only'
+      } : {
         servers: [
           {
             tag: 'default',
@@ -554,7 +561,7 @@ export class ProxyEngine {
         enable: true,
         listen: '0.0.0.0:53',
         'default-nameserver': ['8.8.8.8', '8.8.4.4'],
-        nameserver: [networkSettings.dnsServer || '8.8.8.8'],
+        nameserver: this.buildClashDnsServers(networkSettings),
         'enhanced-mode': networkSettings?.enableFakeIp ? 'fake-ip' : 'redir-host',
         'fake-ip-range': networkSettings?.fakeIpRange || '198.18.0.1/16',
         'fake-ip-filter': [
@@ -577,7 +584,15 @@ export class ProxyEngine {
           '*.battlenet.com.cn',
           '*.battlenet.com',
           '*.blizzard.com'
-        ]
+        ],
+        'fallback': networkSettings?.enableDnsFallback ? networkSettings.dnsFallbackServers : [],
+        'fallback-filter': {
+          'geoip': true,
+          'ipcidr': [
+            '240.0.0.0/4',
+            '0.0.0.0/32'
+          ]
+        }
       } : {
         enable: false
       },
@@ -605,6 +620,166 @@ export class ProxyEngine {
     }
 
     return clashConfig;
+  }
+
+  /**
+   * 构建DNS服务器配置
+   */
+  private buildDnsServers(networkSettings: AppSettings): any[] {
+    const servers: any[] = [];
+    
+    // 添加主DNS服务器
+    if (networkSettings.dnsServer) {
+      servers.push({
+        tag: 'default',
+        address: networkSettings.dnsServer,
+        detour: 'direct'
+      });
+    }
+    
+    // 添加DoH服务器
+    if (networkSettings.enableDoh && networkSettings.dohServer) {
+      servers.push({
+        tag: 'doh',
+        address: networkSettings.dohServer,
+        detour: 'direct'
+      });
+    }
+    
+    // 添加DoT服务器
+    if (networkSettings.enableDot && networkSettings.dotServer) {
+      servers.push({
+        tag: 'dot',
+        address: networkSettings.dotServer,
+        detour: 'direct'
+      });
+    }
+    
+    // 添加多DNS服务器负载均衡
+    if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
+      networkSettings.dnsServers.forEach((server, index) => {
+        if (server && server !== networkSettings.dnsServer) {
+          servers.push({
+            tag: `dns-${index}`,
+            address: server,
+            detour: 'direct'
+          });
+        }
+      });
+    }
+    
+    // 添加DNS故障转移服务器
+    if (networkSettings.enableDnsFallback && networkSettings.dnsFallbackServers) {
+      networkSettings.dnsFallbackServers.forEach((server, index) => {
+        servers.push({
+          tag: `fallback-${index}`,
+          address: server,
+          detour: 'direct'
+        });
+      });
+    }
+    
+    return servers.length > 0 ? servers : [{
+      tag: 'default',
+      address: '8.8.8.8',
+      detour: 'direct'
+    }];
+  }
+
+  /**
+   * 构建Clash DNS服务器配置
+   */
+  private buildClashDnsServers(networkSettings: AppSettings): string[] {
+    const servers: string[] = [];
+    
+    // 添加主DNS服务器
+    if (networkSettings.dnsServer) {
+      servers.push(networkSettings.dnsServer);
+    }
+    
+    // 添加DoH服务器
+    if (networkSettings.enableDoh && networkSettings.dohServer) {
+      servers.push(networkSettings.dohServer);
+    }
+    
+    // 添加DoT服务器
+    if (networkSettings.enableDot && networkSettings.dotServer) {
+      servers.push(networkSettings.dotServer);
+    }
+    
+    // 添加多DNS服务器负载均衡
+    if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
+      networkSettings.dnsServers.forEach(server => {
+        if (server && server !== networkSettings.dnsServer && !servers.includes(server)) {
+          servers.push(server);
+        }
+      });
+    }
+    
+    return servers.length > 0 ? servers : ['8.8.8.8'];
+  }
+
+  /**
+   * 构建DNS规则配置
+   */
+  private buildDnsRules(networkSettings: AppSettings): any[] {
+    const rules: any[] = [];
+    
+    // 添加DNS泄露防护规则
+    if (networkSettings.enableDnsLeakProtection) {
+      if (networkSettings.dnsLeakProtectionMode === 'strict') {
+        // 严格模式：所有DNS查询都通过代理
+        rules.push({
+          outbound: 'proxy',
+          server: 'default'
+        });
+      } else {
+        // 宽松模式：只对特定域名使用代理DNS
+        rules.push({
+          domain_suffix: ['.google.com', '.facebook.com', '.youtube.com', '.twitter.com'],
+          outbound: 'proxy',
+          server: 'default'
+        });
+      }
+    }
+    
+    // 添加自定义DNS规则
+    if (networkSettings.enableDnsRules && networkSettings.dnsRules) {
+      networkSettings.dnsRules.forEach(rule => {
+        if (rule.enabled) {
+          const dnsRule: any = {
+            outbound: rule.action === 'direct' ? 'direct' : 'proxy',
+            server: rule.action === 'custom' ? rule.customServer : 'default'
+          };
+          
+          switch (rule.patternType) {
+            case 'domain':
+              dnsRule.domain = [rule.pattern];
+              break;
+            case 'suffix':
+              dnsRule.domain_suffix = [rule.pattern];
+              break;
+            case 'keyword':
+              dnsRule.domain_keyword = [rule.pattern];
+              break;
+            case 'regex':
+              dnsRule.domain_regex = [rule.pattern];
+              break;
+          }
+          
+          rules.push(dnsRule);
+        }
+      });
+    }
+    
+    // 添加本地域名直连规则
+    rules.push({
+      domain_suffix: ['.local', '.localhost'],
+      outbound: 'direct',
+      server: 'default'
+    });
+    
+    return rules;
   }
 
   /**

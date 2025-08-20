@@ -1,0 +1,245 @@
+/* 错误监控组件样式 */
+.error-monitor {
+  margin-bottom: 16px;
+}
+
+.error-monitor .ant-card {
+  border-left: 4px solid #ff4d4f;
+}
+
+.error-monitor .ant-card-head {
+  background-color: #fff2f0;
+  border-bottom: 1px solid #ffccc7;
+}
+
+.error-monitor .ant-statistic-title {
+  font-size: 12px;
+  color: #666;
+}
+
+.error-monitor .ant-statistic-content {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.error-monitor .ant-table {
+  font-size: 12px;
+}
+
+.error-monitor .ant-table-thead > tr > th {
+  background-color: #fafafa;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.error-monitor .ant-table-tbody > tr:hover > td {
+  background-color: #f5f5f5;
+}
+
+.error-monitor .ant-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.error-monitor .ant-btn-link {
+  font-size: 11px;
+  padding: 0 4px;
+  height: auto;
+}
+
+.error-monitor .ant-badge-count {
+  background-color: #ff4d4f;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+}
+
+/* 错误详情模态框样式 */
+.error-detail-modal .ant-modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.error-detail-modal pre {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1.4;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.error-detail-modal .ant-typography {
+  margin-bottom: 8px;
+}
+
+.error-detail-modal .ant-tag {
+  margin: 4px 0;
+}
+
+/* 错误通知样式 */
+.error-notification {
+  border-left: 4px solid #ff4d4f;
+  background-color: #fff2f0;
+}
+
+.error-notification .ant-message-notice-content {
+  background-color: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+
+/* 严重程度颜色 */
+.severity-critical {
+  color: #cf1322;
+}
+
+.severity-high {
+  color: #fa8c16;
+}
+
+.severity-medium {
+  color: #faad14;
+}
+
+.severity-low {
+  color: #52c41a;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .error-monitor .ant-card-head-title {
+    font-size: 14px;
+  }
+  
+  .error-monitor .ant-statistic-content {
+    font-size: 16px;
+  }
+  
+  .error-monitor .ant-table {
+    font-size: 11px;
+  }
+  
+  .error-monitor .ant-table-thead > tr > th,
+  .error-monitor .ant-table-tbody > tr > td {
+    padding: 8px 4px;
+  }
+}
+
+/* 动画效果 */
+.error-monitor .ant-card {
+  transition: all 0.3s ease;
+}
+
+.error-monitor .ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.error-monitor .ant-btn {
+  transition: all 0.2s ease;
+}
+
+.error-monitor .ant-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* 滚动条样式 */
+.error-detail-modal .ant-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.error-detail-modal .ant-modal-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.error-detail-modal .ant-modal-body::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.error-detail-modal .ant-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 错误统计卡片样式 */
+.error-stats-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.error-stats-card .ant-card-body {
+  padding: 16px;
+}
+
+.error-stats-card .ant-statistic-title {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.error-stats-card .ant-statistic-content {
+  color: white;
+}
+
+/* 错误类型标签样式 */
+.error-type-tag {
+  border-radius: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.error-type-tag.renderer-crash {
+  background-color: #ff7875;
+  color: white;
+  border-color: #ff7875;
+}
+
+.error-type-tag.gpu-crash {
+  background-color: #ff7a45;
+  color: white;
+  border-color: #ff7a45;
+}
+
+.error-type-tag.network-crash {
+  background-color: #ffa940;
+  color: white;
+  border-color: #ffa940;
+}
+
+.error-type-tag.proxy-crash {
+  background-color: #ffc53d;
+  color: white;
+  border-color: #ffc53d;
+}
+
+.error-type-tag.dns-error {
+  background-color: #73d13d;
+  color: white;
+  border-color: #73d13d;
+}
+
+.error-type-tag.config-error {
+  background-color: #40a9ff;
+  color: white;
+  border-color: #40a9ff;
+}
+
+.error-type-tag.storage-error {
+  background-color: #9254de;
+  color: white;
+  border-color: #9254de;
+}
+
+.error-type-tag.ipc-error {
+  background-color: #eb2f96;
+  color: white;
+  border-color: #eb2f96;
+}
+
+.error-type-tag.unknown-error {
+  background-color: #8c8c8c;
+  color: white;
+  border-color: #8c8c8c;
+}

@@ -9,7 +9,7 @@ import {
   AppEvent,
   ApiResponse 
 } from '../../shared/types';
-import { logger } from './logger';
+import { log } from './logger';
 import { DefaultSettings } from '../../shared/defaultSettings';
 
 /**
@@ -71,10 +71,10 @@ export class ConfigManager {
       const savedConfig = Storage.get<AppState>('app_config');
       if (savedConfig) {
         this.config = { ...this.config, ...savedConfig };
-        logger.info('配置加载成功');
+        log.info('配置加载成功');
       }
     } catch (error) {
-      logger.error('配置加载失败:', error);
+      log.error('配置加载失败:', error);
     }
   }
 
@@ -84,9 +84,9 @@ export class ConfigManager {
   private saveConfig(): void {
     try {
       Storage.set('app_config', this.config);
-      logger.info('配置保存成功');
+      log.info('配置保存成功');
     } catch (error) {
-      logger.error('配置保存失败:', error);
+              log.error('配置保存失败:', error);
     }
   }
 
@@ -119,7 +119,7 @@ export class ConfigManager {
         message: '设置更新成功'
       };
     } catch (error) {
-      logger.error('更新设置失败:', error);
+      log.error('更新设置失败:', error);
       return {
         success: false,
         error: '更新设置失败',
@@ -149,7 +149,7 @@ export class ConfigManager {
         message: '偏好设置更新成功'
       };
     } catch (error) {
-      logger.error('更新偏好设置失败:', error);
+      log.error('更新偏好设置失败:', error);
       return {
         success: false,
         error: '更新偏好设置失败',
@@ -185,7 +185,7 @@ export class ConfigManager {
         message: '订阅添加成功'
       };
     } catch (error) {
-      logger.error('添加订阅失败:', error);
+      log.error('添加订阅失败:', error);
       return {
         success: false,
         error: '添加订阅失败',
@@ -221,7 +221,7 @@ export class ConfigManager {
         message: '订阅更新成功'
       };
     } catch (error) {
-      logger.error('更新订阅失败:', error);
+      log.error('更新订阅失败:', error);
       return {
         success: false,
         error: '更新订阅失败',
@@ -253,7 +253,7 @@ export class ConfigManager {
         message: '订阅删除成功'
       };
     } catch (error) {
-      logger.error('删除订阅失败:', error);
+      log.error('删除订阅失败:', error);
       return {
         success: false,
         error: '删除订阅失败',
@@ -289,7 +289,7 @@ export class ConfigManager {
         message: '代理服务器添加成功'
       };
     } catch (error) {
-      logger.error('添加代理服务器失败:', error);
+      log.error('添加代理服务器失败:', error);
       return {
         success: false,
         error: '添加代理服务器失败',
@@ -325,7 +325,7 @@ export class ConfigManager {
         message: '代理服务器更新成功'
       };
     } catch (error) {
-      logger.error('更新代理服务器失败:', error);
+      log.error('更新代理服务器失败:', error);
       return {
         success: false,
         error: '更新代理服务器失败',
@@ -358,7 +358,7 @@ export class ConfigManager {
         message: '代理服务器删除成功'
       };
     } catch (error) {
-      logger.error('删除代理服务器失败:', error);
+      log.error('删除代理服务器失败:', error);
       return {
         success: false,
         error: '删除代理服务器失败',
@@ -393,7 +393,7 @@ export class ConfigManager {
         message: '代理组添加成功'
       };
     } catch (error) {
-      logger.error('添加代理组失败:', error);
+      log.error('添加代理组失败:', error);
       return {
         success: false,
         error: '添加代理组失败',
@@ -428,7 +428,7 @@ export class ConfigManager {
         message: '代理组更新成功'
       };
     } catch (error) {
-      logger.error('更新代理组失败:', error);
+      log.error('更新代理组失败:', error);
       return {
         success: false,
         error: '更新代理组失败',
@@ -460,7 +460,7 @@ export class ConfigManager {
         message: '代理组删除成功'
       };
     } catch (error) {
-      logger.error('删除代理组失败:', error);
+      log.error('删除代理组失败:', error);
       return {
         success: false,
         error: '删除代理组失败',
@@ -483,7 +483,7 @@ export class ConfigManager {
         message: '配置重置成功'
       };
     } catch (error) {
-      logger.error('重置配置失败:', error);
+      log.error('重置配置失败:', error);
       return {
         success: false,
         error: '重置配置失败',
@@ -529,7 +529,7 @@ export class ConfigManager {
         try {
           listener(data);
         } catch (error) {
-          logger.error(`事件监听器执行失败 [${event}]:`, error);
+          log.error(`事件监听器执行失败 [${event}]:`, error);
         }
       });
     }

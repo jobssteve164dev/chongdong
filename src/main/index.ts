@@ -9,6 +9,7 @@ import { proxyManager } from './proxyManager';
 import { systemProxyManager } from './systemProxyManager';
 import { coreDownloader } from './coreDownloader';
 import { settingsManager } from './settingsManager';
+import { crashMonitor } from './crashMonitor';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -33,7 +34,16 @@ async function quitApp(): Promise<void> {
     console.log('开始退出应用...');
     isQuitting = true;
     
-    // 1. 停止所有代理进程
+    // 1. 停止崩溃监控
+    try {
+      console.log('停止崩溃监控...');
+      crashMonitor.stopMonitoring();
+      console.log('崩溃监控已停止');
+    } catch (error) {
+      console.error('停止崩溃监控失败:', error);
+    }
+    
+    // 2. 停止所有代理进程
     try {
       console.log('停止所有代理进程...');
       await proxyManager.stopAll();
@@ -435,6 +445,9 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.chongdong.app');
+
+  // 启动崩溃监控
+  crashMonitor.startMonitoring();
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -1031,6 +1044,20 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
         dnsServer: settings.settings.dnsServer,
         enableDoh: settings.settings.enableDoh,
         dohServer: settings.settings.dohServer,
+        enableDot: settings.settings.enableDot,
+        dotServer: settings.settings.dotServer,
+        enableDnsCache: settings.settings.enableDnsCache,
+        dnsCacheSize: settings.settings.dnsCacheSize,
+        dnsCacheTtl: settings.settings.dnsCacheTtl,
+        enableDnsLoadBalance: settings.settings.enableDnsLoadBalance,
+        dnsServers: settings.settings.dnsServers,
+        enableDnsLogging: settings.settings.enableDnsLogging,
+        enableDnsLeakProtection: settings.settings.enableDnsLeakProtection,
+        dnsLeakProtectionMode: settings.settings.dnsLeakProtectionMode,
+        enableDnsRules: settings.settings.enableDnsRules,
+        dnsRules: settings.settings.dnsRules,
+        enableDnsFallback: settings.settings.enableDnsFallback,
+        dnsFallbackServers: settings.settings.dnsFallbackServers,
         enableTun: settings.settings.enableTun,
         tunDevice: settings.settings.tunDevice,
         enableFakeIp: settings.settings.enableFakeIp,

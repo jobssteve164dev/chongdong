@@ -1,5 +1,5 @@
 import { AppState, ApiResponse, FileInfo } from '../../shared/types';
-import { logger } from './logger';
+import { log } from './logger';
 import { ConfigValidator } from './configValidator';
 
 /**
@@ -51,7 +51,7 @@ export class ConfigExporter {
         message: '配置导出成功'
       };
     } catch (error) {
-      logger.error('JSON导出失败:', error);
+      log.error('JSON导出失败:', error);
       return {
         success: false,
         error: 'JSON导出失败',
@@ -93,7 +93,7 @@ export class ConfigExporter {
         message: '配置导出成功'
       };
     } catch (error) {
-      logger.error('YAML导出失败:', error);
+      log.error('YAML导出失败:', error);
       return {
         success: false,
         error: 'YAML导出失败',
@@ -126,7 +126,7 @@ export class ConfigExporter {
         message: 'Clash配置导出成功'
       };
     } catch (error) {
-      logger.error('Clash导出失败:', error);
+      log.error('Clash导出失败:', error);
       return {
         success: false,
         error: 'Clash导出失败',
@@ -159,7 +159,7 @@ export class ConfigExporter {
         message: 'V2Ray配置导出成功'
       };
     } catch (error) {
-      logger.error('V2Ray导出失败:', error);
+      log.error('V2Ray导出失败:', error);
       return {
         success: false,
         error: 'V2Ray导出失败',
@@ -192,7 +192,7 @@ export class ConfigExporter {
         message: 'Sing-box配置导出成功'
       };
     } catch (error) {
-      logger.error('Sing-box导出失败:', error);
+      log.error('Sing-box导出失败:', error);
       return {
         success: false,
         error: 'Sing-box导出失败',

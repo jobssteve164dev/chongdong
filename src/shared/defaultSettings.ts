@@ -32,6 +32,57 @@ export class DefaultSettings {
       dnsServer: '8.8.8.8',
       enableDoh: false,
       dohServer: 'https://dns.google/dns-query',
+      // 新增DNS安全性和隐私性配置
+      enableDot: false,
+      dotServer: 'tls://1.1.1.1:853',
+      enableDnsCache: true,
+      dnsCacheSize: 1000,
+      dnsCacheTtl: 300,
+      enableDnsLoadBalance: true,
+      dnsServers: [
+        '8.8.8.8',
+        '8.8.4.4',
+        '1.1.1.1',
+        '1.0.0.1'
+      ],
+      enableDnsLogging: false,
+      enableDnsLeakProtection: true,
+      dnsLeakProtectionMode: 'strict',
+      enableDnsRules: true,
+      dnsRules: [
+        {
+          id: 'block-ads',
+          name: '屏蔽广告域名',
+          pattern: 'ads.',
+          patternType: 'suffix',
+          action: 'block',
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: 'block-tracking',
+          name: '屏蔽追踪域名',
+          pattern: 'tracking.',
+          patternType: 'suffix',
+          action: 'block',
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: 'local-domains',
+          name: '本地域名直连',
+          pattern: '.local',
+          patternType: 'suffix',
+          action: 'direct',
+          enabled: true,
+          priority: 200
+        }
+      ],
+      enableDnsFallback: true,
+      dnsFallbackServers: [
+        '114.114.114.114',
+        '223.5.5.5'
+      ],
       proxyEngine: 'singbox',
       engineSettings: {},
       // 延迟测试设置
@@ -88,6 +139,57 @@ export class DefaultSettings {
       dnsServer: '8.8.8.8',
       enableDoh: false,
       dohServer: 'https://dns.google/dns-query',
+      // 新增DNS安全性和隐私性配置
+      enableDot: false,
+      dotServer: 'tls://1.1.1.1:853',
+      enableDnsCache: true,
+      dnsCacheSize: 1000,
+      dnsCacheTtl: 300,
+      enableDnsLoadBalance: true,
+      dnsServers: [
+        '8.8.8.8',
+        '8.8.4.4',
+        '1.1.1.1',
+        '1.0.0.1'
+      ],
+      enableDnsLogging: false,
+      enableDnsLeakProtection: true,
+      dnsLeakProtectionMode: 'strict',
+      enableDnsRules: true,
+      dnsRules: [
+        {
+          id: 'block-ads',
+          name: '屏蔽广告域名',
+          pattern: 'ads.',
+          patternType: 'suffix',
+          action: 'block',
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: 'block-tracking',
+          name: '屏蔽追踪域名',
+          pattern: 'tracking.',
+          patternType: 'suffix',
+          action: 'block',
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: 'local-domains',
+          name: '本地域名直连',
+          pattern: '.local',
+          patternType: 'suffix',
+          action: 'direct',
+          enabled: true,
+          priority: 200
+        }
+      ],
+      enableDnsFallback: true,
+      dnsFallbackServers: [
+        '114.114.114.114',
+        '223.5.5.5'
+      ],
       enableTun: false,
       tunDevice: 'utun0',
       enableFakeIp: true,

@@ -1,44 +1,59 @@
-// 日志级别
+import { AppSettings } from '../../shared/types';
+
+/**
+ * 日志级别枚举
+ */
 export enum LogLevel {
-  DEBUG = 0,
-  INFO = 1,
-  WARN = 2,
-  ERROR = 3,
+  DEBUG = 'debug',
+  INFO = 'info',
+  WARN = 'warn',
+  ERROR = 'error'
 }
 
-// 日志配置
-interface LoggerConfig {
-  level: LogLevel;
-  enableConsole: boolean;
-  enableStorage: boolean;
-  maxStorageLogs: number;
-}
-
-// 日志条目
-interface LogEntry {
+/**
+ * 日志条目接口
+ */
+export interface LogEntry {
   timestamp: number;
   level: LogLevel;
   message: string;
   data?: any;
-  category?: string;
+  category: string;
 }
 
-// 日志工具类
+/**
+ * 日志配置接口
+ */
+export interface LogConfig {
+  level: LogLevel;
+  enableConsole: boolean;
+  enableFile: boolean;
+  enableStorage: boolean;
+  maxEntries: number;
+  categories: string[];
+}
+
+/**
+ * 日志管理器
+ */
 export class Logger {
   private static instance: Logger;
-  private config: LoggerConfig;
+  private config: LogConfig;
   private logs: LogEntry[] = [];
+  private isInitialized = false;
 
   private constructor() {
     this.config = {
       level: LogLevel.INFO,
       enableConsole: true,
+      enableFile: false,
       enableStorage: true,
-      maxStorageLogs: 1000,
+      maxEntries: 1000,
+      categories: ['default']
     };
   }
 
-  static getInstance(): Logger {
+  public static getInstance(): Logger {
     if (!Logger.instance) {
       Logger.instance = new Logger();
     }
@@ -46,45 +61,75 @@ export class Logger {
   }
 
   /**
-   * 设置日志配置
+   * 初始化日志系统
    */
-  setConfig(config: Partial<LoggerConfig>): void {
-    this.config = { ...this.config, ...config };
+  public initialize(config?: Partial<LogConfig>): void {
+    if (this.isInitialized) {
+      return;
+    }
+
+    if (config) {
+      this.config = { ...this.config, ...config };
+    }
+
+    // 加载历史日志
+    this.loadLogs();
+
+    this.isInitialized = true;
+    this.info('日志系统已初始化', { config: this.config });
+  }
+
+  /**
+   * 设置日志级别
+   */
+  public setLevel(level: LogLevel): void {
+    this.config.level = level;
+    this.info('日志级别已更新', { level });
+  }
+
+  /**
+   * 添加日志类别
+   */
+  public addCategory(category: string): void {
+    if (!this.config.categories.includes(category)) {
+      this.config.categories.push(category);
+    }
   }
 
   /**
    * 记录调试日志
    */
-  debug(message: string, data?: any, category?: string): void {
+  public debug(message: string, data?: any, category?: string): void {
     this.log(LogLevel.DEBUG, message, data, category);
   }
 
   /**
    * 记录信息日志
    */
-  info(message: string, data?: any, category?: string): void {
+  public info(message: string, data?: any, category?: string): void {
     this.log(LogLevel.INFO, message, data, category);
   }
 
   /**
    * 记录警告日志
    */
-  warn(message: string, data?: any, category?: string): void {
+  public warn(message: string, data?: any, category?: string): void {
     this.log(LogLevel.WARN, message, data, category);
   }
 
   /**
    * 记录错误日志
    */
-  error(message: string, data?: any, category?: string): void {
+  public error(message: string, data?: any, category?: string): void {
     this.log(LogLevel.ERROR, message, data, category);
   }
 
   /**
-   * 内部日志记录方法
+   * 记录日志
    */
   private log(level: LogLevel, message: string, data?: any, category?: string): void {
-    if (level < this.config.level) {
+    // 检查日志级别
+    if (this.getLevelPriority(level) < this.getLevelPriority(this.config.level)) {
       return;
     }
 
@@ -93,121 +138,196 @@ export class Logger {
       level,
       message,
       data,
-      category,
+      category: category || 'default'
     };
 
-    // 添加到内存日志
+    // 添加到内存
     this.logs.push(entry);
 
-    // 限制内存日志数量
-    if (this.logs.length > this.config.maxStorageLogs) {
-      this.logs = this.logs.slice(-this.config.maxStorageLogs);
+    // 限制日志数量
+    if (this.logs.length > this.config.maxEntries) {
+      this.logs = this.logs.slice(-this.config.maxEntries);
     }
 
     // 控制台输出
     if (this.config.enableConsole) {
-      this.outputToConsole(entry);
+      this.writeToConsole(entry);
     }
 
-    // 存储日志
+    // 文件输出
+    if (this.config.enableFile) {
+      this.writeToFile(entry);
+    }
+
+    // 存储输出
     if (this.config.enableStorage) {
       this.saveToStorage(entry);
     }
   }
 
   /**
-   * 输出到控制台
+   * 获取日志级别优先级
    */
-  private outputToConsole(entry: LogEntry): void {
-    const timestamp = new Date(entry.timestamp).toISOString();
-    const levelStr = LogLevel[entry.level];
-    const prefix = `[${timestamp}] [${levelStr}]`;
-    const categoryStr = entry.category ? ` [${entry.category}]` : '';
+  private getLevelPriority(level: LogLevel): number {
+    switch (level) {
+      case LogLevel.DEBUG: return 0;
+      case LogLevel.INFO: return 1;
+      case LogLevel.WARN: return 2;
+      case LogLevel.ERROR: return 3;
+      default: return 1;
+    }
+  }
 
+  /**
+   * 写入控制台
+   */
+  private writeToConsole(entry: LogEntry): void {
+    const timestamp = new Date(entry.timestamp).toISOString();
+    const prefix = `[${timestamp}] [${entry.level.toUpperCase()}] [${entry.category}]`;
+    
     switch (entry.level) {
       case LogLevel.DEBUG:
-        console.debug(`${prefix}${categoryStr} ${entry.message}`, entry.data);
+        console.debug(prefix, entry.message, entry.data || '');
         break;
       case LogLevel.INFO:
-        console.info(`${prefix}${categoryStr} ${entry.message}`, entry.data);
+        console.info(prefix, entry.message, entry.data || '');
         break;
       case LogLevel.WARN:
-        console.warn(`${prefix}${categoryStr} ${entry.message}`, entry.data);
+        console.warn(prefix, entry.message, entry.data || '');
         break;
       case LogLevel.ERROR:
-        console.error(`${prefix}${categoryStr} ${entry.message}`, entry.data);
+        console.error(prefix, entry.message, entry.data || '');
         break;
     }
   }
 
   /**
-   * 保存到本地存储
+   * 写入文件
+   */
+  private writeToFile(entry: LogEntry): void {
+    // 文件写入功能待实现
+    // 这里可以集成文件系统API
+  }
+
+  /**
+   * 保存到存储
    */
   private saveToStorage(entry: LogEntry): void {
     try {
       const storageKey = 'chongdong_logs';
       const existingLogs = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      
       existingLogs.push(entry);
-
-      // 限制存储的日志数量
-      if (existingLogs.length > this.config.maxStorageLogs) {
-        existingLogs.splice(0, existingLogs.length - this.config.maxStorageLogs);
+      
+      // 限制存储中的日志数量
+      if (existingLogs.length > this.config.maxEntries) {
+        existingLogs.splice(0, existingLogs.length - this.config.maxEntries);
       }
-
+      
       localStorage.setItem(storageKey, JSON.stringify(existingLogs));
     } catch (error) {
-      console.error('Failed to save log to storage:', error);
+      console.error('保存日志到存储失败:', error);
+    }
+  }
+
+  /**
+   * 加载历史日志
+   */
+  private loadLogs(): void {
+    try {
+      const storageKey = 'chongdong_logs';
+      const existingLogs = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      this.logs = existingLogs;
+    } catch (error) {
+      console.error('加载历史日志失败:', error);
+      this.logs = [];
     }
   }
 
   /**
    * 获取所有日志
    */
-  getLogs(): LogEntry[] {
+  public getLogs(): LogEntry[] {
     return [...this.logs];
   }
 
   /**
    * 获取指定级别的日志
    */
-  getLogsByLevel(level: LogLevel): LogEntry[] {
-    return this.logs.filter(log => log.level >= level);
+  public getLogsByLevel(level: LogLevel): LogEntry[] {
+    return this.logs.filter(log => log.level === level);
   }
 
   /**
-   * 获取指定分类的日志
+   * 获取指定类别的日志
    */
-  getLogsByCategory(category: string): LogEntry[] {
+  public getLogsByCategory(category: string): LogEntry[] {
     return this.logs.filter(log => log.category === category);
   }
 
   /**
-   * 清空日志
+   * 获取指定时间范围的日志
    */
-  clear(): void {
+  public getLogsByTimeRange(startTime: number, endTime: number): LogEntry[] {
+    return this.logs.filter(log => log.timestamp >= startTime && log.timestamp <= endTime);
+  }
+
+  /**
+   * 清除所有日志
+   */
+  public clearLogs(): void {
     this.logs = [];
     try {
       localStorage.removeItem('chongdong_logs');
     } catch (error) {
-      console.error('Failed to clear logs from storage:', error);
+      console.error('清除存储日志失败:', error);
     }
   }
 
   /**
    * 导出日志
    */
-  export(): string {
+  public exportLogs(): string {
     return JSON.stringify(this.logs, null, 2);
+  }
+
+  /**
+   * 获取日志统计信息
+   */
+  public getLogStats(): {
+    total: number;
+    byLevel: Record<LogLevel, number>;
+    byCategory: Record<string, number>;
+    recentLogs: number;
+  } {
+    const byLevel: Record<LogLevel, number> = {} as any;
+    const byCategory: Record<string, number> = {};
+    const now = Date.now();
+    const oneHourAgo = now - 60 * 60 * 1000;
+
+    // 初始化级别统计
+    Object.values(LogLevel).forEach(level => {
+      byLevel[level] = 0;
+    });
+
+    this.logs.forEach(log => {
+      byLevel[log.level]++;
+      byCategory[log.category] = (byCategory[log.category] || 0) + 1;
+    });
+
+    const recentLogs = this.logs.filter(log => log.timestamp > oneHourAgo).length;
+
+    return {
+      total: this.logs.length,
+      byLevel,
+      byCategory,
+      recentLogs
+    };
   }
 }
 
 // 创建全局日志实例
-export const logger = Logger.getInstance();
+export const log = Logger.getInstance();
 
-// 便捷的日志函数
-export const log = {
-  debug: (message: string, data?: any, category?: string) => logger.debug(message, data, category),
-  info: (message: string, data?: any, category?: string) => logger.info(message, data, category),
-  warn: (message: string, data?: any, category?: string) => logger.warn(message, data, category),
-  error: (message: string, data?: any, category?: string) => logger.error(message, data, category),
-};
+// 初始化日志系统
+log.initialize();

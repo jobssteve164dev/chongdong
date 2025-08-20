@@ -19,6 +19,20 @@ export interface NetworkSettings {
   dnsServer: string;
   enableDoh: boolean;
   dohServer: string;
+  enableDot: boolean;
+  dotServer: string;
+  enableDnsCache: boolean;
+  dnsCacheSize: number;
+  dnsCacheTtl: number;
+  enableDnsLoadBalance: boolean;
+  dnsServers: string[];
+  enableDnsLogging: boolean;
+  enableDnsLeakProtection: boolean;
+  dnsLeakProtectionMode: 'strict' | 'relaxed';
+  enableDnsRules: boolean;
+  dnsRules: any[];
+  enableDnsFallback: boolean;
+  dnsFallbackServers: string[];
   enableTun: boolean;
   tunDevice: string;
   enableFakeIp: boolean;
@@ -674,10 +688,44 @@ export class ProxyManager {
 
     // 应用DNS设置
     if (networkSettings.enableDns && finalConfig.dns) {
-      finalConfig.dns.servers = [
-        networkSettings.dnsServer || '8.8.8.8',
-        ...(networkSettings.enableDoh ? [networkSettings.dohServer || 'https://dns.google/dns-query'] : [])
-      ];
+      const dnsServers: string[] = [];
+      
+      // 添加主DNS服务器
+      if (networkSettings.dnsServer) {
+        dnsServers.push(networkSettings.dnsServer);
+      }
+      
+      // 添加DoH服务器
+      if (networkSettings.enableDoh && networkSettings.dohServer) {
+        dnsServers.push(networkSettings.dohServer);
+      }
+      
+      // 添加DoT服务器
+      if (networkSettings.enableDot && networkSettings.dotServer) {
+        dnsServers.push(networkSettings.dotServer);
+      }
+      
+      // 添加多DNS服务器负载均衡
+      if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
+        networkSettings.dnsServers.forEach(server => {
+          if (server && server !== networkSettings.dnsServer && !dnsServers.includes(server)) {
+            dnsServers.push(server);
+          }
+        });
+      }
+      
+      finalConfig.dns.servers = dnsServers.length > 0 ? dnsServers : ['8.8.8.8'];
+      
+      // 添加DNS缓存配置
+      if (networkSettings.enableDnsCache) {
+        finalConfig.dns.cache_size = networkSettings.dnsCacheSize || 1000;
+        finalConfig.dns.cache_ttl = networkSettings.dnsCacheTtl || 300;
+      }
+      
+      // 添加DNS故障转移服务器
+      if (networkSettings.enableDnsFallback && networkSettings.dnsFallbackServers) {
+        finalConfig.dns.fallback = networkSettings.dnsFallbackServers;
+      }
     }
 
     // 应用TUN设置

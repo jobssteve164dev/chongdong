@@ -8,7 +8,7 @@ import {
   ProxyProtocol,
   ApiResponse 
 } from '../../shared/types';
-import { logger } from './logger';
+import { log } from './logger';
 
 /**
  * 配置验证工具类
@@ -83,7 +83,7 @@ export class ConfigValidator {
         message: '设置验证通过'
       };
     } catch (error) {
-      logger.error('设置验证失败:', error);
+      log.error('设置验证失败:', error);
       return {
         success: false,
         error: '设置验证失败',
@@ -139,7 +139,7 @@ export class ConfigValidator {
         message: '偏好设置验证通过'
       };
     } catch (error) {
-      logger.error('偏好设置验证失败:', error);
+      log.error('偏好设置验证失败:', error);
       return {
         success: false,
         error: '偏好设置验证失败',
@@ -243,7 +243,7 @@ export class ConfigValidator {
         message: '代理服务器配置验证通过'
       };
     } catch (error) {
-      logger.error('代理服务器配置验证失败:', error);
+      log.error('代理服务器配置验证失败:', error);
       return {
         success: false,
         error: '代理服务器配置验证失败',
@@ -292,7 +292,7 @@ export class ConfigValidator {
         message: '订阅配置验证通过'
       };
     } catch (error) {
-      logger.error('订阅配置验证失败:', error);
+      log.error('订阅配置验证失败:', error);
       return {
         success: false,
         error: '订阅配置验证失败',
@@ -345,7 +345,7 @@ export class ConfigValidator {
         message: '代理组配置验证通过'
       };
     } catch (error) {
-      logger.error('代理组配置验证失败:', error);
+      log.error('代理组配置验证失败:', error);
       return {
         success: false,
         error: '代理组配置验证失败',
@@ -421,7 +421,7 @@ export class ConfigValidator {
         message: '应用状态验证通过'
       };
     } catch (error) {
-      logger.error('应用状态验证失败:', error);
+      log.error('应用状态验证失败:', error);
       return {
         success: false,
         error: '应用状态验证失败',

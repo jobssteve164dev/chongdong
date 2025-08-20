@@ -91,6 +91,21 @@ export interface AppSettings {
   dnsServer: string;
   enableDoh: boolean;
   dohServer: string;
+  // 新增DNS安全性和隐私性配置
+  enableDot: boolean;
+  dotServer: string;
+  enableDnsCache: boolean;
+  dnsCacheSize: number;
+  dnsCacheTtl: number;
+  enableDnsLoadBalance: boolean;
+  dnsServers: string[];
+  enableDnsLogging: boolean;
+  enableDnsLeakProtection: boolean;
+  dnsLeakProtectionMode: 'strict' | 'relaxed';
+  enableDnsRules: boolean;
+  dnsRules: DnsRule[];
+  enableDnsFallback: boolean;
+  dnsFallbackServers: string[];
   proxyEngine: 'singbox' | 'xray' | 'clash';
   engineSettings: Record<string, any>;
   // 延迟测试设置
@@ -102,6 +117,18 @@ export interface AppSettings {
   latencyTestConcurrency: number;
   latencyTestUrls: string;
   latencyTestValidityPeriod: number;
+}
+
+// 新增DNS规则接口
+export interface DnsRule {
+  id: string;
+  name: string;
+  pattern: string;
+  patternType: 'domain' | 'suffix' | 'keyword' | 'regex';
+  action: 'direct' | 'proxy' | 'block' | 'custom';
+  customServer?: string;
+  enabled: boolean;
+  priority: number;
 }
 
 // 用户偏好设置

@@ -42,6 +42,7 @@ import { Storage, STORAGE_KEYS } from '../utils/storage';
 import CoreManager from '../components/CoreManager';
 import { windowManager } from '../utils/windowManager';
 import { DefaultSettings } from '../utils/defaultSettings';
+import ErrorMonitor from '../components/ErrorMonitor';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -61,6 +62,13 @@ const Settings: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DefaultSettings.getDefaultAppSettings());
 
   const [preferences, setPreferences] = useState<UserPreferences>(DefaultSettings.getDefaultUserPreferences());
+
+  // DNS测试相关状态
+  const [dnsTestLoading, setDnsTestLoading] = useState(false);
+  const [dnsLeakCheckLoading, setDnsLeakCheckLoading] = useState(false);
+  const [dnsTestResult, setDnsTestResult] = useState<string>('');
+  const [dnsLeakResult, setDnsLeakResult] = useState<string>('');
+  const [dnsLeakDetected, setDnsLeakDetected] = useState(false);
 
   // 加载已保存的设置
   useEffect(() => {
@@ -235,7 +243,10 @@ const Settings: React.FC = () => {
     try {
       // 检查是否是网络相关的设置变更
       const networkKeys = [
-        'enableDns', 'dnsServer', 'enableDoh', 'dohServer',
+        'enableDns', 'dnsServer', 'enableDoh', 'dohServer', 'enableDot', 'dotServer',
+        'enableDnsCache', 'dnsCacheSize', 'dnsCacheTtl', 'enableDnsLoadBalance', 'dnsServers',
+        'enableDnsLogging', 'enableDnsLeakProtection', 'dnsLeakProtectionMode',
+        'enableDnsRules', 'dnsRules', 'enableDnsFallback', 'dnsFallbackServers',
         'enableTun', 'tunDevice', 'enableFakeIp', 'fakeIpRange',
         'enableUdp', 'enableIpv6', 'logLevel', 'enableLog', 'logFile',
         // 延迟测试相关设置
@@ -294,6 +305,73 @@ const Settings: React.FC = () => {
       }
     } catch (error) {
       log.error('处理网络设置变更失败', error, 'Settings');
+    }
+  };
+
+  // DNS测试处理函数
+  const handleTestDns = async () => {
+    setDnsTestLoading(true);
+    setDnsTestResult('');
+    
+    try {
+      const { dnsManager } = await import('../utils/dnsManager');
+      const validation = dnsManager.validateDnsConfig(settings);
+      
+      if (!validation.valid) {
+        setDnsTestResult(`DNS配置验证失败: ${validation.errors.join(', ')}`);
+        return;
+      }
+
+      const testResult = await dnsManager.testDnsQuery('www.google.com', settings);
+      
+      if (testResult.success) {
+        setDnsTestResult(
+          `DNS查询成功!\n` +
+          `域名: www.google.com\n` +
+          `IP地址: ${testResult.ip}\n` +
+          `DNS服务器: ${testResult.server}\n` +
+          `响应时间: ${testResult.responseTime}ms\n` +
+          `通过代理: ${testResult.throughProxy ? '是' : '否'}`
+        );
+      } else {
+        setDnsTestResult('DNS查询失败，请检查DNS配置');
+      }
+    } catch (error) {
+      setDnsTestResult(`DNS测试失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setDnsTestLoading(false);
+    }
+  };
+
+  const handleCheckDnsLeak = async () => {
+    setDnsLeakCheckLoading(true);
+    setDnsLeakResult('');
+    setDnsLeakDetected(false);
+    
+    try {
+      const { dnsManager } = await import('../utils/dnsManager');
+      const leakResult = await dnsManager.checkDnsLeak(settings);
+      
+      if (leakResult.leaked) {
+        setDnsLeakDetected(true);
+        setDnsLeakResult(`检测到DNS泄露!\n${leakResult.details.join('\n')}`);
+      } else {
+        setDnsLeakResult(`DNS泄露检查通过!\n${leakResult.details.join('\n')}`);
+      }
+    } catch (error) {
+      setDnsLeakResult(`DNS泄露检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setDnsLeakCheckLoading(false);
+    }
+  };
+
+  const handleClearDnsCache = async () => {
+    try {
+      const { dnsManager } = await import('../utils/dnsManager');
+      dnsManager.clearDnsCache();
+      message.success('DNS缓存已清除');
+    } catch (error) {
+      message.error('清除DNS缓存失败');
     }
   };
 
@@ -732,31 +810,149 @@ const Settings: React.FC = () => {
         >
           <Card title="网络配置">
             <Title level={4}>DNS设置</Title>
+            <Alert
+              message="DNS安全提示"
+              description="启用DNS安全功能可以防止DNS泄露，保护您的隐私。建议同时启用DoH/DoT和DNS泄露防护。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
             <Form 
               form={networkForm} 
               layout="vertical"
               onValuesChange={handleNetworkSettingsChange}
             >
               <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12}>
+                <Col xs={24} sm={8}>
                   <Form.Item name="enableDns" label="启用DNS" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
-                <Col xs={24} sm={12}>
+                <Col xs={24} sm={8}>
                   <Form.Item name="enableDoh" label="启用DoH" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableDot" label="启用DoT" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Form.Item name="dnsServer" label="DNS服务器">
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsCache" label="启用DNS缓存" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsLoadBalance" label="DNS负载均衡" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsLeakProtection" label="DNS泄露防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsLogging" label="DNS查询日志" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsRules" label="启用DNS规则" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableDnsFallback" label="DNS故障转移" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item name="dnsServer" label="主DNS服务器">
                 <Input placeholder="8.8.8.8" />
               </Form.Item>
 
               <Form.Item name="dohServer" label="DoH服务器">
                 <Input placeholder="https://dns.google/dns-query" />
               </Form.Item>
+
+              <Form.Item name="dotServer" label="DoT服务器">
+                <Input placeholder="tls://1.1.1.1:853" />
+              </Form.Item>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="dnsCacheSize" label="DNS缓存大小">
+                    <InputNumber min={100} max={10000} placeholder="1000" style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="dnsCacheTtl" label="DNS缓存TTL(秒)">
+                    <InputNumber min={60} max={3600} placeholder="300" style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item name="dnsLeakProtectionMode" label="DNS泄露防护模式">
+                <Select>
+                  <Option value="strict">严格模式</Option>
+                  <Option value="relaxed">宽松模式</Option>
+                </Select>
+              </Form.Item>
+
+              <Divider />
+
+              <Space>
+                <Button 
+                  type="primary" 
+                  onClick={handleTestDns}
+                  loading={dnsTestLoading}
+                >
+                  测试DNS配置
+                </Button>
+                <Button 
+                  onClick={handleCheckDnsLeak}
+                  loading={dnsLeakCheckLoading}
+                >
+                  检查DNS泄露
+                </Button>
+                <Button 
+                  onClick={handleClearDnsCache}
+                >
+                  清除DNS缓存
+                </Button>
+              </Space>
+
+              {dnsTestResult && (
+                <Alert
+                  message="DNS测试结果"
+                  description={dnsTestResult}
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 16 }}
+                />
+              )}
+
+              {dnsLeakResult && (
+                <Alert
+                  message="DNS泄露检查结果"
+                  description={dnsLeakResult}
+                  type={dnsLeakDetected ? "error" : "success"}
+                  showIcon
+                  style={{ marginTop: 16 }}
+                />
+              )}
             </Form>
 
             <Divider />
@@ -1240,10 +1436,27 @@ const Settings: React.FC = () => {
         >
           <CoreManager />
         </TabPane>
+
+        <TabPane
+          tab={
+            <span>
+              <SecurityScanOutlined />
+              错误监控
+            </span>
+          }
+          key="errors"
+        >
+          <ErrorMonitor 
+            showNotification={true}
+            autoResolve={false}
+            maxDisplayErrors={10}
+          />
+        </TabPane>
       </Tabs>
     </div>
   );
 };
 
 export default Settings;
+
 
