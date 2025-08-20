@@ -476,12 +476,8 @@ export class SubscriptionManager {
 
       // 解析分流规则
       if (config.rules && Array.isArray(config.rules)) {
-        for (const rule of config.rules) {
-          const routingRule = this.convertClashRule(rule);
-          if (routingRule) {
-            rules.push(routingRule);
-          }
-        }
+        const parsedRules = this.parseClashRules(config.rules);
+        rules.push(...parsedRules);
       }
 
       log.debug('Clash格式解析完成', { 
@@ -531,12 +527,8 @@ export class SubscriptionManager {
 
       // 解析分流规则
       if (config.route?.rules && Array.isArray(config.route.rules)) {
-        for (const rule of config.route.rules) {
-          const routingRule = this.convertSingboxRule(rule);
-          if (routingRule) {
-            rules.push(routingRule);
-          }
-        }
+        const parsedRules = this.parseSingboxRules(config.route.rules);
+        rules.push(...parsedRules);
       }
 
       log.debug('Sing-box格式解析完成', { 
@@ -803,6 +795,180 @@ export class SubscriptionManager {
   }
 
   /**
+   * 解析分流规则
+   */
+  private parseClashRules(rules: string[]): RoutingRule[] {
+    const ruleGroups = new Map<string, RoutingRule>();
+    
+    for (const rule of rules) {
+      try {
+        const parts = rule.split(',');
+        if (parts.length < 2) continue;
+
+        const [type, value, action] = parts;
+        const ruleType = this.convertClashTypeToRuleType(type);
+        const ruleAction = this.convertClashActionToRuleAction(action);
+
+        if (!ruleType || !ruleAction) continue;
+
+        // 创建规则组键
+        const groupKey = `${ruleType}_${ruleAction}`;
+        
+        if (ruleGroups.has(groupKey)) {
+          // 如果规则组已存在，添加值到现有组
+          const existingRule = ruleGroups.get(groupKey)!;
+          if (Array.isArray(existingRule.value)) {
+            existingRule.value.push(value);
+          } else {
+            existingRule.value = [existingRule.value as string, value];
+          }
+        } else {
+          // 创建新的规则组
+          const ruleGroup: RoutingRule = {
+            id: this.generateId(),
+            name: `${this.getRuleTypeLabel(ruleType)}规则组`,
+            type: ruleType,
+            value: [value],
+            action: ruleAction,
+            priority: 100,
+            source: RuleSource.SUBSCRIPTION,
+            enabled: true,
+            description: `从Clash配置导入的${this.getRuleTypeLabel(ruleType)}规则组`,
+            tags: ['clash', 'subscription', 'group'],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            clashRule: rule
+          };
+          ruleGroups.set(groupKey, ruleGroup);
+        }
+      } catch (error) {
+        log.warn('解析Clash规则失败', { rule, error }, 'SubscriptionManager');
+      }
+    }
+
+    // 优化规则组，合并相似的值
+    const optimizedRules: RoutingRule[] = [];
+    for (const ruleGroup of ruleGroups.values()) {
+      const optimizedRule = this.optimizeRuleGroup(ruleGroup);
+      if (optimizedRule) {
+        optimizedRules.push(optimizedRule);
+      }
+    }
+
+    return optimizedRules;
+  }
+
+  /**
+   * 优化规则组，合并相似的值
+   */
+  private optimizeRuleGroup(ruleGroup: RoutingRule): RoutingRule | null {
+    if (!Array.isArray(ruleGroup.value) || ruleGroup.value.length === 0) {
+      return null;
+    }
+
+    const values = ruleGroup.value as string[];
+    
+    // 如果是域名后缀规则，尝试合并
+    if (ruleGroup.type === RuleType.DOMAIN_SUFFIX) {
+      const mergedValues = this.mergeDomainSuffixes(values);
+      if (mergedValues.length < values.length) {
+        return {
+          ...ruleGroup,
+          value: mergedValues,
+          description: `从Clash配置导入的域名后缀规则组 (已优化)`
+        };
+      }
+    }
+    
+    // 如果是域名关键词规则，尝试合并
+    if (ruleGroup.type === RuleType.DOMAIN_KEYWORD) {
+      const mergedValues = this.mergeDomainKeywords(values);
+      if (mergedValues.length < values.length) {
+        return {
+          ...ruleGroup,
+          value: mergedValues,
+          description: `从Clash配置导入的域名关键词规则组 (已优化)`
+        };
+      }
+    }
+
+    // 如果规则组只有一个值，转换为单个规则
+    if (values.length === 1) {
+      return {
+        ...ruleGroup,
+        value: values[0],
+        name: `${ruleGroup.type}:${values[0]}`,
+        description: `从Clash配置导入的规则`
+      };
+    }
+
+    return ruleGroup;
+  }
+
+  /**
+   * 合并域名后缀
+   */
+  private mergeDomainSuffixes(suffixes: string[]): string[] {
+    const merged: string[] = [];
+    const sortedSuffixes = [...suffixes].sort();
+    
+    for (const suffix of sortedSuffixes) {
+      // 检查是否已被更长的后缀包含
+      const isContained = merged.some(existing => 
+        suffix.endsWith(existing) && suffix !== existing
+      );
+      
+      if (!isContained) {
+        merged.push(suffix);
+      }
+    }
+    
+    return merged;
+  }
+
+  /**
+   * 合并域名关键词
+   */
+  private mergeDomainKeywords(keywords: string[]): string[] {
+    const merged: string[] = [];
+    const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
+    
+    for (const keyword of sortedKeywords) {
+      // 检查是否已被其他关键词包含
+      const isContained = merged.some(existing => 
+        existing.includes(keyword) && existing !== keyword
+      );
+      
+      if (!isContained) {
+        merged.push(keyword);
+      }
+    }
+    
+    return merged;
+  }
+
+  /**
+   * 获取规则类型标签
+   */
+  private getRuleTypeLabel(ruleType: RuleType): string {
+    const labels: Record<RuleType, string> = {
+      [RuleType.DOMAIN]: '域名',
+      [RuleType.DOMAIN_SUFFIX]: '域名后缀',
+      [RuleType.DOMAIN_KEYWORD]: '域名关键词',
+      [RuleType.DOMAIN_REGEX]: '域名正则',
+      [RuleType.IP_CIDR]: 'IP段',
+      [RuleType.IP_CIDR6]: 'IPv6段',
+      [RuleType.GEOIP]: '地理位置',
+      [RuleType.PROCESS]: '进程',
+      [RuleType.PROCESS_PATH]: '进程路径',
+      [RuleType.PROTOCOL]: '协议',
+      [RuleType.SCRIPT]: '脚本',
+      [RuleType.MATCH]: '匹配所有'
+    };
+    return labels[ruleType] || ruleType;
+  }
+
+  /**
    * 转换Clash规则为内部格式
    */
   private convertClashRule(clashRule: string): RoutingRule | null {
@@ -921,6 +1087,48 @@ export class SubscriptionManager {
     }
 
     return null;
+  }
+
+  /**
+   * 解析Sing-box规则
+   */
+  private parseSingboxRules(singboxRules: any[]): RoutingRule[] {
+    const ruleGroups = new Map<string, RoutingRule>();
+
+    for (const singboxRule of singboxRules) {
+      const rule = this.convertSingboxRule(singboxRule);
+      if (rule) {
+        const groupKey = `${rule.type}_${rule.action}`;
+        if (ruleGroups.has(groupKey)) {
+          const existingRule = ruleGroups.get(groupKey)!;
+          if (Array.isArray(existingRule.value)) {
+            if (Array.isArray(rule.value)) {
+              existingRule.value.push(...rule.value);
+            } else {
+              existingRule.value.push(rule.value);
+            }
+          } else {
+            if (Array.isArray(rule.value)) {
+              existingRule.value = [existingRule.value as string, ...rule.value];
+            } else {
+              existingRule.value = [existingRule.value as string, rule.value];
+            }
+          }
+        } else {
+          ruleGroups.set(groupKey, rule);
+        }
+      }
+    }
+
+    const optimizedRules: RoutingRule[] = [];
+    for (const ruleGroup of ruleGroups.values()) {
+      const optimizedRule = this.optimizeRuleGroup(ruleGroup);
+      if (optimizedRule) {
+        optimizedRules.push(optimizedRule);
+      }
+    }
+
+    return optimizedRules;
   }
 
   /**

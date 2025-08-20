@@ -525,6 +525,11 @@ const RuleManagement: React.FC = () => {
           <br />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {record.description || '无描述'}
+            {Array.isArray(record.value) && record.value.length > 1 && (
+              <span style={{ color: '#1890ff' }}>
+                {' '}({record.value.length} 条规则)
+              </span>
+            )}
           </Text>
         </div>
       ),
@@ -541,11 +546,25 @@ const RuleManagement: React.FC = () => {
       title: '值',
       dataIndex: 'value',
       key: 'value',
-      render: (value: string | string[]) => (
-        <Text code>
-          {Array.isArray(value) ? value.join(', ') : value}
-        </Text>
-      ),
+      render: (value: string | string[], record: RoutingRule) => {
+        if (Array.isArray(value)) {
+          if (value.length === 1) {
+            return <Text code>{value[0]}</Text>;
+          } else if (value.length <= 3) {
+            return <Text code>{value.join(', ')}</Text>;
+          } else {
+            return (
+              <Tooltip title={value.join('\n')}>
+                <Text code>
+                  {value.slice(0, 3).join(', ')}... (+{value.length - 3})
+                </Text>
+              </Tooltip>
+            );
+          }
+        } else {
+          return <Text code>{value}</Text>;
+        }
+      },
     },
     {
       title: '动作',
