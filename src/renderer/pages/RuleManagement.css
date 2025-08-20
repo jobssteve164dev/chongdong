@@ -1,0 +1,472 @@
+.rule-management-page {
+  padding: 24px;
+  background-color: var(--background-color);
+  min-height: 100vh;
+}
+
+.rule-management-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.rule-management-page .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 16px;
+}
+
+.rule-management-page .ant-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rule-management-page .ant-table-thead > tr > th {
+  background-color: var(--table-header-bg);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+}
+
+.rule-management-page .ant-table-tbody > tr:hover > td {
+  background-color: var(--table-row-hover-bg);
+}
+
+.rule-management-page .ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.rule-management-page .ant-badge {
+  font-size: 12px;
+}
+
+.rule-management-page .ant-statistic-title {
+  font-size: 14px;
+  color: var(--text-color-secondary);
+}
+
+.rule-management-page .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.rule-management-page .ant-alert {
+  border-radius: 8px;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.rule-management-page .ant-tabs-tab {
+  font-weight: 500;
+  padding: 12px 16px;
+}
+
+.rule-management-page .ant-tabs-tab-active {
+  font-weight: 600;
+}
+
+.rule-management-page .ant-modal-content {
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.rule-management-page .ant-form-item-label > label {
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.rule-management-page .ant-input,
+.rule-management-page .ant-select-selector,
+.rule-management-page .ant-input-number {
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.rule-management-page .ant-input:focus,
+.rule-management-page .ant-select-focused .ant-select-selector,
+.rule-management-page .ant-input-number:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-color-light);
+}
+
+.rule-management-page .ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+  height: 32px;
+  padding: 4px 16px;
+}
+
+.rule-management-page .ant-btn-primary {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.rule-management-page .ant-btn-primary:hover {
+  background-color: var(--primary-color-hover);
+  border-color: var(--primary-color-hover);
+}
+
+.rule-management-page .ant-upload-drag {
+  border-radius: 8px;
+  border: 2px dashed var(--border-color);
+  background-color: var(--background-color-light);
+}
+
+.rule-management-page .ant-upload-drag:hover {
+  border-color: var(--primary-color);
+}
+
+.rule-management-page .ant-drawer-content {
+  border-radius: 8px 0 0 8px;
+}
+
+.rule-management-page .ant-drawer-header {
+  border-bottom: 1px solid var(--border-color);
+  padding: 16px 24px;
+}
+
+.rule-management-page .ant-drawer-body {
+  padding: 24px;
+}
+
+.rule-management-page .ant-list-item {
+  padding: 16px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--background-color-light);
+}
+
+.rule-management-page .ant-list-item:hover {
+  background-color: var(--table-row-hover-bg);
+}
+
+.rule-management-page .ant-empty {
+  padding: 48px 0;
+}
+
+.rule-management-page .ant-space {
+  gap: 8px;
+}
+
+.rule-management-page .ant-row {
+  margin-bottom: 16px;
+}
+
+.rule-management-page .ant-col {
+  padding: 0 8px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .rule-management-page {
+    padding: 16px;
+  }
+
+  .rule-management-page .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .rule-management-page .ant-table {
+    font-size: 12px;
+  }
+
+  .rule-management-page .ant-modal {
+    margin: 16px;
+  }
+
+  .rule-management-page .ant-drawer {
+    width: 100% !important;
+  }
+}
+
+/* 深色主题适配 */
+[data-theme='dark'] .rule-management-page {
+  background-color: var(--background-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-card {
+  background-color: var(--card-bg-dark);
+  border-color: var(--border-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-table-thead > tr > th {
+  background-color: var(--table-header-bg-dark);
+  border-color: var(--border-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-table-tbody > tr > td {
+  border-color: var(--border-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-table-tbody > tr:hover > td {
+  background-color: var(--table-row-hover-bg-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-input,
+[data-theme='dark'] .rule-management-page .ant-select-selector,
+[data-theme='dark'] .rule-management-page .ant-input-number {
+  background-color: var(--input-bg-dark);
+  border-color: var(--border-color-dark);
+  color: var(--text-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-upload-drag {
+  background-color: var(--background-color-light-dark);
+  border-color: var(--border-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-list-item {
+  background-color: var(--background-color-light-dark);
+  border-color: var(--border-color-dark);
+}
+
+[data-theme='dark'] .rule-management-page .ant-list-item:hover {
+  background-color: var(--table-row-hover-bg-dark);
+}
+
+/* 动画效果 */
+.rule-management-page .ant-card {
+  transition: all 0.3s ease;
+}
+
+.rule-management-page .ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.rule-management-page .ant-btn {
+  transition: all 0.3s ease;
+}
+
+.rule-management-page .ant-tag {
+  transition: all 0.3s ease;
+}
+
+.rule-management-page .ant-tag:hover {
+  transform: scale(1.05);
+}
+
+/* 自定义滚动条 */
+.rule-management-page .ant-table-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.rule-management-page .ant-table-body::-webkit-scrollbar-track {
+  background: var(--scrollbar-track-bg);
+  border-radius: 3px;
+}
+
+.rule-management-page .ant-table-body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-bg);
+  border-radius: 3px;
+}
+
+.rule-management-page .ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover-bg);
+}
+
+/* 加载状态 */
+.rule-management-page .ant-spin {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+/* 空状态 */
+.rule-management-page .ant-empty-description {
+  color: var(--text-color-secondary);
+}
+
+/* 统计卡片 */
+.rule-management-page .ant-statistic {
+  text-align: center;
+}
+
+.rule-management-page .ant-statistic-content-prefix {
+  margin-right: 8px;
+}
+
+/* 表格操作列 */
+.rule-management-page .ant-table-tbody > tr > td:last-child {
+  text-align: center;
+}
+
+/* 批量操作区域 */
+.rule-management-page .batch-actions {
+  background-color: var(--background-color-light);
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+}
+
+/* 冲突检测样式 */
+.rule-management-page .conflict-item {
+  border-left: 4px solid var(--warning-color);
+  padding-left: 16px;
+}
+
+.rule-management-page .conflict-item.high {
+  border-left-color: var(--error-color);
+}
+
+.rule-management-page .conflict-item.medium {
+  border-left-color: var(--warning-color);
+}
+
+.rule-management-page .conflict-item.low {
+  border-left-color: var(--info-color);
+}
+
+/* 预览区域 */
+.rule-management-page .preview-content {
+  background-color: var(--code-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* 表单验证样式 */
+.rule-management-page .ant-form-item-has-error .ant-input,
+.rule-management-page .ant-form-item-has-error .ant-select-selector,
+.rule-management-page .ant-form-item-has-error .ant-input-number {
+  border-color: var(--error-color);
+}
+
+.rule-management-page .ant-form-item-explain-error {
+  color: var(--error-color);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* 工具提示 */
+.rule-management-page .ant-tooltip {
+  max-width: 300px;
+}
+
+.rule-management-page .ant-tooltip-inner {
+  background-color: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+/* 分页器 */
+.rule-management-page .ant-pagination {
+  text-align: center;
+  margin-top: 16px;
+}
+
+.rule-management-page .ant-pagination-item {
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.rule-management-page .ant-pagination-item-active {
+  border-color: var(--primary-color);
+  background-color: var(--primary-color);
+}
+
+.rule-management-page .ant-pagination-item-active a {
+  color: white;
+}
+
+/* 标签页 */
+.rule-management-page .ant-tabs-nav {
+  margin-bottom: 16px;
+}
+
+.rule-management-page .ant-tabs-tab {
+  border-radius: 6px 6px 0 0;
+  margin-right: 4px;
+}
+
+.rule-management-page .ant-tabs-tab-active {
+  background-color: var(--background-color);
+  border-color: var(--border-color);
+  border-bottom-color: var(--background-color);
+}
+
+/* 抽屉样式 */
+.rule-management-page .ant-drawer-content-wrapper {
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+}
+
+.rule-management-page .ant-drawer-header-title {
+  flex-direction: row-reverse;
+}
+
+.rule-management-page .ant-drawer-close {
+  margin-right: 0;
+  margin-left: 12px;
+}
+
+/* 上传区域 */
+.rule-management-page .ant-upload-drag-icon {
+  color: var(--primary-color);
+  font-size: 48px;
+}
+
+.rule-management-page .ant-upload-text {
+  color: var(--text-color);
+  font-size: 16px;
+  margin: 8px 0 4px;
+}
+
+.rule-management-page .ant-upload-hint {
+  color: var(--text-color-secondary);
+  font-size: 14px;
+}
+
+/* 统计图表区域 */
+.rule-management-page .stats-section {
+  background-color: var(--background-color-light);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.rule-management-page .stats-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-color);
+}
+
+.rule-management-page .stats-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.rule-management-page .stats-item:last-child {
+  border-bottom: none;
+}
+
+.rule-management-page .stats-label {
+  color: var(--text-color-secondary);
+  font-size: 14px;
+}
+
+.rule-management-page .stats-value {
+  color: var(--text-color);
+  font-weight: 600;
+  font-size: 14px;
+}

@@ -118,6 +118,7 @@ const SubscriptionManagement: React.FC = () => {
             nextUpdate: Date.now() + 1800000, // 30分钟后
             servers: [],
             groups: [],
+            rules: [],
           },
           {
             id: '2',
@@ -130,6 +131,7 @@ const SubscriptionManagement: React.FC = () => {
             nextUpdate: Date.now() + 3600000, // 1小时后
             servers: [],
             groups: [],
+            rules: [],
           }
         ];
 
@@ -226,6 +228,7 @@ const SubscriptionManagement: React.FC = () => {
           enabled: true,
           servers: [],
           groups: [],
+          rules: [],
         };
         saveSubscriptions([...subscriptions, newSubscription]);
         message.success('订阅已添加');

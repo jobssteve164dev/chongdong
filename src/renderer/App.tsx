@@ -8,6 +8,7 @@ import {
   BulbOutlined,
   BulbFilled,
   ClusterOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -15,6 +16,7 @@ import Dashboard from '@/pages/Dashboard';
 import ProxyManagement from '@/pages/ProxyManagement';
 import SubscriptionManagement from '@/pages/SubscriptionManagement';
 import NodeManagement from './pages/NodeManagement';
+import RuleManagement from './pages/RuleManagement';
 import Monitor from '@/pages/Monitor';
 import Settings from '@/pages/Settings';
 import { proxyEngine } from './utils/proxyEngine';
@@ -77,6 +79,11 @@ const AppContent: React.FC = () => {
       label: '订阅管理',
     },
     {
+      key: 'rules',
+      icon: <CodeOutlined />,
+      label: '规则管理',
+    },
+    {
       key: 'nodes',
       icon: <ClusterOutlined />,
       label: '节点管理',
@@ -124,6 +131,7 @@ const AppContent: React.FC = () => {
             {selectedKey === 'dashboard' && <Dashboard />}
             {selectedKey === 'proxy' && <ProxyManagement />}
             {selectedKey === 'subscription' && <SubscriptionManagement />}
+            {selectedKey === 'rules' && <RuleManagement />}
             {selectedKey === 'nodes' && <NodeManagement />}
             {selectedKey === 'monitor' && <Monitor />}
             {selectedKey === 'settings' && <Settings />}

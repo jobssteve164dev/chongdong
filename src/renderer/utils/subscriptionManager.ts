@@ -1,10 +1,11 @@
-import { Subscription, ProxyServer, ProxyGroup, ProxyProtocol } from '../../shared/types';
+import { Subscription, ProxyServer, ProxyGroup, ProxyProtocol, RoutingRule, RuleType, RuleAction, RuleSource } from '../../shared/types';
 import { log } from './logger';
 import { Base64 } from 'js-base64';
 
 export interface SubscriptionParseResult {
   servers: ProxyServer[];
   groups: ProxyGroup[];
+  rules: RoutingRule[];
   error?: string;
 }
 
@@ -12,6 +13,7 @@ export interface SubscriptionUpdateResult {
   success: boolean;
   servers?: ProxyServer[];
   groups?: ProxyGroup[];
+  rules?: RoutingRule[];
   error?: string;
   timestamp: number;
   updatedSubscription?: Subscription;
@@ -156,6 +158,7 @@ export class SubscriptionManager {
       return {
         servers: [],
         groups: [],
+        rules: [],
         error: errorMessage
       };
     }
@@ -183,6 +186,7 @@ export class SubscriptionManager {
         ...subscription,
         servers: parseResult.servers,
         groups: parseResult.groups,
+        rules: parseResult.rules,
         lastUpdate: Date.now(),
         nextUpdate: Date.now() + (subscription.updateInterval * 1000)
       };
@@ -199,6 +203,7 @@ export class SubscriptionManager {
         success: true,
         servers: parseResult.servers,
         groups: parseResult.groups,
+        rules: parseResult.rules,
         timestamp: Date.now(),
         updatedSubscription: updatedSubscription
       };
@@ -351,11 +356,12 @@ export class SubscriptionManager {
       case 'links':
         return this.parseLinks(content);
       default:
-        return {
-          servers: [],
-          groups: [],
-          error: '不支持的订阅格式'
-        };
+              return {
+        servers: [],
+        groups: [],
+        rules: [],
+        error: '不支持的订阅格式'
+      };
     }
   }
 
@@ -370,6 +376,7 @@ export class SubscriptionManager {
       return {
         servers: [],
         groups: [],
+        rules: [],
         error: 'Base64解码失败'
       };
     }
@@ -383,6 +390,7 @@ export class SubscriptionManager {
       const config = JSON.parse(content);
       const servers: ProxyServer[] = [];
       const groups: ProxyGroup[] = [];
+      const rules: RoutingRule[] = [];
 
       // 解析代理服务器
       if (config.proxies && Array.isArray(config.proxies)) {
@@ -404,11 +412,22 @@ export class SubscriptionManager {
         }
       }
 
-      return { servers, groups };
+      // 解析分流规则
+      if (config.rules && Array.isArray(config.rules)) {
+        for (const rule of config.rules) {
+          const routingRule = this.convertClashRule(rule);
+          if (routingRule) {
+            rules.push(routingRule);
+          }
+        }
+      }
+
+      return { servers, groups, rules };
     } catch (error) {
       return {
         servers: [],
         groups: [],
+        rules: [],
         error: 'Clash格式解析失败'
       };
     }
@@ -421,6 +440,8 @@ export class SubscriptionManager {
     try {
       const config = JSON.parse(content);
       const servers: ProxyServer[] = [];
+      const groups: ProxyGroup[] = [];
+      const rules: RoutingRule[] = [];
 
       // 解析出站代理
       if (config.outbounds && Array.isArray(config.outbounds)) {
@@ -432,11 +453,22 @@ export class SubscriptionManager {
         }
       }
 
-      return { servers, groups: [] };
+      // 解析分流规则
+      if (config.route?.rules && Array.isArray(config.route.rules)) {
+        for (const rule of config.route.rules) {
+          const routingRule = this.convertSingboxRule(rule);
+          if (routingRule) {
+            rules.push(routingRule);
+          }
+        }
+      }
+
+      return { servers, groups: [], rules };
     } catch (error) {
       return {
         servers: [],
         groups: [],
+        rules: [],
         error: 'Sing-box格式解析失败'
       };
     }
@@ -460,11 +492,12 @@ export class SubscriptionManager {
         }
       }
 
-      return { servers, groups: [] };
+      return { servers, groups: [], rules: [] };
     } catch (error) {
       return {
         servers: [],
         groups: [],
+        rules: [],
         error: 'V2Ray格式解析失败'
       };
     }
@@ -484,7 +517,7 @@ export class SubscriptionManager {
       }
     }
 
-    return { servers, groups: [] };
+    return { servers, groups: [], rules: [] };
   }
 
   /**
@@ -673,6 +706,97 @@ export class SubscriptionManager {
   }
 
   /**
+   * 转换Clash规则为内部格式
+   */
+  private convertClashRule(clashRule: string): RoutingRule | null {
+    try {
+      const parts = clashRule.split(',');
+      if (parts.length < 2) return null;
+
+      const [type, value, action] = parts;
+      const ruleType = this.convertClashTypeToRuleType(type);
+      const ruleAction = this.convertClashActionToRuleAction(action);
+
+      if (!ruleType || !ruleAction) return null;
+
+      return {
+        id: this.generateId(),
+        name: `${type}:${value}`,
+        type: ruleType,
+        value: value,
+        action: ruleAction,
+        priority: 100,
+        source: RuleSource.SUBSCRIPTION,
+        enabled: true,
+        description: `从Clash配置导入的规则`,
+        tags: ['clash', 'subscription'],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        clashRule: clashRule
+      };
+    } catch (error) {
+      log.warn('转换Clash规则失败', { clashRule, error }, 'SubscriptionManager');
+      return null;
+    }
+  }
+
+  /**
+   * 转换Clash类型为规则类型
+   */
+  private convertClashTypeToRuleType(clashType: string): RuleType | null {
+    switch (clashType) {
+      case 'DOMAIN':
+        return RuleType.DOMAIN;
+      case 'DOMAIN-SUFFIX':
+        return RuleType.DOMAIN_SUFFIX;
+      case 'DOMAIN-KEYWORD':
+        return RuleType.DOMAIN_KEYWORD;
+      case 'DOMAIN-REGEX':
+        return RuleType.DOMAIN_REGEX;
+      case 'IP-CIDR':
+        return RuleType.IP_CIDR;
+      case 'IP-CIDR6':
+        return RuleType.IP_CIDR6;
+      case 'GEOIP':
+        return RuleType.GEOIP;
+      case 'PROCESS':
+        return RuleType.PROCESS;
+      case 'PROCESS-PATH':
+        return RuleType.PROCESS_PATH;
+      case 'PROTOCOL':
+        return RuleType.PROTOCOL;
+      case 'SCRIPT':
+        return RuleType.SCRIPT;
+      case 'MATCH':
+        return RuleType.MATCH;
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * 转换Clash动作为规则动作
+   */
+  private convertClashActionToRuleAction(clashAction: string): RuleAction | null {
+    switch (clashAction) {
+      case 'Proxy':
+      case 'proxy':
+        return RuleAction.PROXY;
+      case 'Direct':
+      case 'direct':
+        return RuleAction.DIRECT;
+      case 'Reject':
+      case 'reject':
+        return RuleAction.BLOCK;
+      case 'Chain':
+      case 'chain':
+        return RuleAction.CHAIN;
+      default:
+        return RuleAction.DIRECT;
+    }
+  }
+
+  /**
    * 转换Sing-box出站配置
    */
   private convertSingboxOutbound(outbound: any): ProxyServer | null {
@@ -700,6 +824,92 @@ export class SubscriptionManager {
     }
 
     return null;
+  }
+
+  /**
+   * 转换Sing-box规则为内部格式
+   */
+  private convertSingboxRule(singboxRule: any): RoutingRule | null {
+    try {
+      const outbound = singboxRule.outbound;
+      const ruleAction = this.convertSingboxActionToRuleAction(outbound);
+
+      let ruleType: RuleType | null = null;
+      let value: string = '';
+
+      if (singboxRule.domain) {
+        ruleType = RuleType.DOMAIN;
+        value = Array.isArray(singboxRule.domain) ? singboxRule.domain[0] : singboxRule.domain;
+      } else if (singboxRule.domain_suffix) {
+        ruleType = RuleType.DOMAIN_SUFFIX;
+        value = Array.isArray(singboxRule.domain_suffix) ? singboxRule.domain_suffix[0] : singboxRule.domain_suffix;
+      } else if (singboxRule.domain_keyword) {
+        ruleType = RuleType.DOMAIN_KEYWORD;
+        value = Array.isArray(singboxRule.domain_keyword) ? singboxRule.domain_keyword[0] : singboxRule.domain_keyword;
+      } else if (singboxRule.domain_regex) {
+        ruleType = RuleType.DOMAIN_REGEX;
+        value = Array.isArray(singboxRule.domain_regex) ? singboxRule.domain_regex[0] : singboxRule.domain_regex;
+      } else if (singboxRule.ip_cidr) {
+        ruleType = RuleType.IP_CIDR;
+        value = Array.isArray(singboxRule.ip_cidr) ? singboxRule.ip_cidr[0] : singboxRule.ip_cidr;
+      } else if (singboxRule.ip_cidr6) {
+        ruleType = RuleType.IP_CIDR6;
+        value = Array.isArray(singboxRule.ip_cidr6) ? singboxRule.ip_cidr6[0] : singboxRule.ip_cidr6;
+      } else if (singboxRule.geoip) {
+        ruleType = RuleType.GEOIP;
+        value = singboxRule.geoip;
+      } else if (singboxRule.process) {
+        ruleType = RuleType.PROCESS;
+        value = Array.isArray(singboxRule.process) ? singboxRule.process[0] : singboxRule.process;
+      } else if (singboxRule.process_path) {
+        ruleType = RuleType.PROCESS_PATH;
+        value = Array.isArray(singboxRule.process_path) ? singboxRule.process_path[0] : singboxRule.process_path;
+      } else if (singboxRule.protocol) {
+        ruleType = RuleType.PROTOCOL;
+        value = Array.isArray(singboxRule.protocol) ? singboxRule.protocol[0] : singboxRule.protocol;
+      } else {
+        ruleType = RuleType.MATCH;
+        value = '*';
+      }
+
+      if (!ruleType || !ruleAction) return null;
+
+      return {
+        id: this.generateId(),
+        name: `${ruleType}:${value}`,
+        type: ruleType,
+        value: value,
+        action: ruleAction,
+        priority: 100,
+        source: RuleSource.SUBSCRIPTION,
+        enabled: true,
+        description: `从Sing-box配置导入的规则`,
+        tags: ['singbox', 'subscription'],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    } catch (error) {
+      log.warn('转换Sing-box规则失败', { singboxRule, error }, 'SubscriptionManager');
+      return null;
+    }
+  }
+
+  /**
+   * 转换Sing-box动作为规则动作
+   */
+  private convertSingboxActionToRuleAction(singboxAction: string): RuleAction | null {
+    switch (singboxAction) {
+      case 'proxy':
+        return RuleAction.PROXY;
+      case 'direct':
+        return RuleAction.DIRECT;
+      case 'block':
+        return RuleAction.BLOCK;
+      case 'chain':
+        return RuleAction.CHAIN;
+      default:
+        return RuleAction.DIRECT;
+    }
   }
 
   /**

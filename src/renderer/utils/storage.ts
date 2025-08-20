@@ -93,4 +93,10 @@ export const STORAGE_KEYS = {
   PROXY_CONFIG: 'proxy_config',
   SUBSCRIPTION_CONFIG: 'subscription_config',
   USER_PREFERENCES: 'user_preferences',
+  // 规则管理相关
+  RULES: 'rules',
+  RULE_GROUPS: 'rule_groups',
+  RULE_TEMPLATES: 'rule_templates',
+  RULE_STATS: 'rule_stats',
+  RULE_BACKUP: 'rule_backup',
 } as const;
