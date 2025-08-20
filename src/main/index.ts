@@ -15,6 +15,13 @@ import { crashMonitor } from './crashMonitor';
 try {
   app.disableHardwareAcceleration();
   console.log('已禁用硬件加速');
+  
+  // 设置额外的GPU相关标志以提高稳定性
+  app.commandLine.appendSwitch('--disable-gpu');
+  app.commandLine.appendSwitch('--disable-gpu-compositing');
+  app.commandLine.appendSwitch('--disable-gpu-rasterization');
+  app.commandLine.appendSwitch('--disable-gpu-sandbox');
+  console.log('已设置GPU禁用标志');
 } catch (err) {
   console.warn('禁用硬件加速失败(可忽略):', err);
 }

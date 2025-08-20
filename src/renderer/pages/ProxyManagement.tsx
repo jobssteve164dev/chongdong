@@ -115,6 +115,24 @@ const ProxyManagement: React.FC = () => {
       await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
       message.success('代理引擎启动成功');
       
+      // 启动代理后，设置系统代理
+      try {
+        // 使用设置中的实际端口配置
+        const finalSettings = settings || defaultSettings;
+        // 从设置界面可以看到用户配置的SOCKS端口是7896
+        const proxyPort = finalSettings.socksPort || 7891; // 使用SOCKS端口
+        console.log('当前设置中的端口配置:', {
+          proxyPort: finalSettings.proxyPort,
+          socksPort: finalSettings.socksPort,
+          mixedPort: finalSettings.mixedPort
+        });
+        await systemProxy.setSystemProxy('127.0.0.1', proxyPort);
+        console.log(`系统代理已设置为 127.0.0.1:${proxyPort}`);
+      } catch (proxyError) {
+        console.error('设置系统代理失败:', proxyError);
+        message.warning('代理引擎启动成功，但系统代理设置失败，可能需要管理员权限');
+      }
+      
       // 更新全局状态
       setProxyConnected(true);
       setCurrentProxyNode(selectedNode);
@@ -161,6 +179,15 @@ const ProxyManagement: React.FC = () => {
     try {
       await proxyEngine.stop();
       message.success('代理引擎已停止');
+      
+      // 停止代理后，清理系统代理
+      try {
+        await systemProxy.clearSystemProxy();
+        console.log('系统代理已清理');
+      } catch (proxyError) {
+        console.error('清理系统代理失败:', proxyError);
+        message.warning('代理引擎已停止，但系统代理清理失败');
+      }
       
       // 更新全局状态
       setProxyConnected(false);

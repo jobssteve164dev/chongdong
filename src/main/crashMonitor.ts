@@ -95,7 +95,20 @@ export class CrashMonitor {
     });
 
     // 监听GPU进程崩溃
-    app.on('gpu-process-crashed', (_event, killed) => {
+    app.on('gpu-process-crashed', async (_event, killed) => {
+      let gpuInfo = null;
+      try {
+        // 等待GPU信息Promise完成，然后序列化
+        const rawGpuInfo = await app.getGPUInfo('basic');
+        gpuInfo = JSON.parse(JSON.stringify(rawGpuInfo)); // 深度序列化
+      } catch (error) {
+        log.warn('获取GPU信息失败', error, 'CrashMonitor');
+        gpuInfo = { 
+          error: 'Failed to get GPU info', 
+          message: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+      
       this.handleProcessCrash({
         processType: 'gpu',
         exitCode: killed ? -1 : 0,
@@ -104,7 +117,7 @@ export class CrashMonitor {
         details: `GPU进程崩溃: ${killed ? '被杀死' : '意外退出'}`,
         context: {
           killed,
-          gpuInfo: app.getGPUInfo('basic')
+          gpuInfo
         }
       });
     });
@@ -126,33 +139,50 @@ export class CrashMonitor {
 
     // 监听未捕获的异常
     process.on('uncaughtException', (error) => {
-      this.handleProcessCrash({
-        processType: 'main',
-        exitCode: -1,
-        reason: '未捕获的异常',
-        timestamp: Date.now(),
-        details: error.message,
-        stack: error.stack || '',
-        context: {
-          error: error.toString(),
-          name: error.name
-        }
-      });
+      try {
+        log.error('未捕获的异常', error, 'CrashMonitor');
+        this.handleProcessCrash({
+          processType: 'main',
+          exitCode: -1,
+          reason: '未捕获的异常',
+          timestamp: Date.now(),
+          details: error.message,
+          stack: error.stack || '',
+          context: {
+            error: error.toString(),
+            name: error.name
+          }
+        });
+        
+        // 对于严重的未捕获异常，延迟退出以确保日志记录完成
+        setTimeout(() => {
+          console.error('由于未捕获的异常，应用将退出');
+          process.exit(1);
+        }, 1000);
+      } catch (handlerError) {
+        console.error('处理未捕获异常时发生错误:', handlerError);
+        process.exit(1);
+      }
     });
 
     // 监听未处理的Promise拒绝
     process.on('unhandledRejection', (reason, promise) => {
-      this.handleProcessCrash({
-        processType: 'main',
-        exitCode: -1,
-        reason: '未处理的Promise拒绝',
-        timestamp: Date.now(),
-        details: reason?.toString() || '未知原因',
-        context: {
-          reason: reason?.toString(),
-          promise: promise.toString()
-        }
-      });
+      try {
+        log.warn('未处理的Promise拒绝', { reason, promise }, 'CrashMonitor');
+        this.handleProcessCrash({
+          processType: 'main',
+          exitCode: -1,
+          reason: '未处理的Promise拒绝',
+          timestamp: Date.now(),
+          details: reason?.toString() || '未知原因',
+          context: {
+            reason: reason?.toString(),
+            promise: promise.toString()
+          }
+        });
+      } catch (handlerError) {
+        console.error('处理未处理的Promise拒绝时发生错误:', handlerError);
+      }
     });
   }
 
@@ -287,10 +317,20 @@ export class CrashMonitor {
    */
   private sendCrashToRenderer(crashInfo: CrashInfo): void {
     try {
+      // 如果是渲染进程崩溃，不要尝试向渲染进程发送消息
+      if (crashInfo.processType === 'renderer') {
+        return;
+      }
+      
       const windows = BrowserWindow.getAllWindows();
       windows.forEach(window => {
         if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-          window.webContents.send('app:crash', crashInfo);
+          try {
+            window.webContents.send('app:crash', crashInfo);
+          } catch (sendError) {
+            // 忽略发送失败的错误，避免连锁崩溃
+            log.warn('向单个窗口发送崩溃信息失败', sendError, 'CrashMonitor');
+          }
         }
       });
     } catch (error) {

@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { coreDownloader } from './coreDownloader';
+import { createConnection } from 'net';
 
 interface ProxyProcess {
   id: string;
@@ -77,6 +78,32 @@ export class ProxyManager {
   public updateNetworkSettings(settings: NetworkSettings): void {
     this.currentNetworkSettings = settings;
     console.log('网络设置已更新:', settings);
+  }
+
+  /**
+   * 检查端口是否可用
+   */
+  private checkPortReady(host: string, port: number, timeout: number = 5000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = createConnection({ host, port });
+      
+      const timer = setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, timeout);
+      
+      socket.on('connect', () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(true);
+      });
+      
+      socket.on('error', () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(false);
+      });
+    });
   }
 
   /**
@@ -260,14 +287,34 @@ export class ProxyManager {
 
       console.log(`Started Sing-box process: ${processId}`);
       
-      // 如果进程启动成功，延迟一点时间再 resolve，确保没有立即错误
+      // 验证端口是否可用
       let resolved = false;
-      setTimeout(() => {
+      const port = finalConfig.inbounds?.[0]?.listen_port || 1080;
+      
+      // 等待更长时间让进程完全启动，然后验证端口
+      setTimeout(async () => {
         if (!resolved) {
-          resolved = true;
-          resolve();
+          try {
+            // 验证SOCKS端口是否可用
+            const isPortReady = await this.checkPortReady('127.0.0.1', port, 5000);
+            if (isPortReady) {
+              console.log(`Sing-box 端口 ${port} 验证成功`);
+              resolved = true;
+              resolve();
+            } else {
+              console.error(`Sing-box 端口 ${port} 验证失败`);
+              childProcess.kill();
+              resolved = true;
+              reject(new Error(`Sing-box 启动失败: 端口 ${port} 不可用`));
+            }
+          } catch (error) {
+            console.error(`Sing-box 端口验证异常:`, error);
+            childProcess.kill();
+            resolved = true;
+            reject(new Error(`Sing-box 启动失败: 端口验证异常`));
+          }
         }
-      }, 100);
+      }, 2000); // 等待2秒让进程完全启动
     });
   }
 
@@ -716,11 +763,8 @@ export class ProxyManager {
       
       finalConfig.dns.servers = dnsServers.length > 0 ? dnsServers : ['8.8.8.8'];
       
-      // 添加DNS缓存配置
-      if (networkSettings.enableDnsCache) {
-        finalConfig.dns.cache_size = networkSettings.dnsCacheSize || 1000;
-        finalConfig.dns.cache_ttl = networkSettings.dnsCacheTtl || 300;
-      }
+      // DNS缓存配置已分离到独立的DNS管理器中
+      // 不再在代理引擎中处理DNS缓存
       
       // 添加DNS故障转移服务器
       if (networkSettings.enableDnsFallback && networkSettings.dnsFallbackServers) {
