@@ -654,40 +654,76 @@ const RuleManagement: React.FC = () => {
 
   return (
     <div className="rule-management-page">
-      <div className="page-header">
-        <Title level={2}>规则管理</Title>
-        <Space>
-          <Button 
-            type="primary" 
-            icon={<PlusOutlined />} 
-            onClick={handleAddRule}
-          >
-            添加规则
-          </Button>
-          <Button 
-            icon={<ImportOutlined />} 
-            onClick={() => setImportModalVisible(true)}
-          >
-            导入
-          </Button>
-          <Button 
-            icon={<ExportOutlined />} 
-            onClick={() => setExportModalVisible(true)}
-            disabled={rules.length === 0}
-          >
-            导出
-          </Button>
-          <Button 
-            icon={<ReloadOutlined />} 
-            onClick={() => {
-              loadRules();
-              loadStats();
-              detectConflicts();
-            }}
-          >
-            刷新
-          </Button>
-        </Space>
+      {/* 页面头部 */}
+      <div style={{ marginBottom: 16 }}>
+        <Row justify="space-between" align="middle">
+          <Col>
+            <Title level={3} style={{ margin: 0 }}>规则管理</Title>
+          </Col>
+          <Col>
+            <Space>
+              <Button 
+                type="primary" 
+                icon={<PlusOutlined />} 
+                onClick={handleAddRule}
+              >
+                添加规则
+              </Button>
+              <Button 
+                icon={<ImportOutlined />} 
+                onClick={() => setImportModalVisible(true)}
+              >
+                导入
+              </Button>
+              <Button 
+                icon={<ExportOutlined />} 
+                onClick={() => setExportModalVisible(true)}
+              >
+                导出
+              </Button>
+              <Button 
+                icon={<ReloadOutlined />} 
+                onClick={() => {
+                  loadRules();
+                  loadStats();
+                  detectConflicts();
+                  message.success('数据已刷新');
+                }}
+              >
+                刷新
+              </Button>
+              <Button 
+                danger
+                icon={<DeleteOutlined />} 
+                onClick={() => {
+                  Modal.confirm({
+                    title: '清空所有规则',
+                    content: '确定要删除所有规则吗？此操作不可恢复！',
+                    okText: '确定删除',
+                    okType: 'danger',
+                    cancelText: '取消',
+                    onOk: () => {
+                      try {
+                        const allRules = ruleManager.getAllRules();
+                        const count = ruleManager.batchDeleteRules(allRules.map(r => r.id));
+                        message.success(`成功删除所有 ${count} 条规则`);
+                        loadRules();
+                        loadStats();
+                        detectConflicts();
+                        log.info('清空所有规则', { count }, 'RuleManagement');
+                      } catch (error: unknown) {
+                        message.error('清空规则失败');
+                        log.error('清空所有规则失败', error, 'RuleManagement');
+                      }
+                    }
+                  });
+                }}
+              >
+                清空所有
+              </Button>
+            </Space>
+          </Col>
+        </Row>
       </div>
 
       {/* 统计信息 */}
@@ -757,22 +793,143 @@ const RuleManagement: React.FC = () => {
         <TabPane tab="规则列表" key="rules">
           <Card>
             {/* 批量操作 */}
-            {selectedRowKeys.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <Space>
-                  <Text>已选择 {selectedRowKeys.length} 条规则：</Text>
-                  <Button size="small" onClick={handleBatchEnable}>
-                    批量启用
-                  </Button>
-                  <Button size="small" onClick={handleBatchDisable}>
-                    批量禁用
-                  </Button>
-                  <Button size="small" danger onClick={handleBatchDelete}>
-                    批量删除
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <div style={{ marginBottom: 16 }}>
+              <Row justify="space-between" align="middle">
+                <Col>
+                  {selectedRowKeys.length > 0 && (
+                    <Space>
+                      <Text>已选择 {selectedRowKeys.length} 条规则：</Text>
+                      <Button size="small" onClick={handleBatchEnable}>
+                        批量启用
+                      </Button>
+                      <Button size="small" onClick={handleBatchDisable}>
+                        批量禁用
+                      </Button>
+                      <Button size="small" danger onClick={handleBatchDelete}>
+                        批量删除
+                      </Button>
+                    </Space>
+                  )}
+                </Col>
+                <Col>
+                  <Space>
+                    <Button 
+                      size="small" 
+                      onClick={() => {
+                        const allIds = rules.map(r => r.id);
+                        setSelectedRowKeys(allIds);
+                        message.success(`已全选 ${allIds.length} 条规则`);
+                      }}
+                    >
+                      全选
+                    </Button>
+                    <Button 
+                      size="small" 
+                      onClick={() => setSelectedRowKeys([])}
+                    >
+                      取消选择
+                    </Button>
+                    <Button 
+                      size="small" 
+                      danger
+                      onClick={() => {
+                        Modal.confirm({
+                          title: '按条件删除规则',
+                          content: (
+                            <div>
+                              <p>选择要删除的规则类型：</p>
+                              <Space direction="vertical" style={{ width: '100%' }}>
+                                <Button 
+                                  block 
+                                  danger 
+                                  onClick={() => {
+                                    const subscriptionRules = rules.filter(r => r.source === RuleSource.SUBSCRIPTION);
+                                    if (subscriptionRules.length === 0) {
+                                      message.warning('没有找到订阅来源的规则');
+                                      return;
+                                    }
+                                    Modal.confirm({
+                                      title: '删除订阅规则',
+                                      content: `确定要删除所有 ${subscriptionRules.length} 条订阅来源的规则吗？`,
+                                      onOk: () => {
+                                        const count = ruleManager.batchDeleteRules(subscriptionRules.map(r => r.id));
+                                        message.success(`成功删除 ${count} 条订阅规则`);
+                                        setSelectedRowKeys([]);
+                                        loadRules();
+                                        loadStats();
+                                        detectConflicts();
+                                      }
+                                    });
+                                  }}
+                                >
+                                  删除所有订阅规则 ({rules.filter(r => r.source === RuleSource.SUBSCRIPTION).length})
+                                </Button>
+                                <Button 
+                                  block 
+                                  danger 
+                                  onClick={() => {
+                                    const disabledRules = rules.filter(r => !r.enabled);
+                                    if (disabledRules.length === 0) {
+                                      message.warning('没有找到禁用的规则');
+                                      return;
+                                    }
+                                    Modal.confirm({
+                                      title: '删除禁用规则',
+                                      content: `确定要删除所有 ${disabledRules.length} 条禁用的规则吗？`,
+                                      onOk: () => {
+                                        const count = ruleManager.batchDeleteRules(disabledRules.map(r => r.id));
+                                        message.success(`成功删除 ${count} 条禁用规则`);
+                                        setSelectedRowKeys([]);
+                                        loadRules();
+                                        loadStats();
+                                        detectConflicts();
+                                      }
+                                    });
+                                  }}
+                                >
+                                  删除所有禁用规则 ({rules.filter(r => !r.enabled).length})
+                                </Button>
+                                <Button 
+                                  block 
+                                  danger 
+                                  onClick={() => {
+                                    const groupRules = rules.filter(r => Array.isArray(r.value) && r.value.length > 1);
+                                    if (groupRules.length === 0) {
+                                      message.warning('没有找到规则组');
+                                      return;
+                                    }
+                                    Modal.confirm({
+                                      title: '删除规则组',
+                                      content: `确定要删除所有 ${groupRules.length} 个规则组吗？`,
+                                      onOk: () => {
+                                        const count = ruleManager.batchDeleteRules(groupRules.map(r => r.id));
+                                        message.success(`成功删除 ${count} 个规则组`);
+                                        setSelectedRowKeys([]);
+                                        loadRules();
+                                        loadStats();
+                                        detectConflicts();
+                                      }
+                                    });
+                                  }}
+                                >
+                                  删除所有规则组 ({rules.filter(r => Array.isArray(r.value) && r.value.length > 1).length})
+                                </Button>
+                              </Space>
+                            </div>
+                          ),
+                          width: 400,
+                          okText: '关闭',
+                          cancelText: '取消',
+                          onCancel: () => {}
+                        });
+                      }}
+                    >
+                      按条件删除
+                    </Button>
+                  </Space>
+                </Col>
+              </Row>
+            </div>
 
             <Table
               columns={columns}
