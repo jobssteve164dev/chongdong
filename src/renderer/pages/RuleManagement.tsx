@@ -1062,9 +1062,20 @@ const RuleManagement: React.FC = () => {
                           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                         }
                         const content = await response.text();
-                        const format = content.includes('proxies:') ? 'Clash' : 
-                                     content.includes('"outbounds"') ? 'Sing-box' : 
-                                     content.includes('"protocol"') ? 'V2Ray' : '未知格式';
+                        
+                        // 改进格式检测
+                        let format = '未知格式';
+                        if (content.includes('proxies:') || content.includes('proxy-groups:') || 
+                            (content.includes('port:') && content.includes('socks-port:'))) {
+                          format = 'Clash';
+                        } else if (content.includes('"outbounds"') || content.includes('"inbounds"')) {
+                          format = 'Sing-box';
+                        } else if (content.includes('"protocol"') && content.includes('"settings"')) {
+                          format = 'V2Ray';
+                        } else if (content.includes('vmess://') || content.includes('vless://') || 
+                                 content.includes('trojan://') || content.includes('ss://')) {
+                          format = '代理链接';
+                        }
                         
                         message.success(`订阅链接测试成功！\n格式: ${format}\n内容长度: ${content.length} 字符`);
                         log.info('订阅链接测试成功', { url, format, contentLength: content.length }, 'RuleManagement');

@@ -1,6 +1,15 @@
-[2025-08-20T03:10:30.219Z] [ERROR] [SubscriptionManager] 从订阅链接导入规则失败 Object
-outputToConsole @ index-BwuYhB6i.js:456
-index-BwuYhB6i.js:456 [2025-08-20T03:10:30.221Z] [ERROR] [RuleManagement] 从订阅导入规则失败 Error: Clash格式解析失败
-    at Sl.importFromUrl (index-BwuYhB6i.js:456:39623)
-    at async onFinish (index-BwuYhB6i.js:528:90220)
-outputToConsole @ index-BwuYhB6i.js:456
+[2025-08-20T03:13:07.714Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:07.716Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:07.719Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:07.721Z] [INFO] [SubscriptionManager] 订阅管理器初始化完成 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:20.957Z] [INFO] [SubscriptionManager] 开始从订阅链接导入规则 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:20.960Z] [INFO] [SubscriptionManager] 开始解析订阅 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:25.300Z] [ERROR] [SubscriptionManager] Clash格式解析失败 Object
+outputToConsole @ index-DI735HRL.js:456
+index-DI735HRL.js:456 [2025-08-20T03:13:25.302Z] [INFO] [SubscriptionManager] 订阅解析完成 Object
+index-DI735HRL.js:456 [2025-08-20T03:13:25.305Z] [ERROR] [SubscriptionManager] 从订阅链接导入规则失败 Object
+outputToConsole @ index-DI735HRL.js:456
+index-DI735HRL.js:456 [2025-08-20T03:13:25.309Z] [ERROR] [RuleManagement] 从订阅导入规则失败 Error: 订阅解析失败: Clash格式解析失败: Unexpected token 'p', "port: 7890"... is not valid JSON
+    at Sl.importFromUrl (index-DI735HRL.js:456:39700)
+    at async onFinish (index-DI735HRL.js:528:90220)
+outputToConsole @ index-DI735HRL.js:456

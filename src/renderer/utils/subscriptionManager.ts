@@ -1,6 +1,7 @@
 import { Subscription, ProxyServer, ProxyGroup, ProxyProtocol, RoutingRule, RuleType, RuleAction, RuleSource } from '../../shared/types';
 import { log } from './logger';
 import { Base64 } from 'js-base64';
+import { parse as parseYaml } from 'yaml';
 
 export interface SubscriptionParseResult {
   servers: ProxyServer[];
@@ -360,8 +361,9 @@ export class SubscriptionManager {
       }
     }
 
-    // 检测Clash格式
-    if (content.includes('proxies:') || content.includes('proxy-groups:')) {
+    // 检测Clash格式（支持YAML和JSON）
+    if (content.includes('proxies:') || content.includes('proxy-groups:') || 
+        content.includes('port:') && content.includes('socks-port:')) {
       return 'clash';
     }
 
@@ -431,10 +433,23 @@ export class SubscriptionManager {
    */
   private parseClash(content: string): SubscriptionParseResult {
     try {
-      // 添加调试日志
       log.debug('开始解析Clash格式', { contentLength: content.length }, 'SubscriptionManager');
       
-      const config = JSON.parse(content);
+      // 尝试解析YAML
+      let config: any;
+      try {
+        config = parseYaml(content);
+        log.debug('Clash配置解析为YAML', { contentLength: content.length }, 'SubscriptionManager');
+      } catch (e) {
+        // 如果不是YAML，尝试JSON
+        try {
+          config = JSON.parse(content);
+          log.debug('Clash配置解析为JSON', { contentLength: content.length }, 'SubscriptionManager');
+        } catch (e) {
+          throw new Error('Clash配置解析失败，请确保内容为有效的YAML或JSON');
+        }
+      }
+
       const servers: ProxyServer[] = [];
       const groups: ProxyGroup[] = [];
       const rules: RoutingRule[] = [];
