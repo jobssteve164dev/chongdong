@@ -1,30 +1,5 @@
 import { log } from './logger';
-import { errorRecoveryManager } from './errorRecovery';
-
-/**
- * 错误类型枚举
- */
-export enum ErrorType {
-  RENDERER_CRASH = 'renderer_crash',
-  GPU_CRASH = 'gpu_crash',
-  NETWORK_CRASH = 'network_crash',
-  PROXY_CRASH = 'proxy_crash',
-  DNS_ERROR = 'dns_error',
-  CONFIG_ERROR = 'config_error',
-  STORAGE_ERROR = 'storage_error',
-  IPC_ERROR = 'ipc_error',
-  UNKNOWN_ERROR = 'unknown_error'
-}
-
-/**
- * 错误严重程度枚举
- */
-export enum ErrorSeverity {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical'
-}
+import { ErrorType, ErrorSeverity } from './errorRecovery';
 
 /**
  * 错误信息接口
@@ -468,6 +443,8 @@ export class ErrorHandler {
    */
   private async attemptAutoRecovery(error: ErrorInfo): Promise<void> {
     try {
+      // 延迟导入以避免循环依赖
+      const { errorRecoveryManager } = await import('./errorRecovery');
       const success = await errorRecoveryManager.autoRecover(error.type, error.severity);
       if (success) {
         log.info(`错误自动恢复成功: ${error.id}`, null, 'ErrorHandler');

@@ -26,7 +26,8 @@ import {
   WarningOutlined,
   StopOutlined
 } from '@ant-design/icons';
-import { errorHandler, ErrorType, ErrorSeverity, ErrorInfo } from '../utils/errorHandler';
+import { errorHandler, ErrorInfo } from '../utils/errorHandler';
+import { ErrorType, ErrorSeverity } from '../utils/errorRecovery';
 import { log } from '../utils/logger';
 import './ErrorMonitor.css';
 
