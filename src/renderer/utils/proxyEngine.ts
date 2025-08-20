@@ -320,12 +320,18 @@ export class ProxyEngine {
    * 转换为Sing-box配置格式
    */
   private convertToSingboxConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
+    console.log(`=== 开始转换 Sing-box 配置 ===`);
+    console.log(`原始配置:`, config);
+    console.log(`网络设置:`, networkSettings);
+    
     // 初始化DNS管理器
     if (networkSettings) {
+      console.log(`初始化DNS管理器...`);
       dnsManager.init(networkSettings);
     }
 
     // 基础Sing-box配置结构
+    console.log(`构建基础 Sing-box 配置...`);
     const singboxConfig: any = {
       log: {
         level: networkSettings?.logLevel || 'info',
@@ -349,61 +355,101 @@ export class ProxyEngine {
         ],
         final: 'default'
       },
-      inbounds: [
+      inbounds: (() => {
+        console.log(`=== 配置入站连接 ===`);
+        const inbounds = [];
+        
         // 只在启用 TUN 时添加 TUN inbound
-        ...(networkSettings?.enableTun ? [{
-          type: 'tun',
-          tag: 'tun-in',
-          interface_name: networkSettings?.tunDevice || 'utun0',
-          mtu: 9000,
-          stack: 'system',
-          auto_route: true,
-          inet4_address: networkSettings?.enableFakeIp ? [networkSettings.fakeIpRange || '198.18.0.1/16'] : ['172.19.0.1/28'],
-          inet6_address: networkSettings?.enableIpv6 ? ['fdfe:dcba:9876::1/126'] : undefined
-        }] : []),
-        {
+        if (networkSettings?.enableTun) {
+          console.log(`添加 TUN 入站配置`);
+          console.log(`TUN 设备: ${networkSettings?.tunDevice || 'utun0'}`);
+          console.log(`FakeIP 范围: ${networkSettings?.enableFakeIp ? networkSettings.fakeIpRange || '198.18.0.1/16' : 'disabled'}`);
+          inbounds.push({
+            type: 'tun',
+            tag: 'tun-in',
+            interface_name: networkSettings?.tunDevice || 'utun0',
+            mtu: 9000,
+            stack: 'system',
+            auto_route: true,
+            inet4_address: networkSettings?.enableFakeIp ? [networkSettings.fakeIpRange || '198.18.0.1/16'] : ['172.19.0.1/28'],
+            inet6_address: networkSettings?.enableIpv6 ? ['fdfe:dcba:9876::1/126'] : undefined
+          });
+        } else {
+          console.log(`TUN 功能已禁用`);
+        }
+        
+        // 添加 SOCKS 入站配置
+        const socksPort = networkSettings?.socksPort || 7896;
+        console.log(`添加 SOCKS 入站配置`);
+        console.log(`SOCKS 端口: ${socksPort}`);
+        inbounds.push({
           type: 'socks',
           tag: 'socks-in',
           listen: '127.0.0.1',
-          listen_port: networkSettings?.socksPort || 7896, // 修复SOCKS端口
+          listen_port: socksPort,
           users: []
-        },
-        {
+        });
+        
+        // 添加 HTTP 入站配置
+        const httpPort = networkSettings?.proxyPort || 7897;
+        console.log(`添加 HTTP 入站配置`);
+        console.log(`HTTP 端口: ${httpPort}`);
+        inbounds.push({
           type: 'http',
           tag: 'http-in',
           listen: '127.0.0.1',
-          listen_port: networkSettings?.proxyPort || 7897 // 修复HTTP端口
-        }
-      ],
+          listen_port: httpPort
+        });
+        
+        console.log(`入站配置数量: ${inbounds.length}`);
+        return inbounds;
+      })(),
       outbounds: [
-        {
-          type: 'direct',
-          tag: 'direct'
-        },
-        {
-          type: 'dns',
-          tag: 'dns'
-        }
+        (() => {
+          console.log(`添加直连出站配置`);
+          return {
+            type: 'direct',
+            tag: 'direct'
+          };
+        })(),
+        (() => {
+          console.log(`添加DNS出站配置`);
+          return {
+            type: 'dns',
+            tag: 'dns'
+          };
+        })()
       ],
       route: {
         rules: [
-          {
-            geoip: "private",
-            outbound: "direct"
-          },
-          {
-            geoip: "cn",
-            outbound: "direct"
-          }
+          (() => {
+            console.log(`添加私有IP直连规则`);
+            return {
+              geoip: "private",
+              outbound: "direct"
+            };
+          })(),
+          (() => {
+            console.log(`添加中国IP直连规则`);
+            return {
+              geoip: "cn",
+              outbound: "direct"
+            };
+          })()
         ],
         final: "direct"
       }
     };
 
     // 根据具体配置添加代理出站
+    console.log(`=== 处理代理出站配置 ===`);
     if (config.config.outbounds) {
+      console.log(`原始出站配置数量: ${config.config.outbounds.length}`);
+      console.log(`原始出站配置:`, config.config.outbounds);
+      
       // 修复网络类型和字段名
-      const fixedOutbounds = config.config.outbounds.map((outbound: any) => {
+      const fixedOutbounds = config.config.outbounds.map((outbound: any, index: number) => {
+        console.log(`处理第 ${index + 1} 个出站配置:`, outbound);
         // 只保留 Sing-box 需要的字段
         const fixedOutbound: any = {
           type: outbound.type,
@@ -412,68 +458,120 @@ export class ProxyEngine {
           server_port: outbound.server_port || outbound.port
         };
         
+        console.log(`修复后的出站配置:`, fixedOutbound);
+        
         // 确保所有必需字段都有值
         if (!fixedOutbound.server || !fixedOutbound.server_port) {
-          console.warn('跳过无效的outbound配置:', outbound);
+          console.warn(`跳过无效的出站配置:`, outbound);
+          console.warn(`原因: 缺少服务器地址或端口`);
           return null;
         }
         
         // 根据协议类型添加特定字段
+        console.log(`处理协议类型: ${outbound.type}`);
+        
         if (outbound.type === 'vmess') {
+          console.log(`配置 VMess 协议`);
           fixedOutbound.uuid = outbound.uuid;
           fixedOutbound.security = outbound.security || 'auto';
+          console.log(`UUID: ${outbound.uuid}`);
+          console.log(`安全类型: ${outbound.security || 'auto'}`);
           
           // 处理传输配置
           if (outbound.network === 'ws') {
+            console.log(`配置 WebSocket 传输`);
             fixedOutbound.transport = {
               type: "ws",
               path: outbound.wsPath || "/",
               headers: outbound.wsHeaders || {}
             };
+            console.log(`WebSocket 路径: ${outbound.wsPath || "/"}`);
+            console.log(`WebSocket 头部:`, outbound.wsHeaders || {});
+            
             // 兼容 wsHost -> headers.Host
             if ((outbound as any).wsHost && !fixedOutbound.transport.headers.Host) {
               fixedOutbound.transport.headers.Host = (outbound as any).wsHost;
+              console.log(`设置 WebSocket Host: ${(outbound as any).wsHost}`);
             }
+          } else {
+            console.log(`使用默认 TCP 传输`);
           }
           // 对于 tcp 连接，不需要设置 transport 字段，Sing-box 默认使用 tcp
         } else if (outbound.type === 'shadowsocks') {
+          console.log(`配置 Shadowsocks 协议`);
           fixedOutbound.method = outbound.method;
           fixedOutbound.password = outbound.password;
+          console.log(`加密方法: ${outbound.method}`);
         } else if (outbound.type === 'trojan') {
+          console.log(`配置 Trojan 协议`);
           fixedOutbound.password = outbound.password;
+          console.log(`密码: ${outbound.password ? '***' : '未设置'}`);
           if (outbound.tls) {
+            console.log(`启用 TLS`);
             fixedOutbound.tls = {
               enabled: true,
               server_name: outbound.server
             };
+            console.log(`TLS 服务器名: ${outbound.server}`);
           }
+        } else {
+          console.log(`未知协议类型: ${outbound.type}`);
         }
         
+        console.log(`最终出站配置:`, fixedOutbound);
         return fixedOutbound;
       });
       
       // 过滤掉无效的outbound并检查重复标签
+      console.log(`=== 过滤和验证出站配置 ===`);
       const validOutbounds = fixedOutbounds.filter((outbound: any) => outbound !== null);
+      console.log(`有效出站配置数量: ${validOutbounds.length}`);
+      
       const existingTags = new Set(singboxConfig.outbounds.map((o: any) => o.tag));
+      console.log(`现有标签:`, Array.from(existingTags));
+      
       const uniqueOutbounds = validOutbounds.filter((outbound: any) => {
         if (existingTags.has(outbound.tag)) {
-          console.warn(`跳过重复的 outbound 标签: ${outbound.tag}`);
+          console.warn(`跳过重复的出站标签: ${outbound.tag}`);
           return false;
         }
         existingTags.add(outbound.tag);
+        console.log(`添加出站标签: ${outbound.tag}`);
         return true;
       });
       
+      console.log(`唯一出站配置数量: ${uniqueOutbounds.length}`);
+      
       // 只有当有有效的用户配置时才添加到 outbounds
       if (uniqueOutbounds.length > 0) {
+        console.log(`=== 添加用户出站配置 ===`);
+        console.log(`添加的出站配置:`, uniqueOutbounds);
         singboxConfig.outbounds.unshift(...uniqueOutbounds);
         // 将 final 改为第一个用户配置的 tag
-        singboxConfig.route.final = uniqueOutbounds[0].tag;
+        const finalTag = uniqueOutbounds[0].tag;
+        console.log(`设置最终路由标签: ${finalTag}`);
+        singboxConfig.route.final = finalTag;
+      } else {
+        console.log(`没有有效的用户出站配置`);
       }
     }
 
     // 添加调试日志
-    console.log('Generated Sing-box config:', JSON.stringify(singboxConfig, null, 2));
+    console.log(`=== Sing-box 配置转换完成 ===`);
+    console.log(`最终配置:`, JSON.stringify(singboxConfig, null, 2));
+    console.log(`配置大小: ${JSON.stringify(singboxConfig).length} 字符`);
+    
+    // 分析路由规则
+    console.log(`=== 路由规则分析 ===`);
+    console.log(`路由规则数量: ${singboxConfig.route.rules.length}`);
+    singboxConfig.route.rules.forEach((rule: any, index: number) => {
+      console.log(`规则 ${index + 1}:`, rule);
+    });
+    console.log(`最终路由: ${singboxConfig.route.final}`);
+    console.log(`出站配置数量: ${singboxConfig.outbounds.length}`);
+    singboxConfig.outbounds.forEach((outbound: any, index: number) => {
+      console.log(`出站 ${index + 1}: ${outbound.tag} (${outbound.type})`);
+    });
 
     return singboxConfig;
   }

@@ -81,24 +81,106 @@ export class ProxyManager {
   }
 
   /**
+   * 测试代理连接
+   */
+  private async testProxyConnection(port: number): Promise<void> {
+    console.log(`=== 开始代理连接测试 ===`);
+    console.log(`测试端口: ${port}`);
+    
+    try {
+      // 测试代理服务器连接
+      const net = require('net');
+      
+      // 从配置中获取代理服务器信息
+      const configFiles = require('fs').readdirSync(this.configDir);
+      const latestConfig = configFiles
+        .filter((file: string) => file.startsWith('singbox_') && file.endsWith('.json'))
+        .sort()
+        .pop();
+      
+      if (latestConfig) {
+        const configPath = require('path').join(this.configDir, latestConfig);
+        const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
+        const proxyOutbound = config.outbounds?.find((outbound: any) => outbound.type !== 'direct' && outbound.type !== 'dns');
+        
+        if (proxyOutbound) {
+          console.log(`测试代理服务器连接: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+          
+          // 测试TCP连接到代理服务器
+          const testConnection = () => {
+            return new Promise<boolean>((resolve) => {
+              const socket = net.createConnection({
+                host: proxyOutbound.server,
+                port: proxyOutbound.server_port,
+                timeout: 5000
+              });
+              
+              socket.on('connect', () => {
+                console.log(`✅ 代理服务器连接成功: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                socket.destroy();
+                resolve(true);
+              });
+              
+              socket.on('error', (error: any) => {
+                console.error(`❌ 代理服务器连接失败: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                console.error(`错误详情: ${error.message}`);
+                resolve(false);
+              });
+              
+              socket.on('timeout', () => {
+                console.error(`⏰ 代理服务器连接超时: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                socket.destroy();
+                resolve(false);
+              });
+            });
+          };
+          
+          const isConnected = await testConnection();
+          if (!isConnected) {
+            console.warn(`⚠️  代理服务器可能不可用，这可能是导致无法联网的原因`);
+          }
+        }
+      }
+      
+      console.log(`代理连接测试完成`);
+      
+    } catch (error) {
+      console.error(`代理连接测试失败:`, error);
+      // 不抛出错误，因为端口验证已经成功
+    }
+  }
+
+  /**
    * 检查端口是否可用
    */
   private checkPortReady(host: string, port: number, timeout: number = 5000): Promise<boolean> {
+    console.log(`=== 开始端口可用性检查 ===`);
+    console.log(`目标主机: ${host}`);
+    console.log(`目标端口: ${port}`);
+    console.log(`超时时间: ${timeout}ms`);
+    
     return new Promise((resolve) => {
+      console.log(`创建到 ${host}:${port} 的连接...`);
       const socket = createConnection({ host, port });
       
       const timer = setTimeout(() => {
+        console.log(`端口检查超时，端口 ${port} 不可用`);
         socket.destroy();
         resolve(false);
       }, timeout);
       
       socket.on('connect', () => {
+        console.log(`=== 端口检查成功 ===`);
+        console.log(`成功连接到 ${host}:${port}`);
         clearTimeout(timer);
         socket.destroy();
         resolve(true);
       });
       
-      socket.on('error', () => {
+      socket.on('error', (error) => {
+        console.log(`=== 端口检查失败 ===`);
+        console.log(`连接错误: ${error.message}`);
+        console.log(`错误代码: ${(error as any).code || 'unknown'}`);
         clearTimeout(timer);
         socket.destroy();
         resolve(false);
@@ -176,18 +258,23 @@ export class ProxyManager {
     const processId = `singbox_${Date.now()}`;
     const configPath = join(this.configDir, `${processId}.json`);
     
-    console.log(`准备启动 Sing-box 进程: ${processId}`);
+    console.log(`=== 开始启动 Sing-box 进程 ===`);
+    console.log(`进程ID: ${processId}`);
     console.log(`配置文件路径: ${configPath}`);
+    console.log(`原始配置:`, JSON.stringify(config, null, 2));
     console.log(`网络设置:`, networkSettings);
     
     // 在启动新进程前，先清理所有现有的 sing-box 进程
+    console.log(`清理现有进程...`);
     await this.cleanupExistingProcesses('singbox');
     
     // 应用网络设置到配置
+    console.log(`应用网络设置到配置...`);
     const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
     console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
     
     // 写入配置文件
+    console.log(`写入配置文件到: ${configPath}`);
     writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     
     // 获取Sing-box可执行文件路径
@@ -195,16 +282,27 @@ export class ProxyManager {
     console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     
     return new Promise<void>((resolve, reject) => {
+      console.log(`=== 启动 Sing-box 子进程 ===`);
+      console.log(`可执行文件: ${singboxPath}`);
+      console.log(`配置文件: ${configPath}`);
+      console.log(`工作目录: ${this.binDir}`);
+      console.log(`启动参数: ['run', '-c', '${configPath}']`);
+      
       // 启动进程，设置工作目录为 bin 目录，这样 Sing-box 能找到数据库文件
       const childProcess = spawn(singboxPath, ['run', '-c', configPath], {
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: false,
         cwd: this.binDir  // 设置工作目录为 bin 目录
       });
+      
+      console.log(`子进程已启动，PID: ${childProcess.pid}`);
 
       // 监听进程事件
       childProcess.on('error', (error) => {
-        console.error('Sing-box process error:', error);
+        console.error(`=== Sing-box 进程错误 ===`);
+        console.error(`错误详情:`, error);
+        console.error(`错误消息: ${error.message}`);
+        console.error(`错误堆栈: ${error.stack}`);
         if (!resolved) {
           resolved = true;
           reject(error);
@@ -212,7 +310,10 @@ export class ProxyManager {
       });
 
       childProcess.on('exit', (code, signal) => {
-        console.log(`Sing-box process exited with code ${code} and signal ${signal}`);
+        console.log(`=== Sing-box 进程退出 ===`);
+        console.log(`退出代码: ${code}`);
+        console.log(`退出信号: ${signal}`);
+        console.log(`进程ID: ${processId}`);
         this.processes.delete(processId);
         if (code !== 0 && !resolved) {
           resolved = true;
@@ -222,13 +323,16 @@ export class ProxyManager {
 
       // 监听标准输出
       childProcess.stdout.on('data', (data) => {
-        console.log(`Sing-box stdout: ${data.toString()}`);
+        const output = data.toString();
+        console.log(`=== Sing-box 标准输出 ===`);
+        console.log(`输出内容: ${output}`);
       });
 
       // 监听标准错误
       childProcess.stderr.on('data', (data) => {
         const errorMessage = data.toString();
-        console.error(`Sing-box stderr: ${errorMessage}`);
+        console.error(`=== Sing-box 标准错误 ===`);
+        console.error(`错误内容: ${errorMessage}`);
         
         // 检测端口占用错误
         if (errorMessage.includes('bind: address already in use')) {
@@ -290,29 +394,53 @@ export class ProxyManager {
       // 验证端口是否可用
       let resolved = false;
       const port = finalConfig.inbounds?.[0]?.listen_port || 1080;
+      console.log(`=== 准备验证端口 ===`);
+      console.log(`验证端口: ${port}`);
+      console.log(`等待时间: 2秒`);
       
       // 等待更长时间让进程完全启动，然后验证端口
       setTimeout(async () => {
+        console.log(`=== 开始端口验证 ===`);
+        console.log(`当前时间: ${new Date().toISOString()}`);
+        console.log(`进程状态: ${childProcess.killed ? '已终止' : '运行中'}`);
+        console.log(`进程PID: ${childProcess.pid}`);
+        
         if (!resolved) {
           try {
+            console.log(`开始检查端口 ${port} 是否可用...`);
             // 验证SOCKS端口是否可用
             const isPortReady = await this.checkPortReady('127.0.0.1', port, 5000);
+            console.log(`端口检查结果: ${isPortReady ? '成功' : '失败'}`);
+            
             if (isPortReady) {
-              console.log(`Sing-box 端口 ${port} 验证成功`);
+              console.log(`=== Sing-box 启动成功 ===`);
+              console.log(`端口 ${port} 验证成功`);
+              console.log(`进程ID: ${processId}`);
+              
+              // 测试代理连接
+              await this.testProxyConnection(port);
+              
               resolved = true;
               resolve();
             } else {
-              console.error(`Sing-box 端口 ${port} 验证失败`);
+              console.error(`=== Sing-box 启动失败 ===`);
+              console.error(`端口 ${port} 验证失败`);
+              console.error(`终止进程 PID: ${childProcess.pid}`);
               childProcess.kill();
               resolved = true;
               reject(new Error(`Sing-box 启动失败: 端口 ${port} 不可用`));
             }
           } catch (error) {
-            console.error(`Sing-box 端口验证异常:`, error);
+            console.error(`=== Sing-box 端口验证异常 ===`);
+            console.error(`异常详情:`, error);
+            console.error(`异常消息: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            console.error(`终止进程 PID: ${childProcess.pid}`);
             childProcess.kill();
             resolved = true;
             reject(new Error(`Sing-box 启动失败: 端口验证异常`));
           }
+        } else {
+          console.log(`端口验证已跳过，进程状态已确定`);
         }
       }, 2000); // 等待2秒让进程完全启动
     });

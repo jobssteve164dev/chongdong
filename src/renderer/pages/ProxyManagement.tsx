@@ -119,15 +119,16 @@ const ProxyManagement: React.FC = () => {
       try {
         // 使用设置中的实际端口配置
         const finalSettings = settings || defaultSettings;
-        // 从设置界面可以看到用户配置的SOCKS端口是7896
-        const proxyPort = finalSettings.socksPort || 7896; // 使用SOCKS端口
+        const socksPort = finalSettings.socksPort || 7896; // SOCKS端口
+        const httpPort = finalSettings.proxyPort || 7897; // HTTP端口
         console.log('当前设置中的端口配置:', {
           proxyPort: finalSettings.proxyPort,
           socksPort: finalSettings.socksPort,
           mixedPort: finalSettings.mixedPort
         });
-        await systemProxy.setSystemProxy('127.0.0.1', proxyPort);
-        console.log(`系统代理已设置为 127.0.0.1:${proxyPort}`);
+        console.log(`设置系统代理 - SOCKS: ${socksPort}, HTTP: ${httpPort}`);
+        await systemProxy.setSystemProxy('127.0.0.1', socksPort, httpPort);
+        console.log(`系统代理已设置 - HTTP/HTTPS: 127.0.0.1:${httpPort}, SOCKS: 127.0.0.1:${socksPort}`);
       } catch (proxyError) {
         console.error('设置系统代理失败:', proxyError);
         message.warning('代理引擎启动成功，但系统代理设置失败，可能需要管理员权限');

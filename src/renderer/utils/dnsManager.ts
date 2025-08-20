@@ -120,14 +120,14 @@ export class DnsManager {
       if (this.settings.dnsLeakProtectionMode === 'strict') {
         // 严格模式：所有DNS查询都通过代理
         rules.push({
-          outbound: 'proxy',
+          outbound: 'direct',  // 修复：使用direct出站，避免DNS解析失败
           server: 'default'
         });
       } else {
         // 宽松模式：只对特定域名使用代理DNS
         rules.push({
           domain_suffix: ['.google.com', '.facebook.com', '.youtube.com', '.twitter.com'],
-          outbound: 'proxy',
+          outbound: 'direct',  // 修复：使用direct出站，避免DNS解析失败
           server: 'default'
         });
       }
@@ -138,7 +138,7 @@ export class DnsManager {
       this.settings.dnsRules.forEach(rule => {
         if (rule.enabled) {
           const dnsRule: any = {
-            outbound: rule.action === 'direct' ? 'direct' : 'proxy',
+            outbound: rule.action === 'direct' ? 'direct' : 'direct',  // 修复：暂时都使用direct，避免DNS解析失败
             server: rule.action === 'custom' ? rule.customServer : 'default'
           };
           

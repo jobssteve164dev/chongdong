@@ -50,10 +50,10 @@ export class SystemProxy {
   /**
    * 设置系统代理
    */
-  public async setSystemProxy(host: string, port: number): Promise<void> {
+  public async setSystemProxy(host: string, socksPort: number, httpPort?: number): Promise<void> {
     try {
-      await ipcRenderer.invoke('system:setProxy', { host, port });
-      this.currentSettings = { host, port, enabled: true };
+      await ipcRenderer.invoke('system:setProxy', { host, socksPort, httpPort });
+      this.currentSettings = { host, port: socksPort, enabled: true };
     } catch (error) {
       throw new Error(`Failed to set system proxy: ${error}`);
     }

@@ -558,11 +558,18 @@ ipcMain.handle('core:isInstalled', (_, coreName) => {
 
 // 代理引擎IPC处理程序
 ipcMain.handle('proxy:startSingbox', async (_, config) => {
+  console.log(`=== 收到启动 Sing-box 请求 ===`);
+  console.log(`配置数据:`, JSON.stringify(config, null, 2));
+  
   try {
+    console.log(`开始启动 Sing-box...`);
     await proxyManager.startSingbox(config);
+    console.log(`=== Sing-box 启动成功 ===`);
     return { success: true };
   } catch (error) {
-    console.error('Failed to start Sing-box:', error);
+    console.error(`=== Sing-box 启动失败 ===`);
+    console.error(`错误详情:`, error);
+    console.error(`错误消息: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
@@ -607,9 +614,9 @@ ipcMain.handle('proxy:getStats', async () => {
 });
 
 // 系统代理IPC处理程序
-ipcMain.handle('system:setProxy', async (_, { host, port }) => {
+ipcMain.handle('system:setProxy', async (_, { host, socksPort, httpPort }) => {
   try {
-    await systemProxyManager.setSystemProxy(host, port);
+    await systemProxyManager.setSystemProxy(host, socksPort, httpPort);
     return { success: true };
   } catch (error) {
     console.error('Failed to set system proxy:', error);

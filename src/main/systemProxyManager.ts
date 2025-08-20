@@ -19,16 +19,16 @@ export class SystemProxyManager {
   /**
    * 设置系统代理
    */
-  public async setSystemProxy(host: string, port: number): Promise<void> {
+  public async setSystemProxy(host: string, socksPort: number, httpPort?: number): Promise<void> {
     switch (process.platform) {
       case 'win32':
-        await this.setWindowsProxy(host, port);
+        await this.setWindowsProxy(host, httpPort || socksPort);
         break;
       case 'darwin':
-        await this.setMacOSProxy(host, port);
+        await this.setMacOSProxy(host, socksPort, httpPort);
         break;
       case 'linux':
-        await this.setLinuxProxy(host, port);
+        await this.setLinuxProxy(host, httpPort || socksPort);
         break;
       default:
         throw new Error(`Unsupported platform: ${process.platform}`);
@@ -141,30 +141,88 @@ export class SystemProxyManager {
   /**
    * macOS系统代理设置
    */
-  private async setMacOSProxy(host: string, port: number): Promise<void> {
+  private async setMacOSProxy(host: string, socksPort: number, httpPort?: number): Promise<void> {
+    console.log(`=== 开始设置 macOS 系统代理 ===`);
+    console.log(`代理主机: ${host}`);
+    console.log(`SOCKS端口: ${socksPort}`);
+    console.log(`HTTP端口: ${httpPort || socksPort}`);
+    
+    const actualHttpPort = httpPort || socksPort;
+    
     try {
       // 获取网络服务名称
+      console.log(`获取网络服务列表...`);
       const { stdout: services } = await execAsync('networksetup -listallnetworkservices');
       const serviceLines = services.split('\n').filter(line => line.trim() && !line.includes('*'));
+      console.log(`找到网络服务:`, serviceLines);
       
       for (const service of serviceLines) {
         if (service.trim()) {
-          // 设置HTTP代理
-          await execAsync(`networksetup -setwebproxy "${service.trim()}" ${host} ${port}`);
-          // 设置HTTPS代理
-          await execAsync(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${port}`);
-          // 设置SOCKS代理
-          await execAsync(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${port}`);
+          console.log(`设置网络服务 "${service.trim()}" 的代理...`);
+          
+          // 设置HTTP代理（使用HTTP端口）
+          console.log(`设置HTTP代理: ${host}:${actualHttpPort}`);
+          await execAsync(`networksetup -setwebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          
+          // 设置HTTPS代理（使用HTTP端口）
+          console.log(`设置HTTPS代理: ${host}:${actualHttpPort}`);
+          await execAsync(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          
+          // 设置SOCKS代理（使用SOCKS端口）
+          console.log(`设置SOCKS代理: ${host}:${socksPort}`);
+          await execAsync(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${socksPort}`);
+          
           // 启用代理
+          console.log(`启用HTTP代理`);
           await execAsync(`networksetup -setwebproxystate "${service.trim()}" on`);
+          
+          console.log(`启用HTTPS代理`);
           await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" on`);
+          
+          console.log(`启用SOCKS代理`);
           await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" on`);
         }
       }
       
-      console.log(`macOS proxy set to ${host}:${port}`);
+      console.log(`=== macOS 系统代理设置完成 ===`);
+      console.log(`HTTP/HTTPS代理: ${host}:${actualHttpPort}`);
+      console.log(`SOCKS代理: ${host}:${socksPort}`);
+      
+      // 验证代理设置是否生效
+      await this.verifyProxySettings(serviceLines);
     } catch (error) {
       throw new Error(`Failed to set macOS proxy: ${error}`);
+    }
+  }
+
+  /**
+   * 验证代理设置是否生效
+   */
+  private async verifyProxySettings(services: string[]): Promise<void> {
+    console.log(`=== 验证代理设置是否生效 ===`);
+    
+    try {
+      for (const service of services) {
+        if (service.trim()) {
+          console.log(`检查网络服务 "${service.trim()}" 的代理状态...`);
+          
+          // 检查HTTP代理状态
+          const { stdout: httpStatus } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
+          console.log(`HTTP代理状态:`, httpStatus);
+          
+          // 检查HTTPS代理状态
+          const { stdout: httpsStatus } = await execAsync(`networksetup -getsecurewebproxy "${service.trim()}"`);
+          console.log(`HTTPS代理状态:`, httpsStatus);
+          
+          // 检查SOCKS代理状态
+          const { stdout: socksStatus } = await execAsync(`networksetup -getsocksfirewallproxy "${service.trim()}"`);
+          console.log(`SOCKS代理状态:`, socksStatus);
+        }
+      }
+      
+      console.log(`=== 代理设置验证完成 ===`);
+    } catch (error) {
+      console.error(`代理设置验证失败:`, error);
     }
   }
 
