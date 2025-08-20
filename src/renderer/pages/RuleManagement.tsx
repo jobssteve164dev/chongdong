@@ -540,11 +540,21 @@ const RuleManagement: React.FC = () => {
         if (!proxyId) {
           return <Text type="secondary">未设置</Text>;
         }
-        const proxy = availableProxies.find(p => p.id === proxyId);
+        
+        // 从存储中实时获取代理节点数据，确保数据是最新的
+        const savedSubscriptions = Storage.get<Subscription[]>(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []) || [];
+        const allProxies: ProxyServer[] = [];
+        savedSubscriptions.forEach(subscription => {
+          subscription.servers.forEach((server: ProxyServer) => {
+            allProxies.push(server);
+          });
+        });
+        
+        const proxy = allProxies.find(p => p.id === proxyId);
         return proxy ? (
           <Tag color="blue">{proxy.name} ({proxy.protocol})</Tag>
         ) : (
-          <Tag color="red">代理不存在</Tag>
+          <Tag color="red">代理不存在 (ID: {proxyId})</Tag>
         );
       },
     },
