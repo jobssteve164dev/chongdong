@@ -390,3 +390,60 @@ export interface RuleStats {
     timestamp: Date;
   }>;
 }
+
+// 分流规则组接口
+export interface TrafficRuleGroup {
+  id: string;
+  name: string;
+  description?: string;
+  defaultProxy?: string; // 默认代理节点ID
+  rules: RoutingRule[];
+  enabled: boolean;
+  source: RuleSource;
+  priority: number;
+  tags?: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  // 高级选项
+  autoUpdate?: boolean; // 是否自动更新规则
+  updateInterval?: number; // 更新间隔（分钟）
+  lastUpdate?: number; // 最后更新时间
+}
+
+// 分流规则模板接口
+export interface TrafficRuleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'social' | 'streaming' | 'gaming' | 'work' | 'education' | 'shopping' | 'custom';
+  rules: Omit<RoutingRule, 'id' | 'createdAt' | 'updatedAt'>[];
+  defaultProxy?: string;
+  tags?: string[];
+  icon?: string;
+  color?: string;
+}
+
+// 分流规则解析结果
+export interface TrafficRuleParseResult {
+  success: boolean;
+  groups: TrafficRuleGroup[];
+  errors?: string[];
+  warnings?: string[];
+  totalRules: number;
+  totalGroups: number;
+}
+
+// 分流规则统计
+export interface TrafficRuleStats {
+  totalGroups: number;
+  enabledGroups: number;
+  disabledGroups: number;
+  totalRules: number;
+  enabledRules: number;
+  disabledRules: number;
+  groupsByCategory: Record<string, number>;
+  rulesByType: Record<RuleType, number>;
+  rulesByAction: Record<RuleAction, number>;
+  averageRulesPerGroup: number;
+  mostUsedProxies: Array<{ proxyId: string; count: number }>;
+}

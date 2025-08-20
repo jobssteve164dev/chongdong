@@ -47,6 +47,12 @@ import {
   ColorPicker,
   UploadFile,
   UploadProps,
+  Avatar,
+  Timeline,
+  Calendar,
+  Carousel,
+  Image,
+
 } from 'antd';
 import {
   PlusOutlined,
@@ -132,17 +138,21 @@ import {
   RadiusBottomleftOutlined,
   RadiusBottomrightOutlined,
   InboxOutlined,
+
 } from '@ant-design/icons';
 import {
+  TrafficRuleGroup,
+  TrafficRuleTemplate,
+  TrafficRuleStats,
+  TrafficRuleParseResult,
   RoutingRule,
   RuleType,
   RuleAction,
   RuleSource,
-  RuleStats,
-  RuleConflictResult
+  ProxyServer
 } from '../../shared/types';
+import { trafficRuleManager } from '../utils/trafficRuleManager';
 import { ruleManager } from '../utils/ruleManager';
-import { ruleExporter } from '../utils/ruleExporter';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { log } from '../utils/logger';
 import './RuleManagement.css';
@@ -155,335 +165,295 @@ const { Panel } = Collapse;
 const { TabPane } = Tabs;
 
 const RuleManagement: React.FC = () => {
-  const [rules, setRules] = useState<RoutingRule[]>([]);
+  const [groups, setGroups] = useState<TrafficRuleGroup[]>([]);
+  const [templates, setTemplates] = useState<TrafficRuleTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingRule, setEditingRule] = useState<RoutingRule | null>(null);
+  const [editingGroup, setEditingGroup] = useState<TrafficRuleGroup | null>(null);
   const [form] = Form.useForm();
-  const [stats, setStats] = useState<RuleStats | null>(null);
-  const [conflicts, setConflicts] = useState<RuleConflictResult | null>(null);
+  const [stats, setStats] = useState<TrafficRuleStats | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [importModalVisible, setImportModalVisible] = useState(false);
-  const [exportModalVisible, setExportModalVisible] = useState(false);
-  const [previewModalVisible, setPreviewModalVisible] = useState(false);
-  const [previewContent, setPreviewContent] = useState<string>('');
-  const [activeTab, setActiveTab] = useState('rules');
+  const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  const [subscriptionModalVisible, setSubscriptionModalVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState('groups');
   const [importForm] = Form.useForm();
+  const [subscriptionForm] = Form.useForm();
   const [importLoading, setImportLoading] = useState(false);
-  const [importActiveTab, setImportActiveTab] = useState('file');
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [parseResult, setParseResult] = useState<TrafficRuleParseResult | null>(null);
+  const [availableProxies, setAvailableProxies] = useState<ProxyServer[]>([]);
 
-  // 加载规则数据
+  // 加载数据
   useEffect(() => {
-    loadRules();
-    loadStats();
-    detectConflicts();
+    loadData();
   }, []);
 
-  const loadRules = () => {
+  const loadData = () => {
+    loadGroups();
+    loadTemplates();
+    loadStats();
+    loadProxies();
+  };
+
+  const loadGroups = () => {
     try {
-      const allRules = ruleManager.getAllRules();
-      setRules(allRules);
+      const allGroups = trafficRuleManager.getAllGroups();
+      setGroups(allGroups);
     } catch (error: unknown) {
-      message.error('加载规则失败');
-      log.error('加载规则失败', error, 'RuleManagement');
+      message.error('加载分流规则组失败');
+      log.error('加载分流规则组失败', error, 'RuleManagement');
+    }
+  };
+
+  const loadTemplates = () => {
+    try {
+      const allTemplates = trafficRuleManager.getTemplates();
+      setTemplates(allTemplates);
+    } catch (error: unknown) {
+      log.error('加载模板失败', error, 'RuleManagement');
     }
   };
 
   const loadStats = () => {
     try {
-      const ruleStats = ruleManager.getStats();
+      const ruleStats = trafficRuleManager.getStats();
       setStats(ruleStats);
     } catch (error: unknown) {
-      log.error('加载规则统计失败', error, 'RuleManagement');
+      log.error('加载统计信息失败', error, 'RuleManagement');
     }
   };
 
-  const detectConflicts = () => {
+  const loadProxies = () => {
     try {
-      const conflictResult = ruleManager.detectConflicts();
-      setConflicts(conflictResult);
+      // 这里需要从代理管理器获取可用的代理节点
+      // 暂时使用空数组，后续需要集成代理管理功能
+      setAvailableProxies([]);
     } catch (error: unknown) {
-      log.error('检测规则冲突失败', error, 'RuleManagement');
+      log.error('加载代理节点失败', error, 'RuleManagement');
     }
   };
 
-  const handleAddRule = () => {
-    setEditingRule(null);
+  const handleAddGroup = () => {
+    setEditingGroup(null);
     form.resetFields();
     form.setFieldsValue({
       enabled: true,
       priority: 100,
       source: RuleSource.USER,
-      type: RuleType.DOMAIN,
-      action: RuleAction.PROXY
+      autoUpdate: false
     });
     setModalVisible(true);
   };
 
-  const handleEditRule = (rule: RoutingRule) => {
-    setEditingRule(rule);
-    form.setFieldsValue(rule);
+  const handleEditGroup = (group: TrafficRuleGroup) => {
+    setEditingGroup(group);
+    form.setFieldsValue(group);
     setModalVisible(true);
   };
 
-  const handleDeleteRule = (id: string) => {
+  const handleDeleteGroup = (id: string) => {
     try {
-      const success = ruleManager.deleteRule(id);
+      const success = trafficRuleManager.deleteGroup(id);
       if (success) {
-        message.success('规则已删除');
-        loadRules();
-        loadStats();
-        detectConflicts();
-        log.info('删除规则', { id }, 'RuleManagement');
+        message.success('分流规则组已删除');
+        loadData();
+        log.info('删除分流规则组', { id }, 'RuleManagement');
       } else {
-        message.error('删除规则失败');
+        message.error('删除分流规则组失败');
       }
     } catch (error: unknown) {
-      message.error('删除规则失败');
-      log.error('删除规则失败', error, 'RuleManagement');
+      message.error('删除分流规则组失败');
+      log.error('删除分流规则组失败', error, 'RuleManagement');
     }
   };
 
-  const handleToggleRule = (id: string) => {
+  const handleToggleGroup = (id: string) => {
     try {
-      const rule = ruleManager.getRule(id);
-      if (rule) {
-        const success = rule.enabled 
-          ? ruleManager.disableRule(id)
-          : ruleManager.enableRule(id);
-        
-        if (success) {
-          message.success(`规则已${rule.enabled ? '禁用' : '启用'}`);
-          loadRules();
-          loadStats();
-          log.info(`${rule.enabled ? '禁用' : '启用'}规则`, { id }, 'RuleManagement');
-        } else {
-          message.error(`${rule.enabled ? '禁用' : '启用'}规则失败`);
-        }
+      const success = trafficRuleManager.toggleGroup(id);
+      if (success) {
+        message.success('分流规则组状态已切换');
+        loadData();
+        log.info('切换分流规则组状态', { id }, 'RuleManagement');
+      } else {
+        message.error('切换分流规则组状态失败');
       }
     } catch (error: unknown) {
       message.error('操作失败');
-      log.error('切换规则状态失败', error, 'RuleManagement');
+      log.error('切换分流规则组状态失败', error, 'RuleManagement');
     }
   };
 
-  const handleSaveRule = async (values: any) => {
+  const handleSaveGroup = async (values: any) => {
     try {
-      if (editingRule) {
-        // 编辑现有规则
-        const updatedRule = ruleManager.updateRule(editingRule.id, values);
-        if (updatedRule) {
-          message.success('规则已更新');
-          log.info('更新规则', { id: editingRule.id, name: updatedRule.name }, 'RuleManagement');
+      if (editingGroup) {
+        // 编辑现有分流规则组
+        const updatedGroup = trafficRuleManager.updateGroup(editingGroup.id, values);
+        if (updatedGroup) {
+          message.success('分流规则组已更新');
+          log.info('更新分流规则组', { id: editingGroup.id, name: updatedGroup.name }, 'RuleManagement');
         } else {
-          message.error('更新规则失败');
+          message.error('更新分流规则组失败');
         }
       } else {
-        // 添加新规则
-        const newRule = ruleManager.addRule(values);
-        message.success('规则已添加');
-        log.info('添加规则', { id: newRule.id, name: newRule.name }, 'RuleManagement');
+        // 添加新分流规则组
+        const newGroup = trafficRuleManager.addGroup(values);
+        message.success('分流规则组已添加');
+        log.info('添加分流规则组', { id: newGroup.id, name: newGroup.name }, 'RuleManagement');
       }
       
       setModalVisible(false);
-      loadRules();
-      loadStats();
-      detectConflicts();
+      loadData();
     } catch (error: unknown) {
       message.error('保存失败');
-      log.error('保存规则失败', error, 'RuleManagement');
+      log.error('保存分流规则组失败', error, 'RuleManagement');
     }
   };
 
-  const handleBatchDelete = () => {
-    if (selectedRowKeys.length === 0) {
-      message.warning('请选择要删除的规则');
-      return;
-    }
-
+  const handleCreateFromTemplate = (templateId: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 条规则吗？`,
-      onOk: () => {
+      title: '从模板创建分流规则组',
+      content: (
+        <Form layout="vertical">
+          <Form.Item
+            name="groupName"
+            label="分流规则组名称"
+            rules={[{ required: true, message: '请输入分流规则组名称' }]}
+          >
+            <Input placeholder="例如：我的社交媒体分流" />
+          </Form.Item>
+          <Form.Item
+            name="defaultProxy"
+            label="默认代理节点"
+          >
+            <Select placeholder="选择默认代理节点" allowClear>
+              {availableProxies.map(proxy => (
+                <Option key={proxy.id} value={proxy.id}>
+                  {proxy.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      ),
+      onOk: async () => {
         try {
-          const count = ruleManager.batchDeleteRules(selectedRowKeys as string[]);
-          message.success(`成功删除 ${count} 条规则`);
-          setSelectedRowKeys([]);
-          loadRules();
-          loadStats();
-          detectConflicts();
-          log.info('批量删除规则', { count }, 'RuleManagement');
+          const formData = form.getFieldsValue();
+          const template = trafficRuleManager.getTemplate(templateId);
+          if (!template) {
+            message.error('模板不存在');
+            return;
+          }
+
+          const groupName = formData.groupName || template.name;
+          const defaultProxy = formData.defaultProxy || template.defaultProxy;
+
+          const newGroup = trafficRuleManager.createFromTemplate(templateId, groupName, defaultProxy);
+          if (newGroup) {
+            message.success('分流规则组创建成功');
+            loadData();
+            log.info('从模板创建分流规则组', { templateId, groupName }, 'RuleManagement');
+          } else {
+            message.error('创建分流规则组失败');
+          }
         } catch (error: unknown) {
-          message.error('批量删除失败');
-          log.error('批量删除规则失败', error, 'RuleManagement');
+          message.error('创建失败');
+          log.error('从模板创建分流规则组失败', error, 'RuleManagement');
         }
       }
     });
   };
 
-  const handleBatchEnable = () => {
-    if (selectedRowKeys.length === 0) {
-      message.warning('请选择要启用的规则');
+  const handleParseSubscription = async (values: any) => {
+    setSubscriptionLoading(true);
+    try {
+      const result = await trafficRuleManager.parseFromSubscription(values.url);
+      setParseResult(result);
+      
+      if (result.success) {
+        message.success(`成功解析 ${result.totalGroups} 个分流规则组，共 ${result.totalRules} 条规则`);
+      } else {
+        message.warning('解析完成，但存在一些问题');
+      }
+      
+      if (result.errors && result.errors.length > 0) {
+        result.errors.forEach(error => {
+          message.error(error);
+        });
+      }
+      
+      if (result.warnings && result.warnings.length > 0) {
+        result.warnings.forEach(warning => {
+          message.warning(warning);
+        });
+      }
+      
+      log.info('解析订阅链接', { url: values.url, success: result.success }, 'RuleManagement');
+    } catch (error: unknown) {
+      message.error('解析失败');
+      log.error('解析订阅链接失败', error, 'RuleManagement');
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
+
+  const handleImportParsedGroups = () => {
+    if (!parseResult || !parseResult.success) {
+      message.warning('没有可导入的分流规则组');
       return;
     }
 
     try {
-      const count = ruleManager.batchUpdateRules(selectedRowKeys as string[], { enabled: true });
-      message.success(`成功启用 ${count} 条规则`);
-      setSelectedRowKeys([]);
-      loadRules();
-      loadStats();
-      log.info('批量启用规则', { count }, 'RuleManagement');
-    } catch (error: unknown) {
-      message.error('批量启用失败');
-      log.error('批量启用规则失败', error, 'RuleManagement');
-    }
-  };
-
-  const handleBatchDisable = () => {
-    if (selectedRowKeys.length === 0) {
-      message.warning('请选择要禁用的规则');
-      return;
-    }
-
-    try {
-      const count = ruleManager.batchUpdateRules(selectedRowKeys as string[], { enabled: false });
-      message.success(`成功禁用 ${count} 条规则`);
-      setSelectedRowKeys([]);
-      loadRules();
-      loadStats();
-      log.info('批量禁用规则', { count }, 'RuleManagement');
-    } catch (error: unknown) {
-      message.error('批量禁用失败');
-      log.error('批量禁用规则失败', error, 'RuleManagement');
-    }
-  };
-
-  const handleImport = async (file: File) => {
-    try {
-      const content = await file.text();
-      const importedRules = ruleExporter.importAuto(content, {
-        format: 'auto',
-        mergeStrategy: 'append',
-        conflictResolution: 'rename',
-        validateRules: true
+      let importedCount = 0;
+      parseResult.groups.forEach(group => {
+        const success = trafficRuleManager.addGroup(group);
+        if (success) {
+          importedCount++;
+        }
       });
 
-      const count = ruleManager.importRules(importedRules);
-      message.success(`成功导入 ${count} 条规则`);
-      setImportModalVisible(false);
-      loadRules();
-      loadStats();
-      detectConflicts();
-      log.info('导入规则', { count }, 'RuleManagement');
+      if (importedCount > 0) {
+        message.success(`成功导入 ${importedCount} 个分流规则组`);
+        setSubscriptionModalVisible(false);
+        setParseResult(null);
+        loadData();
+        log.info('导入解析的分流规则组', { count: importedCount }, 'RuleManagement');
+      } else {
+        message.error('导入失败');
+      }
     } catch (error: unknown) {
       message.error('导入失败');
-      log.error('导入规则失败', error, 'RuleManagement');
+      log.error('导入解析的分流规则组失败', error, 'RuleManagement');
     }
   };
 
-  const handleExport = (format: 'json' | 'clash' | 'singbox' | 'v2ray') => {
-    try {
-      const selectedRules = selectedRowKeys.length > 0 
-        ? ruleManager.exportRules(selectedRowKeys as string[])
-        : ruleManager.getAllRules();
-
-      let content = '';
-      switch (format) {
-        case 'json':
-          content = ruleExporter.exportToJson(selectedRules, { format: 'json', includeMetadata: true });
-          break;
-        case 'clash':
-          content = ruleExporter.exportToClash(selectedRules, { format: 'clash' });
-          break;
-        case 'singbox':
-          content = ruleExporter.exportToSingbox(selectedRules, { format: 'singbox' });
-          break;
-        case 'v2ray':
-          content = ruleExporter.exportToV2Ray(selectedRules, { format: 'v2ray' });
-          break;
-      }
-
-      // 创建下载链接
-      const blob = new Blob([content], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `rules_${format}_${new Date().toISOString().slice(0, 10)}.${format === 'json' ? 'json' : format === 'clash' ? 'yaml' : 'json'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      message.success('导出成功');
-      setExportModalVisible(false);
-      log.info('导出规则', { format, count: selectedRules.length }, 'RuleManagement');
-    } catch (error: unknown) {
-      message.error('导出失败');
-      log.error('导出规则失败', error, 'RuleManagement');
-    }
-  };
-
-  const handlePreview = (format: 'json' | 'clash' | 'singbox' | 'v2ray') => {
-    try {
-      const selectedRules = selectedRowKeys.length > 0 
-        ? ruleManager.exportRules(selectedRowKeys as string[])
-        : ruleManager.getAllRules();
-
-      let content = '';
-      switch (format) {
-        case 'json':
-          content = ruleExporter.exportToJson(selectedRules, { format: 'json', includeMetadata: true });
-          break;
-        case 'clash':
-          content = ruleExporter.exportToClash(selectedRules, { format: 'clash' });
-          break;
-        case 'singbox':
-          content = ruleExporter.exportToSingbox(selectedRules, { format: 'singbox' });
-          break;
-        case 'v2ray':
-          content = ruleExporter.exportToV2Ray(selectedRules, { format: 'v2ray' });
-          break;
-      }
-
-      setPreviewContent(content);
-      setPreviewModalVisible(true);
-    } catch (error: unknown) {
-      message.error('预览失败');
-      log.error('预览规则失败', error, 'RuleManagement');
-    }
-  };
-
-  const getRuleTypeLabel = (type: RuleType): string => {
-    const labels: Record<RuleType, string> = {
-      [RuleType.DOMAIN]: '域名',
-      [RuleType.DOMAIN_SUFFIX]: '域名后缀',
-      [RuleType.DOMAIN_KEYWORD]: '域名关键词',
-      [RuleType.DOMAIN_REGEX]: '域名正则',
-      [RuleType.IP_CIDR]: 'IP段',
-      [RuleType.IP_CIDR6]: 'IPv6段',
-      [RuleType.GEOIP]: '地理位置',
-      [RuleType.PROCESS]: '进程',
-      [RuleType.PROCESS_PATH]: '进程路径',
-      [RuleType.PROTOCOL]: '协议',
-      [RuleType.SCRIPT]: '脚本',
-      [RuleType.MATCH]: '匹配所有'
+  const getCategoryIcon = (category: string): React.ReactNode => {
+    const iconMap: Record<string, React.ReactNode> = {
+      social: '🌐',
+      streaming: '📺',
+      gaming: '🎮',
+      work: '💼',
+      education: '📚',
+      shopping: '🛒',
+      custom: '⚙️'
     };
-    return labels[type] || type;
+    return iconMap[category] || '📋';
   };
 
-  const getRuleActionLabel = (action: RuleAction): string => {
-    const labels: Record<RuleAction, string> = {
-      [RuleAction.PROXY]: '代理',
-      [RuleAction.DIRECT]: '直连',
-      [RuleAction.BLOCK]: '阻止',
-      [RuleAction.CHAIN]: '代理链',
-      [RuleAction.REJECT]: '拒绝'
+  const getCategoryColor = (category: string): string => {
+    const colorMap: Record<string, string> = {
+      social: '#1890ff',
+      streaming: '#52c41a',
+      gaming: '#722ed1',
+      work: '#fa8c16',
+      education: '#13c2c2',
+      shopping: '#eb2f96',
+      custom: '#666666'
     };
-    return labels[action] || action;
+    return colorMap[category] || '#666666';
   };
 
-  const getRuleSourceLabel = (source: RuleSource): string => {
+  const getSourceLabel = (source: RuleSource): string => {
     const labels: Record<RuleSource, string> = {
       [RuleSource.USER]: '用户',
       [RuleSource.SUBSCRIPTION]: '订阅',
@@ -493,18 +463,7 @@ const RuleManagement: React.FC = () => {
     return labels[source] || source;
   };
 
-  const getRuleActionColor = (action: RuleAction): string => {
-    const colors: Record<RuleAction, string> = {
-      [RuleAction.PROXY]: 'blue',
-      [RuleAction.DIRECT]: 'green',
-      [RuleAction.BLOCK]: 'red',
-      [RuleAction.CHAIN]: 'purple',
-      [RuleAction.REJECT]: 'orange'
-    };
-    return colors[action] || 'default';
-  };
-
-  const getRuleSourceColor = (source: RuleSource): string => {
+  const getSourceColor = (source: RuleSource): string => {
     const colors: Record<RuleSource, string> = {
       [RuleSource.USER]: 'blue',
       [RuleSource.SUBSCRIPTION]: 'green',
@@ -516,18 +475,18 @@ const RuleManagement: React.FC = () => {
 
   const columns = [
     {
-      title: '规则名称',
+      title: '分流规则组',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: RoutingRule) => (
+      render: (text: string, record: TrafficRuleGroup) => (
         <div>
           <Text strong>{text}</Text>
           <br />
           <Text type="secondary" style={{ fontSize: 12 }}>
             {record.description || '无描述'}
-            {Array.isArray(record.value) && record.value.length > 1 && (
+            {record.rules.length > 0 && (
               <span style={{ color: '#1890ff' }}>
-                {' '}({record.value.length} 条规则)
+                {' '}({record.rules.length} 条规则)
               </span>
             )}
           </Text>
@@ -535,53 +494,20 @@ const RuleManagement: React.FC = () => {
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type: RuleType) => (
-        <Tag color="blue">{getRuleTypeLabel(type)}</Tag>
-      ),
-    },
-    {
-      title: '值',
-      dataIndex: 'value',
-      key: 'value',
-      render: (value: string | string[], record: RoutingRule) => {
-        if (Array.isArray(value)) {
-          if (value.length === 1) {
-            return <Text code>{value[0]}</Text>;
-          } else if (value.length <= 3) {
-            return <Text code>{value.join(', ')}</Text>;
-          } else {
-            return (
-              <Tooltip title={value.join('\n')}>
-                <Text code>
-                  {value.slice(0, 3).join(', ')}... (+{value.length - 3})
-                </Text>
-              </Tooltip>
-            );
-          }
-        } else {
-          return <Text code>{value}</Text>;
+      title: '默认代理',
+      dataIndex: 'defaultProxy',
+      key: 'defaultProxy',
+      render: (proxyId: string) => {
+        if (!proxyId) {
+          return <Text type="secondary">未设置</Text>;
         }
+        const proxy = availableProxies.find(p => p.id === proxyId);
+        return proxy ? (
+          <Tag color="blue">{proxy.name}</Tag>
+        ) : (
+          <Tag color="red">代理不存在</Tag>
+        );
       },
-    },
-    {
-      title: '动作',
-      dataIndex: 'action',
-      key: 'action',
-      render: (action: RuleAction, record: RoutingRule) => (
-        <div>
-          <Tag color={getRuleActionColor(action)}>
-            {getRuleActionLabel(action)}
-          </Tag>
-          {record.target && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              目标: {record.target}
-            </Text>
-          )}
-        </div>
-      ),
     },
     {
       title: '优先级',
@@ -596,8 +522,8 @@ const RuleManagement: React.FC = () => {
       dataIndex: 'source',
       key: 'source',
       render: (source: RuleSource) => (
-        <Tag color={getRuleSourceColor(source)}>
-          {getRuleSourceLabel(source)}
+        <Tag color={getSourceColor(source)}>
+          {getSourceLabel(source)}
         </Tag>
       ),
     },
@@ -614,25 +540,25 @@ const RuleManagement: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      render: (_: any, record: RoutingRule) => (
+      render: (_: any, record: TrafficRuleGroup) => (
         <Space>
           <Button
             size="small"
             icon={record.enabled ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-            onClick={() => handleToggleRule(record.id)}
+            onClick={() => handleToggleGroup(record.id)}
           >
             {record.enabled ? '禁用' : '启用'}
           </Button>
           <Button
             size="small"
             icon={<EditOutlined />}
-            onClick={() => handleEditRule(record)}
+            onClick={() => handleEditGroup(record)}
           >
             编辑
           </Button>
           <Popconfirm
-            title="确定要删除这个规则吗？"
-            onConfirm={() => handleDeleteRule(record.id)}
+            title="确定要删除这个分流规则组吗？"
+            onConfirm={() => handleDeleteGroup(record.id)}
             okText="确定"
             cancelText="取消"
           >
@@ -658,68 +584,38 @@ const RuleManagement: React.FC = () => {
       <div style={{ marginBottom: 16 }}>
         <Row justify="space-between" align="middle">
           <Col>
-            <Title level={3} style={{ margin: 0 }}>规则管理</Title>
+            <Title level={3} style={{ margin: 0 }}>分流规则管理</Title>
+            <Text type="secondary">管理网络流量的分流规则，实现智能代理路由</Text>
           </Col>
           <Col>
             <Space>
               <Button 
                 type="primary" 
                 icon={<PlusOutlined />} 
-                onClick={handleAddRule}
+                onClick={handleAddGroup}
               >
-                添加规则
+                创建分流规则组
               </Button>
               <Button 
-                icon={<ImportOutlined />} 
-                onClick={() => setImportModalVisible(true)}
+                icon={<AppstoreOutlined />} 
+                onClick={() => setTemplateModalVisible(true)}
               >
-                导入
+                从模板创建
               </Button>
               <Button 
-                icon={<ExportOutlined />} 
-                onClick={() => setExportModalVisible(true)}
+                icon={<LinkOutlined />} 
+                onClick={() => setSubscriptionModalVisible(true)}
               >
-                导出
+                从订阅解析
               </Button>
               <Button 
                 icon={<ReloadOutlined />} 
                 onClick={() => {
-                  loadRules();
-                  loadStats();
-                  detectConflicts();
+                  loadData();
                   message.success('数据已刷新');
                 }}
               >
                 刷新
-              </Button>
-              <Button 
-                danger
-                icon={<DeleteOutlined />} 
-                onClick={() => {
-                  Modal.confirm({
-                    title: '清空所有规则',
-                    content: '确定要删除所有规则吗？此操作不可恢复！',
-                    okText: '确定删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => {
-                      try {
-                        const allRules = ruleManager.getAllRules();
-                        const count = ruleManager.batchDeleteRules(allRules.map(r => r.id));
-                        message.success(`成功删除所有 ${count} 条规则`);
-                        loadRules();
-                        loadStats();
-                        detectConflicts();
-                        log.info('清空所有规则', { count }, 'RuleManagement');
-                      } catch (error: unknown) {
-                        message.error('清空规则失败');
-                        log.error('清空所有规则失败', error, 'RuleManagement');
-                      }
-                    }
-                  });
-                }}
-              >
-                清空所有
               </Button>
             </Space>
           </Col>
@@ -732,9 +628,9 @@ const RuleManagement: React.FC = () => {
           <Col xs={24} sm={6}>
             <Card>
               <Statistic
-                title="总规则数"
-                value={stats.totalRules}
-                prefix={<CodeOutlined />}
+                                 title="分流规则组"
+                 value={stats.totalGroups}
+                 prefix={<AppstoreOutlined />}
                 valueStyle={{ color: '#1890ff' }}
               />
             </Card>
@@ -742,8 +638,8 @@ const RuleManagement: React.FC = () => {
           <Col xs={24} sm={6}>
             <Card>
               <Statistic
-                title="启用规则"
-                value={stats.enabledRules}
+                title="启用组"
+                value={stats.enabledGroups}
                 prefix={<CheckCircleOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
@@ -752,188 +648,33 @@ const RuleManagement: React.FC = () => {
           <Col xs={24} sm={6}>
             <Card>
               <Statistic
-                title="禁用规则"
-                value={stats.disabledRules}
-                prefix={<PauseCircleOutlined />}
-                valueStyle={{ color: '#faad14' }}
+                title="总规则数"
+                value={stats.totalRules}
+                prefix={<CodeOutlined />}
+                valueStyle={{ color: '#722ed1' }}
               />
             </Card>
           </Col>
           <Col xs={24} sm={6}>
             <Card>
               <Statistic
-                title="冲突规则"
-                value={conflicts?.conflicts.length || 0}
-                prefix={<ExclamationCircleOutlined />}
-                valueStyle={{ color: conflicts?.conflicts.length ? '#ff4d4f' : '#52c41a' }}
+                                 title="平均规则数"
+                 value={stats.averageRulesPerGroup.toFixed(1)}
+                 prefix={<BranchesOutlined />}
+                valueStyle={{ color: '#fa8c16' }}
               />
             </Card>
           </Col>
         </Row>
       )}
 
-      {/* 冲突警告 */}
-      {conflicts && conflicts.conflicts.length > 0 && (
-        <Alert
-          message="发现规则冲突"
-          description={`检测到 ${conflicts.conflicts.length} 个规则冲突，建议及时处理。`}
-          type="warning"
-          showIcon
-          action={
-            <Button size="small" type="link" onClick={() => setActiveTab('conflicts')}>
-              查看详情
-            </Button>
-          }
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
       {/* 主要内容 */}
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <TabPane tab="规则列表" key="rules">
+        <TabPane tab="分流规则组" key="groups">
           <Card>
-            {/* 批量操作 */}
-            <div style={{ marginBottom: 16 }}>
-              <Row justify="space-between" align="middle">
-                <Col>
-                  {selectedRowKeys.length > 0 && (
-                    <Space>
-                      <Text>已选择 {selectedRowKeys.length} 条规则：</Text>
-                      <Button size="small" onClick={handleBatchEnable}>
-                        批量启用
-                      </Button>
-                      <Button size="small" onClick={handleBatchDisable}>
-                        批量禁用
-                      </Button>
-                      <Button size="small" danger onClick={handleBatchDelete}>
-                        批量删除
-                      </Button>
-                    </Space>
-                  )}
-                </Col>
-                <Col>
-                  <Space>
-                    <Button 
-                      size="small" 
-                      onClick={() => {
-                        const allIds = rules.map(r => r.id);
-                        setSelectedRowKeys(allIds);
-                        message.success(`已全选 ${allIds.length} 条规则`);
-                      }}
-                    >
-                      全选
-                    </Button>
-                    <Button 
-                      size="small" 
-                      onClick={() => setSelectedRowKeys([])}
-                    >
-                      取消选择
-                    </Button>
-                    <Button 
-                      size="small" 
-                      danger
-                      onClick={() => {
-                        Modal.confirm({
-                          title: '按条件删除规则',
-                          content: (
-                            <div>
-                              <p>选择要删除的规则类型：</p>
-                              <Space direction="vertical" style={{ width: '100%' }}>
-                                <Button 
-                                  block 
-                                  danger 
-                                  onClick={() => {
-                                    const subscriptionRules = rules.filter(r => r.source === RuleSource.SUBSCRIPTION);
-                                    if (subscriptionRules.length === 0) {
-                                      message.warning('没有找到订阅来源的规则');
-                                      return;
-                                    }
-                                    Modal.confirm({
-                                      title: '删除订阅规则',
-                                      content: `确定要删除所有 ${subscriptionRules.length} 条订阅来源的规则吗？`,
-                                      onOk: () => {
-                                        const count = ruleManager.batchDeleteRules(subscriptionRules.map(r => r.id));
-                                        message.success(`成功删除 ${count} 条订阅规则`);
-                                        setSelectedRowKeys([]);
-                                        loadRules();
-                                        loadStats();
-                                        detectConflicts();
-                                      }
-                                    });
-                                  }}
-                                >
-                                  删除所有订阅规则 ({rules.filter(r => r.source === RuleSource.SUBSCRIPTION).length})
-                                </Button>
-                                <Button 
-                                  block 
-                                  danger 
-                                  onClick={() => {
-                                    const disabledRules = rules.filter(r => !r.enabled);
-                                    if (disabledRules.length === 0) {
-                                      message.warning('没有找到禁用的规则');
-                                      return;
-                                    }
-                                    Modal.confirm({
-                                      title: '删除禁用规则',
-                                      content: `确定要删除所有 ${disabledRules.length} 条禁用的规则吗？`,
-                                      onOk: () => {
-                                        const count = ruleManager.batchDeleteRules(disabledRules.map(r => r.id));
-                                        message.success(`成功删除 ${count} 条禁用规则`);
-                                        setSelectedRowKeys([]);
-                                        loadRules();
-                                        loadStats();
-                                        detectConflicts();
-                                      }
-                                    });
-                                  }}
-                                >
-                                  删除所有禁用规则 ({rules.filter(r => !r.enabled).length})
-                                </Button>
-                                <Button 
-                                  block 
-                                  danger 
-                                  onClick={() => {
-                                    const groupRules = rules.filter(r => Array.isArray(r.value) && r.value.length > 1);
-                                    if (groupRules.length === 0) {
-                                      message.warning('没有找到规则组');
-                                      return;
-                                    }
-                                    Modal.confirm({
-                                      title: '删除规则组',
-                                      content: `确定要删除所有 ${groupRules.length} 个规则组吗？`,
-                                      onOk: () => {
-                                        const count = ruleManager.batchDeleteRules(groupRules.map(r => r.id));
-                                        message.success(`成功删除 ${count} 个规则组`);
-                                        setSelectedRowKeys([]);
-                                        loadRules();
-                                        loadStats();
-                                        detectConflicts();
-                                      }
-                                    });
-                                  }}
-                                >
-                                  删除所有规则组 ({rules.filter(r => Array.isArray(r.value) && r.value.length > 1).length})
-                                </Button>
-                              </Space>
-                            </div>
-                          ),
-                          width: 400,
-                          okText: '关闭',
-                          cancelText: '取消',
-                          onCancel: () => {}
-                        });
-                      }}
-                    >
-                      按条件删除
-                    </Button>
-                  </Space>
-                </Col>
-              </Row>
-            </div>
-
             <Table
               columns={columns}
-              dataSource={rules}
+              dataSource={groups}
               rowKey="id"
               rowSelection={rowSelection}
               pagination={{
@@ -947,40 +688,54 @@ const RuleManagement: React.FC = () => {
           </Card>
         </TabPane>
 
-        <TabPane tab="冲突检测" key="conflicts">
+        <TabPane tab="规则模板" key="templates">
           <Card>
-            {conflicts && conflicts.conflicts.length > 0 ? (
-              <List
-                dataSource={conflicts.conflicts}
-                renderItem={(conflict, index) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      title={
-                        <Space>
-                          <Tag color={
-                            conflict.severity === 'high' ? 'red' :
-                            conflict.severity === 'medium' ? 'orange' : 'blue'
-                          }>
-                            {conflict.type === 'duplicate' ? '重复' :
-                             conflict.type === 'overlap' ? '重叠' : '矛盾'}
-                          </Tag>
-                          <Text>{conflict.description}</Text>
-                        </Space>
+            <Row gutter={[16, 16]}>
+              {templates.map(template => (
+                <Col xs={24} sm={12} md={8} lg={6} key={template.id}>
+                  <Card
+                    hoverable
+                    style={{ height: '100%' }}
+                    actions={[
+                      <Button 
+                        type="link" 
+                        icon={<PlusOutlined />}
+                        onClick={() => handleCreateFromTemplate(template.id)}
+                      >
+                        使用模板
+                      </Button>
+                    ]}
+                  >
+                    <Card.Meta
+                      avatar={
+                        <Avatar 
+                          size={48} 
+                          style={{ 
+                            backgroundColor: template.color || getCategoryColor(template.category),
+                            fontSize: 24
+                          }}
+                        >
+                          {template.icon || getCategoryIcon(template.category)}
+                        </Avatar>
                       }
+                      title={template.name}
                       description={
                         <div>
-                          <Text>规则1: {conflict.rule1.name}</Text>
+                          <Text type="secondary">{template.description}</Text>
                           <br />
-                          <Text>规则2: {conflict.rule2.name}</Text>
+                          <Tag color={getCategoryColor(template.category)}>
+                            {template.category}
+                          </Tag>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {template.rules.length} 条规则
+                          </Text>
                         </div>
                       }
                     />
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <Empty description="没有发现规则冲突" />
-            )}
+                  </Card>
+                </Col>
+              ))}
+            </Row>
           </Card>
         </TabPane>
 
@@ -989,19 +744,19 @@ const RuleManagement: React.FC = () => {
             {stats && (
               <Row gutter={[16, 16]}>
                 <Col span={12}>
-                  <Title level={4}>按类型统计</Title>
+                  <Title level={4}>按规则类型统计</Title>
                   {Object.entries(stats.rulesByType).map(([type, count]) => (
                     <div key={type} style={{ marginBottom: 8 }}>
-                      <Text>{getRuleTypeLabel(type as RuleType)}: </Text>
+                      <Text>{type}: </Text>
                       <Text strong>{count}</Text>
                     </div>
                   ))}
                 </Col>
                 <Col span={12}>
-                  <Title level={4}>按动作统计</Title>
+                  <Title level={4}>按规则动作统计</Title>
                   {Object.entries(stats.rulesByAction).map(([action, count]) => (
                     <div key={action} style={{ marginBottom: 8 }}>
-                      <Text>{getRuleActionLabel(action as RuleAction)}: </Text>
+                      <Text>{action}: </Text>
                       <Text strong>{count}</Text>
                     </div>
                   ))}
@@ -1012,9 +767,9 @@ const RuleManagement: React.FC = () => {
         </TabPane>
       </Tabs>
 
-      {/* 添加/编辑规则模态框 */}
+      {/* 添加/编辑分流规则组模态框 */}
       <Modal
-        title={editingRule ? '编辑规则' : '添加规则'}
+        title={editingGroup ? '编辑分流规则组' : '创建分流规则组'}
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         footer={null}
@@ -1023,78 +778,43 @@ const RuleManagement: React.FC = () => {
         <Form
           form={form}
           layout="vertical"
-          onFinish={handleSaveRule}
+          onFinish={handleSaveGroup}
         >
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="name"
-                label="规则名称"
-                rules={[{ required: true, message: '请输入规则名称' }]}
+                label="分流规则组名称"
+                rules={[{ required: true, message: '请输入分流规则组名称' }]}
               >
-                <Input placeholder="例如：Google直连" />
+                <Input placeholder="例如：社交媒体分流" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                name="type"
-                label="规则类型"
-                rules={[{ required: true, message: '请选择规则类型' }]}
+                name="defaultProxy"
+                label="默认代理节点"
               >
-                <Select placeholder="选择规则类型">
-                  <Option value={RuleType.DOMAIN}>域名</Option>
-                  <Option value={RuleType.DOMAIN_SUFFIX}>域名后缀</Option>
-                  <Option value={RuleType.DOMAIN_KEYWORD}>域名关键词</Option>
-                  <Option value={RuleType.DOMAIN_REGEX}>域名正则</Option>
-                  <Option value={RuleType.IP_CIDR}>IP段</Option>
-                  <Option value={RuleType.IP_CIDR6}>IPv6段</Option>
-                  <Option value={RuleType.GEOIP}>地理位置</Option>
-                  <Option value={RuleType.PROCESS}>进程</Option>
-                  <Option value={RuleType.PROCESS_PATH}>进程路径</Option>
-                  <Option value={RuleType.PROTOCOL}>协议</Option>
-                  <Option value={RuleType.SCRIPT}>脚本</Option>
-                  <Option value={RuleType.MATCH}>匹配所有</Option>
+                <Select placeholder="选择默认代理节点" allowClear>
+                  {availableProxies.map(proxy => (
+                    <Option key={proxy.id} value={proxy.id}>
+                      {proxy.name}
+                    </Option>
+                  ))}
                 </Select>
               </Form.Item>
             </Col>
           </Row>
 
           <Form.Item
-            name="value"
-            label="规则值"
-            rules={[{ required: true, message: '请输入规则值' }]}
+            name="description"
+            label="描述"
           >
             <TextArea
-              rows={3}
-              placeholder="输入规则值，多个值用逗号分隔"
+              rows={2}
+              placeholder="分流规则组的描述（可选）"
             />
           </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="action"
-                label="动作"
-                rules={[{ required: true, message: '请选择动作' }]}
-              >
-                <Select placeholder="选择动作">
-                  <Option value={RuleAction.PROXY}>代理</Option>
-                  <Option value={RuleAction.DIRECT}>直连</Option>
-                  <Option value={RuleAction.BLOCK}>阻止</Option>
-                  <Option value={RuleAction.CHAIN}>代理链</Option>
-                  <Option value={RuleAction.REJECT}>拒绝</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="target"
-                label="目标"
-              >
-                <Input placeholder="代理名称或代理链ID" />
-              </Form.Item>
-            </Col>
-          </Row>
 
           <Row gutter={16}>
             <Col span={8}>
@@ -1132,20 +852,10 @@ const RuleManagement: React.FC = () => {
             </Col>
           </Row>
 
-          <Form.Item
-            name="description"
-            label="描述"
-          >
-            <TextArea
-              rows={2}
-              placeholder="规则描述（可选）"
-            />
-          </Form.Item>
-
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit">
-                {editingRule ? '更新' : '添加'}
+                {editingGroup ? '更新' : '创建'}
               </Button>
               <Button onClick={() => setModalVisible(false)}>
                 取消
@@ -1155,232 +865,182 @@ const RuleManagement: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 导入模态框 */}
+      {/* 模板选择模态框 */}
       <Modal
-        title="导入规则"
-        open={importModalVisible}
-        onCancel={() => setImportModalVisible(false)}
+        title="从模板创建分流规则组"
+        open={templateModalVisible}
+        onCancel={() => setTemplateModalVisible(false)}
         footer={null}
+        width={800}
       >
-        <Tabs activeKey={importActiveTab} onChange={setImportActiveTab}>
-          <TabPane tab="文件导入" key="file">
-            <Upload.Dragger
-              accept=".json,.yaml,.yml,.txt"
-              beforeUpload={(file) => {
-                handleImport(file);
-                return false;
-              }}
-              showUploadList={false}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-              <p className="ant-upload-hint">
-                支持 JSON、YAML、TXT 格式的规则文件
-              </p>
-            </Upload.Dragger>
-          </TabPane>
-          <TabPane tab="订阅导入" key="subscription">
-            <Form
-              form={importForm}
-              layout="vertical"
-              onFinish={async (values) => {
-                setImportLoading(true);
-                try {
-                  const importedRules = await subscriptionManager.importFromUrl(values.url);
-                  const count = ruleManager.importRules(importedRules);
-                  message.success(`成功导入 ${count} 条规则`);
-                  setImportModalVisible(false);
-                  loadRules();
-                  loadStats();
-                  detectConflicts();
-                  log.info('从订阅导入规则', { url: values.url, count }, 'RuleManagement');
-                } catch (error: unknown) {
-                  const errorMessage = error instanceof Error ? error.message : '未知错误';
-                  message.error(`导入失败: ${errorMessage}`);
-                  log.error('从订阅导入规则失败', error, 'RuleManagement');
-                } finally {
-                  setImportLoading(false);
-                }
-              }}
-            >
-              <Form.Item
-                name="url"
-                label="订阅链接"
-                rules={[
-                  { required: true, message: '请输入订阅链接' },
-                  { 
-                    pattern: /^https?:\/\/.+/, 
-                    message: '请输入有效的订阅链接，以http或https开头' 
+        <Row gutter={[16, 16]}>
+          {templates.map(template => (
+            <Col xs={24} sm={12} key={template.id}>
+              <Card
+                hoverable
+                style={{ height: '100%' }}
+                onClick={() => handleCreateFromTemplate(template.id)}
+              >
+                <Card.Meta
+                  avatar={
+                    <Avatar 
+                      size={48} 
+                      style={{ 
+                        backgroundColor: template.color || getCategoryColor(template.category),
+                        fontSize: 24
+                      }}
+                    >
+                      {template.icon || getCategoryIcon(template.category)}
+                    </Avatar>
                   }
-                ]}
-              >
-                <Input placeholder="例如：https://example.com/subscription.txt" />
-              </Form.Item>
-              <Form.Item>
-                <Space>
-                  <Button type="primary" htmlType="submit" loading={importLoading}>
-                    导入
-                  </Button>
-                  <Button 
-                    onClick={async () => {
-                      const url = importForm.getFieldValue('url');
-                      if (!url) {
-                        message.warning('请先输入订阅链接');
-                        return;
-                      }
-                      setImportLoading(true);
-                      try {
-                        // 测试订阅链接
-                        const response = await fetch(url);
-                        if (!response.ok) {
-                          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        }
-                        const content = await response.text();
-                        
-                        // 改进格式检测
-                        let format = '未知格式';
-                        if (content.includes('proxies:') || content.includes('proxy-groups:') || 
-                            (content.includes('port:') && content.includes('socks-port:'))) {
-                          format = 'Clash';
-                        } else if (content.includes('"outbounds"') || content.includes('"inbounds"')) {
-                          format = 'Sing-box';
-                        } else if (content.includes('"protocol"') && content.includes('"settings"')) {
-                          format = 'V2Ray';
-                        } else if (content.includes('vmess://') || content.includes('vless://') || 
-                                 content.includes('trojan://') || content.includes('ss://')) {
-                          format = '代理链接';
-                        }
-                        
-                        message.success(`订阅链接测试成功！\n格式: ${format}\n内容长度: ${content.length} 字符`);
-                        log.info('订阅链接测试成功', { url, format, contentLength: content.length }, 'RuleManagement');
-                      } catch (error: unknown) {
-                        const errorMessage = error instanceof Error ? error.message : '未知错误';
-                        message.error(`订阅链接测试失败: ${errorMessage}`);
-                        log.error('订阅链接测试失败', error, 'RuleManagement');
-                      } finally {
-                        setImportLoading(false);
-                      }
-                    }}
-                    loading={importLoading}
-                  >
-                    测试链接
-                  </Button>
-                  <Button onClick={() => setImportModalVisible(false)}>
-                    取消
-                  </Button>
-                </Space>
-              </Form.Item>
-            </Form>
-          </TabPane>
-        </Tabs>
+                  title={template.name}
+                  description={
+                    <div>
+                      <Text type="secondary">{template.description}</Text>
+                      <br />
+                      <Tag color={getCategoryColor(template.category)}>
+                        {template.category}
+                      </Tag>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {template.rules.length} 条规则
+                      </Text>
+                    </div>
+                  }
+                />
+              </Card>
+            </Col>
+          ))}
+        </Row>
       </Modal>
 
-      {/* 导出模态框 */}
+      {/* 订阅解析模态框 */}
       <Modal
-        title="导出规则"
-        open={exportModalVisible}
-        onCancel={() => setExportModalVisible(false)}
+        title="从订阅链接解析分流规则"
+        open={subscriptionModalVisible}
+        onCancel={() => {
+          setSubscriptionModalVisible(false);
+          setParseResult(null);
+        }}
         footer={null}
+        width={800}
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Text>选择导出格式：</Text>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Button 
-                block 
-                onClick={() => handleExport('json')}
-                icon={<FileTextOutlined />}
-              >
-                JSON
+        <Form
+          form={subscriptionForm}
+          layout="vertical"
+          onFinish={handleParseSubscription}
+        >
+          <Form.Item
+            name="url"
+            label="订阅链接"
+            rules={[
+              { required: true, message: '请输入订阅链接' },
+              { 
+                pattern: /^https?:\/\/.+/, 
+                message: '请输入有效的订阅链接，以http或https开头' 
+              }
+            ]}
+          >
+            <Input placeholder="例如：https://example.com/subscription.txt" />
+          </Form.Item>
+          
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={subscriptionLoading}>
+                解析订阅
               </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                block 
-                onClick={() => handleExport('clash')}
-                icon={<CodeOutlined />}
-              >
-                Clash
+              <Button onClick={() => {
+                setSubscriptionModalVisible(false);
+                setParseResult(null);
+              }}>
+                取消
               </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                block 
-                onClick={() => handleExport('singbox')}
-                icon={<ApiOutlined />}
-              >
-                Sing-box
-              </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                block 
-                onClick={() => handleExport('v2ray')}
-                icon={<ThunderboltOutlined />}
-              >
-                V2Ray
-              </Button>
-            </Col>
-          </Row>
-          <Divider />
-          <Text>预览格式：</Text>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Button 
-                size="small" 
-                onClick={() => handlePreview('json')}
-                icon={<EyeOutlined />}
-              >
-                预览JSON
-              </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                size="small" 
-                onClick={() => handlePreview('clash')}
-                icon={<EyeOutlined />}
-              >
-                预览Clash
-              </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                size="small" 
-                onClick={() => handlePreview('singbox')}
-                icon={<EyeOutlined />}
-              >
-                预览Sing-box
-              </Button>
-            </Col>
-            <Col span={6}>
-              <Button 
-                size="small" 
-                onClick={() => handlePreview('v2ray')}
-                icon={<EyeOutlined />}
-              >
-                预览V2Ray
-              </Button>
-            </Col>
-          </Row>
-        </Space>
-      </Modal>
+            </Space>
+          </Form.Item>
+        </Form>
 
-      {/* 预览模态框 */}
-      <Drawer
-        title="规则预览"
-        placement="right"
-        width={600}
-        open={previewModalVisible}
-        onClose={() => setPreviewModalVisible(false)}
-      >
-        <TextArea
-          value={previewContent}
-          rows={20}
-          readOnly
-        />
-      </Drawer>
+        {/* 解析结果 */}
+        {parseResult && (
+          <div style={{ marginTop: 16 }}>
+            <Divider>解析结果</Divider>
+            
+            {parseResult.success ? (
+              <div>
+                <Alert
+                  message="解析成功"
+                  description={`成功解析 ${parseResult.totalGroups} 个分流规则组，共 ${parseResult.totalRules} 条规则`}
+                  type="success"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+                
+                {parseResult.groups.map((group, index) => (
+                  <Card key={index} size="small" style={{ marginBottom: 8 }}>
+                    <Card.Meta
+                      title={group.name}
+                      description={
+                        <div>
+                          <Text type="secondary">{group.description}</Text>
+                          <br />
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {group.rules.length} 条规则
+                          </Text>
+                        </div>
+                      }
+                    />
+                  </Card>
+                ))}
+                
+                <Button 
+                  type="primary" 
+                  onClick={handleImportParsedGroups}
+                  style={{ marginTop: 16 }}
+                >
+                  导入分流规则组
+                </Button>
+              </div>
+            ) : (
+              <Alert
+                message="解析失败"
+                description="无法解析订阅链接中的分流规则"
+                type="error"
+                showIcon
+              />
+            )}
+
+            {parseResult.errors && parseResult.errors.length > 0 && (
+              <Alert
+                message="错误信息"
+                description={
+                  <ul>
+                    {parseResult.errors.map((error, index) => (
+                      <li key={index}>{error}</li>
+                    ))}
+                  </ul>
+                }
+                type="error"
+                showIcon
+                style={{ marginTop: 16 }}
+              />
+            )}
+
+            {parseResult.warnings && parseResult.warnings.length > 0 && (
+              <Alert
+                message="警告信息"
+                description={
+                  <ul>
+                    {parseResult.warnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                }
+                type="warning"
+                showIcon
+                style={{ marginTop: 16 }}
+              />
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
