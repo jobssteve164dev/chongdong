@@ -82,7 +82,7 @@ export class ProxyEngine {
   /**
    * 启动代理服务
    */
-  public async startWithNode(node: ProxyNode, settings: AppSettings): Promise<void> {
+  public async startWithNode(node: ProxyNode, settings: AppSettings): Promise<boolean> {
     try {
       const engineType = settings.proxyEngine || 'singbox';
       
@@ -106,7 +106,8 @@ export class ProxyEngine {
           const headers: any = (node as any).wsHeaders || {};
           if ((node as any).wsHost && !headers.Host) headers.Host = (node as any).wsHost;
           return headers;
-        })()
+        })(),
+        sni: (node as any).sni, // 传递 SNI 字段
       };
 
       const proxyConfig: ProxyConfig = {
@@ -141,9 +142,12 @@ export class ProxyEngine {
       this.startStatusMonitoring();
       this.notifyStatusChange();
       
+      return true;
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : 'Unknown error';
-      throw error;
+      this.notifyStatusChange();
+      console.error('Failed to start proxy with node:', error);
+      return false;
     }
   }
 
@@ -506,14 +510,15 @@ export class ProxyEngine {
           console.log(`配置 Trojan 协议`);
           fixedOutbound.password = outbound.password;
           console.log(`密码: ${outbound.password ? '***' : '未设置'}`);
-          if (outbound.tls) {
-            console.log(`启用 TLS`);
-            fixedOutbound.tls = {
-              enabled: true,
-              server_name: outbound.server
-            };
-            console.log(`TLS 服务器名: ${outbound.server}`);
-          }
+          
+          // Trojan 协议强制要求 TLS 和 SNI
+          const serverName = outbound.sni || outbound.server;
+          fixedOutbound.tls = {
+            enabled: true,
+            server_name: serverName,
+            insecure: outbound.allowInsecure ?? true, // 默认允许不安全证书
+          };
+          console.log(`启用 TLS，SNI 设置为: ${serverName}`);
         } else {
           console.log(`未知协议类型: ${outbound.type}`);
         }

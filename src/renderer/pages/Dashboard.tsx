@@ -374,21 +374,26 @@ const Dashboard: React.FC = () => {
       
       const defaultSettings = DefaultSettings.getDefaultAppSettings();
 
-      await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
+      const success = await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
       
-      const nodeLatencies = useNodeStore.getState().nodeLatencies;
-      const latencyInfo = nodeLatencies instanceof Map ? nodeLatencies.get(selectedNode.id) : undefined;
-      const latency = latencyInfo?.latency || 0;
-      const latencyText = latency > 0 ? ` (${latency}ms)` : '';
-      message.success(`代理启动成功 - ${selectedNode.name}${latencyText}`);
-      
-      // 更新全局状态
-      setProxyConnected(true);
-      setProxyStartTime(Date.now());
-      setCurrentProxyNode(selectedNode);
-      setCurrentProxyChain(null);
-      
-      log.info('代理服务已启动', null, 'Dashboard');
+      if (success) {
+        const nodeLatencies = useNodeStore.getState().nodeLatencies;
+        const latencyInfo = nodeLatencies instanceof Map ? nodeLatencies.get(selectedNode.id) : undefined;
+        const latency = latencyInfo?.latency || 0;
+        const latencyText = latency > 0 ? ` (${latency}ms)` : '';
+        message.success(`代理启动成功 - ${selectedNode.name}${latencyText}`);
+        
+        // 更新全局状态
+        setProxyConnected(true);
+        setProxyStartTime(Date.now());
+        setCurrentProxyNode(selectedNode);
+        setCurrentProxyChain(null);
+        
+        log.info('代理服务已启动', null, 'Dashboard');
+      } else {
+        // 启动失败的消息已在 proxyEngine 中处理或记录
+        message.error(`代理启动失败，请检查节点配置或查看日志`);
+      }
     } catch (error) {
       message.error(`代理启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
       log.error('切换代理状态失败', error, 'Dashboard');
