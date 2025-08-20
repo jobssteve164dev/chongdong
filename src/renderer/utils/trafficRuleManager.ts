@@ -353,6 +353,7 @@ class TrafficRuleManager {
     try {
       const template = this.getTemplate(templateId);
       if (!template) {
+        log.error('模板不存在', { templateId }, 'TrafficRuleManager');
         return null;
       }
 
@@ -374,6 +375,14 @@ class TrafficRuleManager {
         tags: template.tags || [],
         autoUpdate: false
       };
+
+      log.info('创建分流规则组', { 
+        templateId, 
+        groupName, 
+        defaultProxy, 
+        templateDefaultProxy: template.defaultProxy,
+        finalDefaultProxy: group.defaultProxy 
+      }, 'TrafficRuleManager');
 
       return this.addGroup(group);
     } catch (error) {

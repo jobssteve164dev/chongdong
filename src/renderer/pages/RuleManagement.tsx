@@ -243,7 +243,10 @@ const RuleManagement: React.FC = () => {
       });
 
       setAvailableProxies(allProxies);
-      log.info('加载代理节点成功', { count: allProxies.length }, 'RuleManagement');
+      log.info('加载代理节点成功', { 
+        count: allProxies.length,
+        proxies: allProxies.map(p => ({ id: p.id, name: p.name, protocol: p.protocol }))
+      }, 'RuleManagement');
     } catch (error: unknown) {
       log.error('加载代理节点失败', error, 'RuleManagement');
       setAvailableProxies([]);
@@ -327,10 +330,15 @@ const RuleManagement: React.FC = () => {
   };
 
   const handleCreateFromTemplate = (templateId: string) => {
+    let formRef: any = null;
+    
     Modal.confirm({
       title: '从模板创建分流规则组',
       content: (
-        <Form layout="vertical">
+        <Form 
+          ref={(ref) => { formRef = ref; }}
+          layout="vertical"
+        >
           <Form.Item
             name="groupName"
             label="分流规则组名称"
@@ -360,7 +368,12 @@ const RuleManagement: React.FC = () => {
       ),
       onOk: async () => {
         try {
-          const formData = form.getFieldsValue();
+          if (!formRef) {
+            message.error('表单引用错误');
+            return;
+          }
+          
+          const formData = await formRef.validateFields();
           const template = trafficRuleManager.getTemplate(templateId);
           if (!template) {
             message.error('模板不存在');
@@ -374,11 +387,15 @@ const RuleManagement: React.FC = () => {
           if (newGroup) {
             message.success('分流规则组创建成功');
             loadData();
-            log.info('从模板创建分流规则组', { templateId, groupName }, 'RuleManagement');
+            log.info('从模板创建分流规则组', { templateId, groupName, defaultProxy }, 'RuleManagement');
           } else {
             message.error('创建分流规则组失败');
           }
         } catch (error: unknown) {
+          if (error instanceof Error && error.message.includes('validation')) {
+            // 表单验证错误，不显示错误消息
+            return;
+          }
           message.error('创建失败');
           log.error('从模板创建分流规则组失败', error, 'RuleManagement');
         }
