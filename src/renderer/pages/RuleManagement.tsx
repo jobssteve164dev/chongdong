@@ -149,12 +149,15 @@ import {
   RuleType,
   RuleAction,
   RuleSource,
-  ProxyServer
+  ProxyServer,
+  Subscription
 } from '../../shared/types';
 import { trafficRuleManager } from '../utils/trafficRuleManager';
 import { ruleManager } from '../utils/ruleManager';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { log } from '../utils/logger';
+import { useNodeStore } from '../utils/stores';
+import { Storage, STORAGE_KEYS } from '../utils/storage';
 import './RuleManagement.css';
 
 const { Title, Text, Paragraph } = Typography;
@@ -183,6 +186,9 @@ const RuleManagement: React.FC = () => {
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [parseResult, setParseResult] = useState<TrafficRuleParseResult | null>(null);
   const [availableProxies, setAvailableProxies] = useState<ProxyServer[]>([]);
+  
+  // 从 Zustand store 获取节点数据
+  const { nodes } = useNodeStore();
 
   // 加载数据
   useEffect(() => {
@@ -226,11 +232,21 @@ const RuleManagement: React.FC = () => {
 
   const loadProxies = () => {
     try {
-      // 这里需要从代理管理器获取可用的代理节点
-      // 暂时使用空数组，后续需要集成代理管理功能
-      setAvailableProxies([]);
+      // 从存储中加载订阅配置，获取所有代理节点
+      const savedSubscriptions = Storage.get<Subscription[]>(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []) || [];
+      const allProxies: ProxyServer[] = [];
+      
+      savedSubscriptions.forEach(subscription => {
+        subscription.servers.forEach((server: ProxyServer) => {
+          allProxies.push(server);
+        });
+      });
+
+      setAvailableProxies(allProxies);
+      log.info('加载代理节点成功', { count: allProxies.length }, 'RuleManagement');
     } catch (error: unknown) {
       log.error('加载代理节点失败', error, 'RuleManagement');
+      setAvailableProxies([]);
     }
   };
 
@@ -327,11 +343,17 @@ const RuleManagement: React.FC = () => {
             label="默认代理节点"
           >
             <Select placeholder="选择默认代理节点" allowClear>
-              {availableProxies.map(proxy => (
-                <Option key={proxy.id} value={proxy.id}>
-                  {proxy.name}
+              {availableProxies.length > 0 ? (
+                availableProxies.map(proxy => (
+                  <Option key={proxy.id} value={proxy.id}>
+                    {proxy.name} ({proxy.protocol})
+                  </Option>
+                ))
+              ) : (
+                <Option value="" disabled>
+                  暂无可用节点，请先在节点管理中添加节点
                 </Option>
-              ))}
+              )}
             </Select>
           </Form.Item>
         </Form>
@@ -503,7 +525,7 @@ const RuleManagement: React.FC = () => {
         }
         const proxy = availableProxies.find(p => p.id === proxyId);
         return proxy ? (
-          <Tag color="blue">{proxy.name}</Tag>
+          <Tag color="blue">{proxy.name} ({proxy.protocol})</Tag>
         ) : (
           <Tag color="red">代理不存在</Tag>
         );
@@ -796,11 +818,17 @@ const RuleManagement: React.FC = () => {
                 label="默认代理节点"
               >
                 <Select placeholder="选择默认代理节点" allowClear>
-                  {availableProxies.map(proxy => (
-                    <Option key={proxy.id} value={proxy.id}>
-                      {proxy.name}
+                  {availableProxies.length > 0 ? (
+                    availableProxies.map(proxy => (
+                      <Option key={proxy.id} value={proxy.id}>
+                        {proxy.name} ({proxy.protocol})
+                      </Option>
+                    ))
+                  ) : (
+                    <Option value="" disabled>
+                      暂无可用节点，请先在节点管理中添加节点
                     </Option>
-                  ))}
+                  )}
                 </Select>
               </Form.Item>
             </Col>
