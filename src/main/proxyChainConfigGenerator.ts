@@ -1,4 +1,4 @@
-import { ProxyNode } from '../shared/types';
+import { ProxyNode, ProxyProtocol } from '../shared/types';
 
 export interface ChainNodeConfig {
   node: ProxyNode;
@@ -34,17 +34,6 @@ export class ProxyChainConfigGenerator {
   }
 
   /**
-   * 分配一个可用端口
-   */
-  private allocatePort(): number {
-    for (const port of this.portPool) {
-      this.portPool.delete(port);
-      return port;
-    }
-    throw new Error('No available ports in the pool');
-  }
-
-  /**
    * 释放端口回池中
    */
   private releasePort(port: number): void {
@@ -56,62 +45,60 @@ export class ProxyChainConfigGenerator {
   /**
    * 生成代理链配置
    */
-  public generateChainConfig(nodes: ProxyNode[]): ProxyChainConfig {
+  public generateChainConfig(nodes: ProxyNode[], listenPort: number): ProxyChainConfig {
     if (nodes.length === 0) {
       throw new Error('No nodes provided for chain configuration');
     }
 
-    console.log(`[ProxyChainConfigGenerator] Generating chain config for ${nodes.length} nodes`);
+    // 增加验证步骤：过滤掉无效节点，防止因上游数据问题导致崩溃
+    const validNodes = nodes.filter(node => {
+      const isValid = node && node.server && node.port;
+      if (!isValid) {
+        console.warn(`[ProxyChainConfigGenerator] Filtering out invalid node: ${node.name} (ID: ${node.id}) due to missing server or port.`);
+      }
+      return isValid;
+    });
 
-    // 为每个节点分配端口
-    const chainNodes: ChainNodeConfig[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      if (!node) continue;
-      
-      const localPort = this.allocatePort();
-      const upstreamPort = i > 0 && chainNodes[i - 1] ? chainNodes[i - 1]!.localPort : undefined;
-      
-      chainNodes.push({
-        node,
-        localPort,
-        upstreamPort
-      });
+    if (validNodes.length === 0) {
+      throw new Error('No valid nodes found for chain configuration after filtering. All provided nodes were incomplete.');
     }
+    
+    console.log(`[ProxyChainConfigGenerator] Generating chain config for ${validNodes.length} valid nodes on port ${listenPort}`);
 
-    // 生成入站配置（只有第一个节点有入站）
-    const inbounds = chainNodes.length > 0 && chainNodes[0] ? this.generateInbounds(chainNodes[0]) : [];
+    // 使用传入的端口号生成入站配置
+    const inbounds = this.generateInbounds(listenPort);
 
-    // 生成出站配置（所有节点都有出站）
-    const outbounds = this.generateOutbounds(chainNodes);
+    // 生成出站配置
+    const outbounds = this.generateOutbounds(validNodes);
 
     // 生成路由配置
-    const route = this.generateRoute(chainNodes);
+    const route = this.generateRoute(validNodes);
 
     // 生成日志配置
-    const log = this.generateLogConfig();
+    const logConfig = this.generateLogConfig();
 
     const config: ProxyChainConfig = {
       inbounds,
       outbounds,
       route,
-      log
+      log: logConfig
     };
 
     console.log(`[ProxyChainConfigGenerator] Generated chain config:`, JSON.stringify(config, null, 2));
+
     return config;
   }
 
   /**
    * 生成入站配置
    */
-  private generateInbounds(firstNode: ChainNodeConfig): any[] {
+  private generateInbounds(port: number): any[] {
     return [
       {
         type: 'mixed',
         tag: 'mixed-in',
         listen: '127.0.0.1',
-        listen_port: firstNode.localPort,
+        listen_port: port,
         users: []
       }
     ];
@@ -120,138 +107,131 @@ export class ProxyChainConfigGenerator {
   /**
    * 生成出站配置
    */
-  private generateOutbounds(chainNodes: ChainNodeConfig[]): any[] {
+  private generateOutbounds(nodes: ProxyNode[]): any[] {
     const outbounds: any[] = [];
+    let nextOutboundTag: string | null = null;
 
-    // 为每个节点生成出站配置
-    chainNodes.forEach((chainNode, index) => {
-      const isLastNode = index === chainNodes.length - 1;
+    // 为了构建链条，我们从后向前遍历节点
+    // 最后一个节点的出口是互联网 (nextOutboundTag is null)
+    // 倒数第二个节点的出口是最后一个节点... 以此类推
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (!node) continue; // 增加安全检查，防止节点为undefined
       
-      if (isLastNode) {
-        // 最后一个节点连接到目标
-        outbounds.push(this.generateDirectOutbound(chainNode));
-      } else {
-        // 中间节点连接到下一个节点
-        const nextNode = chainNodes[index + 1];
-        if (nextNode) {
-          outbounds.push(this.generateProxyOutbound(chainNode, nextNode));
-        }
-      }
-    });
+      const nodeOutbound = this.generateNodeOutbound(node);
 
-    // 添加默认出站
+      // 关键修复：使用 'detour' 字段来指定下一个出站，这是旧版本sing-box的链接方式
+      if (nextOutboundTag) {
+        nodeOutbound.detour = nextOutboundTag;
+      }
+
+      outbounds.unshift(nodeOutbound); // 在数组开头添加，以保持原始节点顺序
+      nextOutboundTag = nodeOutbound.tag; // 更新“下一个”节点的标签
+    }
+
+    // 添加默认的 direct 和 block 出站
     outbounds.push({
       type: 'direct',
       tag: 'direct'
+    });
+    outbounds.push({
+      type: 'block',
+      tag: 'block'
     });
 
     return outbounds;
   }
 
   /**
-   * 生成代理出站配置（连接到下一个节点）
+   * 为单个节点生成出站配置
    */
-  private generateProxyOutbound(currentNode: ChainNodeConfig, nextNode: ChainNodeConfig): any {
-    // 根据节点类型生成具体的代理配置
-    const proxyConfig = this.generateProxyConfig(currentNode.node, nextNode.localPort);
-    
-    return {
-      ...proxyConfig,
-      tag: `proxy-${currentNode.node.id}`
-    };
-  }
-
-  /**
-   * 生成直连出站配置（最后一个节点）
-   */
-  private generateDirectOutbound(lastNode: ChainNodeConfig): any {
-    return {
-      type: 'direct',
-      tag: `proxy-${lastNode.node.id}`
-    };
-  }
-
-  /**
-   * 根据节点类型生成具体的代理配置
-   */
-  private generateProxyConfig(node: ProxyNode, _targetPort: number): any {
+  private generateNodeOutbound(node: ProxyNode): any {
     const baseConfig = {
+      tag: `proxy-${node.id}`,
       server: node.server,
       server_port: node.port,
-      tag: `proxy-${node.id}`
     };
 
     switch (node.type) {
-      case 'vmess':
-        return {
+      case ProxyProtocol.VMESS:
+        const vmessConfig: any = {
           type: 'vmess',
           ...baseConfig,
           uuid: node.uuid,
           security: node.encryption || 'auto',
-          network: node.network || 'tcp',
-          ...(node.network === 'ws' && {
-            transport: {
-              type: 'ws',
-              path: node.wsPath || '/',
-              host: node.wsHost || node.server
-            }
-          })
+          alter_id: node.alterId ?? 0,
         };
-
-      case 'vless':
+        
+        if (node.network === 'ws') {
+          vmessConfig.transport = {
+            type: 'ws',
+            path: node.wsPath || '/',
+            headers: {
+              Host: node.wsHost || node.server,
+            },
+          };
+        }
+        
+        return vmessConfig;
+        
+      case ProxyProtocol.VLESS:
+        // vless 的实现需要更多字段，这里暂时保持简单
         return {
           type: 'vless',
           ...baseConfig,
           uuid: node.uuid,
-          flow: '',
-          encryption: 'none',
-          network: node.network || 'tcp',
-          ...(node.network === 'ws' && {
-            transport: {
-              type: 'ws',
-              path: node.wsPath || '/',
-              host: node.wsHost || node.server
-            }
-          })
         };
-
-      case 'shadowsocks':
+      case ProxyProtocol.SHADOWSOCKS:
         return {
           type: 'shadowsocks',
           ...baseConfig,
-          method: node.encryption || 'aes-256-gcm',
-          password: node.password || ''
+          method: node.encryption,
+          password: node.password,
         };
-
-      case 'trojan':
+      case ProxyProtocol.TROJAN:
         return {
           type: 'trojan',
           ...baseConfig,
-          password: node.password || ''
+          password: node.password,
         };
-
+      case ProxyProtocol.HTTP:
+      case ProxyProtocol.SOCKS5:
+        return {
+          type: node.type,
+          ...baseConfig,
+          username: node.username,
+          password: node.password,
+        }
       default:
-        throw new Error(`Unsupported proxy type: ${node.type}`);
+        console.warn(`Unsupported proxy type for outbound generation: ${node.type}`);
+        // 返回一个默认的 block 出站以避免崩溃
+        return { type: 'block', tag: `proxy-${node.id}` };
     }
   }
 
   /**
    * 生成路由配置
    */
-  private generateRoute(chainNodes: ChainNodeConfig[]): any {
-    const rules = [];
-    
-    // 第一个节点处理所有流量
-    if (chainNodes.length > 0 && chainNodes[0]) {
-      rules.push({
-        inbound_tag: ['mixed-in'],
-        outbound_tag: `proxy-${chainNodes[0].node.id}`
-      });
+  private generateRoute(nodes: ProxyNode[]): any {
+    // 如果没有有效节点，则只返回默认规则
+    if (nodes.length === 0 || !nodes[0]) {
+      return {
+        rules: [],
+        final: 'direct'
+      };
     }
-
+    
+    // 路由规则非常简单：将所有入站流量指向链条的第一个节点
+    const firstNodeTag = `proxy-${nodes[0].id}`;
+    
     return {
-      rules,
-      final: 'direct'
+      rules: [
+        {
+          inbound: ['mixed-in'],
+          outbound: firstNodeTag,
+        },
+      ],
+      final: 'direct',
     };
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Table,
@@ -76,9 +76,25 @@ import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import './SubscriptionManagement.css';
+import { AppSettings } from '../../shared/types/index';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+// 新增辅助函数，用于通知主进程设置已更新
+const notifyMainProcessOfSettingsChange = async () => {
+  try {
+    const currentSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
+    if (currentSettings) {
+      log.info('Notifying main process of settings update', currentSettings, 'SubscriptionManagement');
+      await window.electron.ipcRenderer.invoke('settings:updated', { settings: currentSettings });
+    }
+  } catch (error) {
+    log.error('Failed to notify main process of settings update', error, 'SubscriptionManagement');
+    message.error('无法同步设置到主进程，部分功能可能无法正常工作。');
+  }
+};
+
 
 const SubscriptionManagement: React.FC = () => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -147,16 +163,29 @@ const SubscriptionManagement: React.FC = () => {
     }
   };
 
-  // 保存订阅配置到存储
-  const saveSubscriptions = (newSubscriptions: Subscription[]) => {
+  // 保存订阅配置到存储，并通知主进程
+  const saveSubscriptions = useCallback((newSubscriptions: Subscription[]) => {
     try {
+      // 1. 更新 subscriptions 到 localStorage
       Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, newSubscriptions);
       setSubscriptions(newSubscriptions);
+
+      // 2. 更新完整的 settings 对象
+      const currentSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
+      if (currentSettings) {
+        const updatedSettings = { ...currentSettings, subscriptions: newSubscriptions };
+        Storage.set(STORAGE_KEYS.SETTINGS, updatedSettings);
+        
+        // 3. 通知主进程
+        notifyMainProcessOfSettingsChange();
+      } else {
+        log.warn('Could not find current settings in storage to update subscriptions.', 'SubscriptionManagement');
+      }
     } catch (error: unknown) {
       message.error('保存订阅配置失败');
       log.error('保存订阅配置失败', error, 'SubscriptionManagement');
     }
-  };
+  }, []);
 
   const handleAddSubscription = () => {
     setEditingSubscription(null);

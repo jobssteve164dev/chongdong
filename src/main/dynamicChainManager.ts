@@ -30,13 +30,13 @@ export class DynamicChainManager {
     return DynamicChainManager.instance;
   }
 
-  public async startChain(chainConfig: ChainConfig): Promise<void> {
+  public async startChain(chainConfig: ChainConfig, listenPort: number): Promise<{ port: number }> {
     if (chainConfig.type !== 'dynamic' || !chainConfig.proxies) {
       throw new Error('Invalid dynamic chain configuration.');
     }
 
-    console.log(`[DynamicChainManager] Starting dynamic chain: ${chainConfig.name}`);
-    await this.updateAndApplyChain(chainConfig);
+    console.log(`[DynamicChainManager] Starting dynamic chain: ${chainConfig.name} on port ${listenPort}`);
+    const result = await this.updateAndApplyChain(chainConfig, listenPort);
 
     // 设置定时更新
     const updateInterval = 300000; // 5分钟
@@ -44,12 +44,17 @@ export class DynamicChainManager {
       clearInterval(this.activeTimers.get(chainConfig.id)!);
     }
 
+    // Note: The timer will re-use the original listenPort for subsequent updates.
+    // A more robust implementation might involve persisting this choice or having a default.
     const timer = setInterval(() => {
-      console.log(`[DynamicChainManager] Performing scheduled update for chain: ${chainConfig.name}`);
-      this.updateAndApplyChain(chainConfig);
+      console.log(`[DynamicChainManager] Auto-updating chain: ${chainConfig.name}`);
+      this.updateAndApplyChain(chainConfig, listenPort).catch(error => {
+        console.error(`[DynamicChainManager] Auto-update failed for chain ${chainConfig.name}:`, error);
+      });
     }, updateInterval);
 
     this.activeTimers.set(chainConfig.id, timer);
+    return result;
   }
 
   public stopChain(chainId: string): void {
@@ -61,7 +66,7 @@ export class DynamicChainManager {
     }
   }
 
-  private async updateAndApplyChain(chainConfig: ChainConfig): Promise<void> {
+  private async updateAndApplyChain(chainConfig: ChainConfig, listenPort: number): Promise<{ port: number }> {
     try {
       // 1. 获取所有订阅
       const allSubscriptions = this.localSubscriptionStore.getSubscriptions();
@@ -92,12 +97,13 @@ export class DynamicChainManager {
       
       if (nodesToTest.length === 0) {
         console.warn(`[DynamicChainManager] No nodes found for dynamic chain ${chainConfig.name}.`);
-        return;
+        return { port: 0 }; // Return a default port or throw an error if no nodes are found
       }
 
-      // 3. 批量测试节点延迟
+      // 3. 测试所有节点的延迟
+      console.log(`[DynamicChainManager] Testing latency for ${nodesToTest.length} nodes...`);
       const testResults = await proxyManager.testNodesLatency(nodesToTest);
-
+      
       // 4. 从每个订阅组中选出最优节点
       const bestNodes: ProxyNode[] = [];
       for (const subId of chainConfig.proxies) {
@@ -117,75 +123,26 @@ export class DynamicChainManager {
 
       if (bestNodes.length === 0) {
         console.error(`[DynamicChainManager] Could not find any valid nodes for chain ${chainConfig.name} after testing.`);
-        return;
+        throw new Error(`Could not find any valid nodes for chain ${chainConfig.name} after testing.`);
       }
       
-      console.log(`[DynamicChainManager] Best nodes selected for ${chainConfig.name}:`, bestNodes.map(n => n.name));
-
-      // 5. 构建并启动真正的代理链
-      const tempChainConfig: ChainConfig = {
-        id: chainConfig.id,
-        name: `${chainConfig.name}_dynamic`,
-        description: `Dynamic chain based on ${chainConfig.name}`,
-        type: 'static',
-        proxies: bestNodes.map(n => n.id),
-        rules: [],
-        enabled: true,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      // 获取网络设置
-      const settings = settingsManager.getSettings();
-      const networkSettings = {
-        enableDns: settings.enableDns || false,
-        dnsServer: settings.dnsServer || '8.8.8.8',
-        enableDoh: settings.enableDoh || false,
-        dohServer: settings.dohServer || '',
-        enableDot: settings.enableDot || false,
-        dotServer: settings.dotServer || '',
-        enableDnsCache: settings.enableDnsCache || false,
-        dnsCacheSize: settings.dnsCacheSize || 1000,
-        dnsCacheTtl: settings.dnsCacheTtl || 300,
-        enableDnsLoadBalance: settings.enableDnsLoadBalance || false,
-        dnsServers: settings.dnsServers || [],
-        enableDnsLogging: settings.enableDnsLogging || false,
-        enableDnsLeakProtection: settings.enableDnsLeakProtection || false,
-        dnsLeakProtectionMode: settings.dnsLeakProtectionMode || 'relaxed',
-        enableDnsRules: settings.enableDnsRules || false,
-        dnsRules: settings.dnsRules || [],
-        enableDnsFallback: settings.enableDnsFallback || false,
-        dnsFallbackServers: settings.dnsFallbackServers || [],
-        enableTun: settings.enableTun || false,
-        tunDevice: settings.tunDevice || 'utun0',
-        enableFakeIp: settings.enableFakeIp || false,
-        fakeIpRange: settings.fakeIpRange || '198.18.0.1/16',
-        enableUdp: settings.enableUdp || true,
-        enableIpv6: settings.enableIpv6 || false,
-        logLevel: settings.logLevel || 'info',
-        enableLog: settings.enableLog || false,
-        logFile: settings.logFile || ''
-      };
-      
-      console.log("[DynamicChainManager] Starting real proxy chain with selected nodes.");
-      await proxyManager.startChain(tempChainConfig, networkSettings);
+      // 5. 启动最优节点代理链
+      if (bestNodes.length > 0) {
+        console.log(`[DynamicChainManager] Starting proxy manager with ${bestNodes.length} best nodes.`);
+        // 最终修复：直接传递最优节点对象数组，而不是节点ID数组
+        const result = await proxyManager.startChain({ ...chainConfig, name: `${chainConfig.name}_dynamic` }, { listenPort }, bestNodes);
+        console.log(`[DynamicChainManager] Proxy manager started successfully for chain: ${chainConfig.name}`);
+        return result;
+      } else {
+        console.warn('[DynamicChainManager] No nodes found after latency test for dynamic chain', chainConfig.name);
+        return { port: 0 }; // Return a default port or throw an error if no nodes are found
+      }
 
     } catch (error) {
       console.error(`[DynamicChainManager] Failed to update and apply chain ${chainConfig.name}:`, error);
+      throw error;
     }
   }
-
-  // 可选：如果需要一个完整的临时配置对象
-  /*
-  private createTempStaticConfig(originalChain: ChainConfig, nodes: ProxyNode[]): ChainConfig {
-    return {
-      ...originalChain,
-      type: 'static',
-      proxies: nodes.map(n => n.id),
-      // 注意：这里的 nodes 数组需要在 proxyManager 中被正确解析
-    };
-  }
-  */
 }
 
 export const dynamicChainManager = DynamicChainManager.getInstance();

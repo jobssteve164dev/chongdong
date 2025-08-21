@@ -212,13 +212,32 @@ const ProxyManagement: React.FC = () => {
   const handleStartChainProxy = async (chain: ChainConfig) => {
     setLoading(true);
     try {
+      // 最终修复：从存储中获取用户设置，找到指定的端口号
+      const userSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
+      const listenPort = userSettings.mixedPort || 7897; // 使用用户设置的混合端口，如果没有则使用默认值
+      
+      console.log(`[ProxyManagement] Attempting to start chain with user-defined port: ${listenPort}`);
+
       if (chain.type === 'dynamic') {
-        await window.electron.ipcRenderer.invoke('proxy:start-dynamic-chain', chain);
-        message.success(`动态代理链 "${chain.name}" 已启动`);
+        const result = await window.electron.ipcRenderer.invoke('proxy:start-dynamic-chain', { chain, listenPort });
+        if (result.success && result.port) {
+          message.success(`动态代理链 \"${chain.name}\" 已在端口 ${result.port} 启动`);
+          // 使用返回的、确认已成功监听的端口号设置系统代理
+          try {
+            await systemProxy.setSystemProxy('127.0.0.1', result.port, result.port);
+            console.log(`系统代理已设置为: 127.0.0.1:${result.port} (HTTP/SOCKS)`);
+          } catch (proxyError) {
+            console.error('设置系统代理失败:', proxyError);
+            message.warning('代理链启动成功，但系统代理设置失败');
+          }
+        } else {
+          throw new Error(result.error || '启动动态代理链失败，未返回端口号');
+        }
       } else {
         // TODO: 实现静态代理链启动逻辑
         console.log('启动静态代理链:', chain.name);
-        message.success('静态代理链启动成功（模拟）');
+        // 对于静态链，也需要类似地获取端口并传递
+        message.info('静态代理链启动功能尚未实现');
       }
       
       // 更新全局状态

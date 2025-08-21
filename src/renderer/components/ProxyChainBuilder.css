@@ -20,7 +20,12 @@
   flex-direction: column;
 }
 
-.nodes-panel .ant-card-body,
+.nodes-panel .ant-card-body {
+  flex: 1;
+  overflow-y: auto; /* 关键修复：允许垂直方向滚动 */
+  padding: 12px;
+}
+
 .chain-panel .ant-card-body {
   flex: 1;
   overflow: hidden;

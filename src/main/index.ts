@@ -1532,10 +1532,10 @@ ipcMain.handle('dns:clearDnsCache', () => {
 });
 
 // 启动动态代理链
-ipcMain.handle('proxy:start-dynamic-chain', async (_event, chainConfig: ChainConfig) => {
+ipcMain.handle('proxy:start-dynamic-chain', async (_event, { chain, listenPort }: { chain: ChainConfig, listenPort: number }) => {
   try {
-    await dynamicChainManager.startChain(chainConfig);
-    return { success: true };
+    const result = await dynamicChainManager.startChain(chain, listenPort);
+    return { success: true, port: result.port };
   } catch (error) {
     console.error('启动动态代理链失败:', error);
     return { success: false, error: error instanceof Error ? error.message : String(error) };

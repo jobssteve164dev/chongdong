@@ -126,6 +126,37 @@ export interface AppSettings {
   latencyTestValidityPeriod: number;
 }
 
+export interface NetworkSettings {
+  listenPort?: number;
+  enableDns?: boolean;
+  dnsServer?: string;
+  enableDoh?: boolean;
+  dohServer?: string;
+  enableDot?: boolean;
+  dotServer?: string;
+  enableDnsCache?: boolean;
+  dnsCacheSize?: number;
+  dnsCacheTtl?: number;
+  enableDnsLoadBalance?: boolean;
+  dnsServers?: string[];
+  enableDnsLogging?: boolean;
+  enableDnsLeakProtection?: boolean;
+  dnsLeakProtectionMode?: 'strict' | 'relaxed';
+  enableDnsRules?: boolean;
+  dnsRules?: DnsRule[];
+  enableDnsFallback?: boolean;
+  dnsFallbackServers?: string[];
+  enableTun?: boolean;
+  tunDevice?: string;
+  enableFakeIp?: boolean;
+  fakeIpRange?: string;
+  enableUdp?: boolean;
+  enableIpv6?: boolean;
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  enableLog?: boolean;
+  logFile?: string;
+}
+
 // 新增DNS规则接口
 export interface DnsRule {
   id: string;
@@ -260,6 +291,8 @@ export interface ProxyNode {
   subscriptionId?: string; // 添加订阅ID字段，用于节点分组
   // Extended properties for config generation
   uuid?: string;
+  alterId?: number; // vmess alterId
+  username?: string; // for socks/http
   password?: string;
   encryption?: string;
   network?: string;

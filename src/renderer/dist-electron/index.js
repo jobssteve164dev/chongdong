@@ -927,6 +927,19 @@ class CoreDownloader {
   }
 }
 const coreDownloader = CoreDownloader.getInstance();
+var ProxyProtocol = /* @__PURE__ */ ((ProxyProtocol2) => {
+  ProxyProtocol2["HTTP"] = "http";
+  ProxyProtocol2["HTTPS"] = "https";
+  ProxyProtocol2["SOCKS5"] = "socks5";
+  ProxyProtocol2["SHADOWSOCKS"] = "shadowsocks";
+  ProxyProtocol2["VMESS"] = "vmess";
+  ProxyProtocol2["VLESS"] = "vless";
+  ProxyProtocol2["TROJAN"] = "trojan";
+  ProxyProtocol2["HYSTERIA"] = "hysteria";
+  ProxyProtocol2["TUIC"] = "tuic";
+  ProxyProtocol2["WIREGUARD"] = "wireguard";
+  return ProxyProtocol2;
+})(ProxyProtocol || {});
 class ProxyChainConfigGenerator {
   constructor() {
     this.portPool = /* @__PURE__ */ new Set();
@@ -943,16 +956,6 @@ class ProxyChainConfigGenerator {
     return ProxyChainConfigGenerator.instance;
   }
   /**
-   * 分配一个可用端口
-   */
-  allocatePort() {
-    for (const port of this.portPool) {
-      this.portPool.delete(port);
-      return port;
-    }
-    throw new Error("No available ports in the pool");
-  }
-  /**
    * 释放端口回池中
    */
   releasePort(port) {
@@ -963,32 +966,30 @@ class ProxyChainConfigGenerator {
   /**
    * 生成代理链配置
    */
-  generateChainConfig(nodes) {
+  generateChainConfig(nodes, listenPort) {
     if (nodes.length === 0) {
       throw new Error("No nodes provided for chain configuration");
     }
-    console.log(`[ProxyChainConfigGenerator] Generating chain config for ${nodes.length} nodes`);
-    const chainNodes = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const node2 = nodes[i];
-      if (!node2) continue;
-      const localPort = this.allocatePort();
-      const upstreamPort = i > 0 && chainNodes[i - 1] ? chainNodes[i - 1].localPort : void 0;
-      chainNodes.push({
-        node: node2,
-        localPort,
-        upstreamPort
-      });
+    const validNodes = nodes.filter((node2) => {
+      const isValid = node2 && node2.server && node2.port;
+      if (!isValid) {
+        console.warn(`[ProxyChainConfigGenerator] Filtering out invalid node: ${node2.name} (ID: ${node2.id}) due to missing server or port.`);
+      }
+      return isValid;
+    });
+    if (validNodes.length === 0) {
+      throw new Error("No valid nodes found for chain configuration after filtering. All provided nodes were incomplete.");
     }
-    const inbounds = chainNodes.length > 0 && chainNodes[0] ? this.generateInbounds(chainNodes[0]) : [];
-    const outbounds = this.generateOutbounds(chainNodes);
-    const route = this.generateRoute(chainNodes);
-    const log2 = this.generateLogConfig();
+    console.log(`[ProxyChainConfigGenerator] Generating chain config for ${validNodes.length} valid nodes on port ${listenPort}`);
+    const inbounds = this.generateInbounds(listenPort);
+    const outbounds = this.generateOutbounds(validNodes);
+    const route = this.generateRoute(validNodes);
+    const logConfig = this.generateLogConfig();
     const config = {
       inbounds,
       outbounds,
       route,
-      log: log2
+      log: logConfig
     };
     console.log(`[ProxyChainConfigGenerator] Generated chain config:`, JSON.stringify(config, null, 2));
     return config;
@@ -996,13 +997,13 @@ class ProxyChainConfigGenerator {
   /**
    * 生成入站配置
    */
-  generateInbounds(firstNode) {
+  generateInbounds(port) {
     return [
       {
         type: "mixed",
         tag: "mixed-in",
         listen: "127.0.0.1",
-        listen_port: firstNode.localPort,
+        listen_port: port,
         users: []
       }
     ];
@@ -1010,115 +1011,107 @@ class ProxyChainConfigGenerator {
   /**
    * 生成出站配置
    */
-  generateOutbounds(chainNodes) {
+  generateOutbounds(nodes) {
     const outbounds = [];
-    chainNodes.forEach((chainNode, index) => {
-      const isLastNode = index === chainNodes.length - 1;
-      if (isLastNode) {
-        outbounds.push(this.generateDirectOutbound(chainNode));
-      } else {
-        const nextNode = chainNodes[index + 1];
-        if (nextNode) {
-          outbounds.push(this.generateProxyOutbound(chainNode, nextNode));
-        }
+    let nextOutboundTag = null;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node2 = nodes[i];
+      if (!node2) continue;
+      const nodeOutbound = this.generateNodeOutbound(node2);
+      if (nextOutboundTag) {
+        nodeOutbound.detour = nextOutboundTag;
       }
-    });
+      outbounds.unshift(nodeOutbound);
+      nextOutboundTag = nodeOutbound.tag;
+    }
     outbounds.push({
       type: "direct",
       tag: "direct"
     });
+    outbounds.push({
+      type: "block",
+      tag: "block"
+    });
     return outbounds;
   }
   /**
-   * 生成代理出站配置（连接到下一个节点）
+   * 为单个节点生成出站配置
    */
-  generateProxyOutbound(currentNode, nextNode) {
-    const proxyConfig = this.generateProxyConfig(currentNode.node, nextNode.localPort);
-    return {
-      ...proxyConfig,
-      tag: `proxy-${currentNode.node.id}`
-    };
-  }
-  /**
-   * 生成直连出站配置（最后一个节点）
-   */
-  generateDirectOutbound(lastNode) {
-    return {
-      type: "direct",
-      tag: `proxy-${lastNode.node.id}`
-    };
-  }
-  /**
-   * 根据节点类型生成具体的代理配置
-   */
-  generateProxyConfig(node2, _targetPort) {
+  generateNodeOutbound(node2) {
     const baseConfig = {
+      tag: `proxy-${node2.id}`,
       server: node2.server,
-      server_port: node2.port,
-      tag: `proxy-${node2.id}`
+      server_port: node2.port
     };
     switch (node2.type) {
-      case "vmess":
-        return {
+      case ProxyProtocol.VMESS:
+        const vmessConfig = {
           type: "vmess",
           ...baseConfig,
           uuid: node2.uuid,
           security: node2.encryption || "auto",
-          network: node2.network || "tcp",
-          ...node2.network === "ws" && {
-            transport: {
-              type: "ws",
-              path: node2.wsPath || "/",
-              host: node2.wsHost || node2.server
-            }
-          }
+          alter_id: node2.alterId ?? 0
         };
-      case "vless":
+        if (node2.network === "ws") {
+          vmessConfig.transport = {
+            type: "ws",
+            path: node2.wsPath || "/",
+            headers: {
+              Host: node2.wsHost || node2.server
+            }
+          };
+        }
+        return vmessConfig;
+      case ProxyProtocol.VLESS:
         return {
           type: "vless",
           ...baseConfig,
-          uuid: node2.uuid,
-          flow: "",
-          encryption: "none",
-          network: node2.network || "tcp",
-          ...node2.network === "ws" && {
-            transport: {
-              type: "ws",
-              path: node2.wsPath || "/",
-              host: node2.wsHost || node2.server
-            }
-          }
+          uuid: node2.uuid
         };
-      case "shadowsocks":
+      case ProxyProtocol.SHADOWSOCKS:
         return {
           type: "shadowsocks",
           ...baseConfig,
-          method: node2.encryption || "aes-256-gcm",
-          password: node2.password || ""
+          method: node2.encryption,
+          password: node2.password
         };
-      case "trojan":
+      case ProxyProtocol.TROJAN:
         return {
           type: "trojan",
           ...baseConfig,
-          password: node2.password || ""
+          password: node2.password
+        };
+      case ProxyProtocol.HTTP:
+      case ProxyProtocol.SOCKS5:
+        return {
+          type: node2.type,
+          ...baseConfig,
+          username: node2.username,
+          password: node2.password
         };
       default:
-        throw new Error(`Unsupported proxy type: ${node2.type}`);
+        console.warn(`Unsupported proxy type for outbound generation: ${node2.type}`);
+        return { type: "block", tag: `proxy-${node2.id}` };
     }
   }
   /**
    * 生成路由配置
    */
-  generateRoute(chainNodes) {
-    const rules = [];
-    if (chainNodes.length > 0 && chainNodes[0]) {
-      rules.push({
-        inbound_tag: ["mixed-in"],
-        outbound_tag: `proxy-${chainNodes[0].node.id}`
-      });
+  generateRoute(nodes) {
+    if (nodes.length === 0 || !nodes[0]) {
+      return {
+        rules: [],
+        final: "direct"
+      };
     }
+    const firstNodeTag = `proxy-${nodes[0].id}`;
     return {
-      rules,
+      rules: [
+        {
+          inbound: ["mixed-in"],
+          outbound: firstNodeTag
+        }
+      ],
       final: "direct"
     };
   }
@@ -2266,98 +2259,68 @@ class ProxyManager {
   /**
    * 启动代理链
    */
-  async startChain(chainConfig, networkSettings) {
+  async startChain(chainConfig, networkSettings, nodes) {
     console.log(`[ProxyManager] Starting proxy chain: ${chainConfig.name}`);
     try {
-      let nodes = [];
-      if (chainConfig.type === "static") {
-        nodes = await this.getNodesByIds(chainConfig.proxies);
-      } else if (chainConfig.type === "dynamic") {
-        nodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+      let finalNodes = [];
+      if (nodes && nodes.length > 0) {
+        finalNodes = nodes;
+        console.log(`[ProxyManager] Using ${finalNodes.length} provided nodes for chain`);
+      } else {
+        console.log(`[ProxyManager] Getting nodes from subscriptions: ${chainConfig.proxies.join(", ")}`);
+        finalNodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+        console.log(`[ProxyManager] Found ${finalNodes.length} nodes from ${chainConfig.proxies.length} subscriptions`);
       }
-      if (nodes.length === 0) {
+      if (finalNodes.length === 0) {
         throw new Error("No valid nodes found for proxy chain");
       }
-      console.log(`[ProxyManager] Found ${nodes.length} nodes for chain:`, nodes.map((n) => n.name));
-      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(nodes);
+      console.log(`[ProxyManager] Found ${finalNodes.length} nodes for chain:`, finalNodes.map((n) => n.name));
+      const listenPort = networkSettings == null ? void 0 : networkSettings.listenPort;
+      if (!listenPort) {
+        throw new Error("Listen port must be provided to start a chain.");
+      }
+      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(finalNodes, listenPort);
       const finalConfig = this.applyNetworkSettingsToConfig(chainProxyConfig, networkSettings);
       await this.startSingbox(finalConfig, networkSettings);
       console.log(`[ProxyManager] Proxy chain started successfully: ${chainConfig.name}`);
+      return { port: listenPort };
     } catch (error) {
-      console.error(`[ProxyManager] Failed to start proxy chain: ${chainConfig.name}`, error);
+      console.error(`[ProxyManager] Failed to start chain ${chainConfig.name}:`, error);
       throw error;
     }
-  }
-  /**
-   * 根据节点ID获取完整的节点信息
-   */
-  async getNodesByIds(nodeIds) {
-    console.log(`[ProxyManager] Getting nodes by IDs: ${nodeIds.join(", ")}`);
-    const settings = settingsManager.getSettings();
-    const allNodes = [];
-    if (settings.subscriptions) {
-      settings.subscriptions.forEach((subscription) => {
-        if (subscription.enabled && subscription.servers) {
-          subscription.servers.forEach((server2) => {
-            if (server2.enabled) {
-              const node2 = {
-                id: server2.id,
-                name: server2.name,
-                type: server2.protocol,
-                server: server2.host,
-                port: server2.port,
-                subscriptionId: subscription.id,
-                uuid: server2.uuid,
-                password: server2.password,
-                encryption: server2.encryption,
-                network: server2.network,
-                wsPath: server2.wsPath,
-                wsHost: server2.wsHost
-              };
-              allNodes.push(node2);
-            }
-          });
-        }
-      });
-    }
-    const requestedNodes = allNodes.filter((node2) => nodeIds.includes(node2.id));
-    console.log(`[ProxyManager] Found ${requestedNodes.length} nodes out of ${nodeIds.length} requested`);
-    return requestedNodes;
   }
   /**
    * 从订阅中获取节点
    */
   async getNodesFromSubscriptions(subscriptionIds) {
-    console.log(`[ProxyManager] Getting nodes from subscriptions: ${subscriptionIds.join(", ")}`);
-    const settings = settingsManager.getSettings();
-    const nodes = [];
-    if (settings.subscriptions) {
-      settings.subscriptions.forEach((subscription) => {
-        if (subscriptionIds.includes(subscription.id) && subscription.enabled && subscription.servers) {
-          subscription.servers.forEach((server2) => {
-            if (server2.enabled) {
-              const node2 = {
-                id: server2.id,
-                name: server2.name,
-                type: server2.protocol,
-                server: server2.host,
-                port: server2.port,
-                subscriptionId: subscription.id,
-                uuid: server2.uuid,
-                password: server2.password,
-                encryption: server2.encryption,
-                network: server2.network,
-                wsPath: server2.wsPath,
-                wsHost: server2.wsHost
-              };
-              nodes.push(node2);
-            }
-          });
-        }
-      });
+    var _a2;
+    const allNodes = [];
+    for (const subId of subscriptionIds) {
+      const subscription = (_a2 = settingsManager.getSettings().subscriptions) == null ? void 0 : _a2.find((s) => s.id === subId);
+      if (subscription && subscription.servers) {
+        const subscriptionNodes = subscription.servers.map((server2) => {
+          const node2 = {
+            id: server2.id,
+            name: server2.name,
+            type: server2.protocol,
+            server: server2.host,
+            port: server2.port,
+            subscriptionId: subId
+          };
+          if (server2.uuid) node2.uuid = server2.uuid;
+          if (server2.alterId) node2.alterId = server2.alterId;
+          if (server2.username) node2.username = server2.username;
+          if (server2.password) node2.password = server2.password;
+          if (server2.encryption) node2.encryption = server2.encryption;
+          if (server2.network) node2.network = server2.network;
+          if (server2.wsPath) node2.wsPath = server2.wsPath;
+          if (server2.host) node2.wsHost = server2.host;
+          return node2;
+        });
+        allNodes.push(...subscriptionNodes);
+      }
     }
-    console.log(`[ProxyManager] Found ${nodes.length} nodes from ${subscriptionIds.length} subscriptions`);
-    return nodes;
+    return allNodes;
   }
 }
 const proxyManager = ProxyManager.getInstance();
@@ -16412,7 +16375,14 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type = TypeError;
+var type;
+var hasRequiredType;
+function requireType() {
+  if (hasRequiredType) return type;
+  hasRequiredType = 1;
+  type = TypeError;
+  return type;
+}
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -16658,7 +16628,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = type;
+  var $TypeError2 = requireType();
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -16731,7 +16701,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = type;
+var $TypeError$1 = requireType();
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -17062,7 +17032,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = type;
+var $TypeError = requireType();
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -23279,21 +23249,24 @@ class DynamicChainManager {
     }
     return DynamicChainManager.instance;
   }
-  async startChain(chainConfig) {
+  async startChain(chainConfig, listenPort) {
     if (chainConfig.type !== "dynamic" || !chainConfig.proxies) {
       throw new Error("Invalid dynamic chain configuration.");
     }
-    console.log(`[DynamicChainManager] Starting dynamic chain: ${chainConfig.name}`);
-    await this.updateAndApplyChain(chainConfig);
+    console.log(`[DynamicChainManager] Starting dynamic chain: ${chainConfig.name} on port ${listenPort}`);
+    const result = await this.updateAndApplyChain(chainConfig, listenPort);
     const updateInterval = 3e5;
     if (this.activeTimers.has(chainConfig.id)) {
       clearInterval(this.activeTimers.get(chainConfig.id));
     }
     const timer = setInterval(() => {
-      console.log(`[DynamicChainManager] Performing scheduled update for chain: ${chainConfig.name}`);
-      this.updateAndApplyChain(chainConfig);
+      console.log(`[DynamicChainManager] Auto-updating chain: ${chainConfig.name}`);
+      this.updateAndApplyChain(chainConfig, listenPort).catch((error) => {
+        console.error(`[DynamicChainManager] Auto-update failed for chain ${chainConfig.name}:`, error);
+      });
     }, updateInterval);
     this.activeTimers.set(chainConfig.id, timer);
+    return result;
   }
   stopChain(chainId) {
     if (this.activeTimers.has(chainId)) {
@@ -23302,7 +23275,7 @@ class DynamicChainManager {
       console.log(`[DynamicChainManager] Stopped scheduled updates for chain ID: ${chainId}`);
     }
   }
-  async updateAndApplyChain(chainConfig) {
+  async updateAndApplyChain(chainConfig, listenPort) {
     try {
       const allSubscriptions = this.localSubscriptionStore.getSubscriptions();
       const nodesToTest = [];
@@ -23329,8 +23302,9 @@ class DynamicChainManager {
       }
       if (nodesToTest.length === 0) {
         console.warn(`[DynamicChainManager] No nodes found for dynamic chain ${chainConfig.name}.`);
-        return;
+        return { port: 0 };
       }
+      console.log(`[DynamicChainManager] Testing latency for ${nodesToTest.length} nodes...`);
       const testResults = await proxyManager.testNodesLatency(nodesToTest);
       const bestNodes = [];
       for (const subId of chainConfig.proxies) {
@@ -23348,67 +23322,22 @@ class DynamicChainManager {
       }
       if (bestNodes.length === 0) {
         console.error(`[DynamicChainManager] Could not find any valid nodes for chain ${chainConfig.name} after testing.`);
-        return;
+        throw new Error(`Could not find any valid nodes for chain ${chainConfig.name} after testing.`);
       }
-      console.log(`[DynamicChainManager] Best nodes selected for ${chainConfig.name}:`, bestNodes.map((n) => n.name));
-      const tempChainConfig = {
-        id: chainConfig.id,
-        name: `${chainConfig.name}_dynamic`,
-        description: `Dynamic chain based on ${chainConfig.name}`,
-        type: "static",
-        proxies: bestNodes.map((n) => n.id),
-        rules: [],
-        enabled: true,
-        createdAt: /* @__PURE__ */ new Date(),
-        updatedAt: /* @__PURE__ */ new Date()
-      };
-      const settings = settingsManager.getSettings();
-      const networkSettings = {
-        enableDns: settings.enableDns || false,
-        dnsServer: settings.dnsServer || "8.8.8.8",
-        enableDoh: settings.enableDoh || false,
-        dohServer: settings.dohServer || "",
-        enableDot: settings.enableDot || false,
-        dotServer: settings.dotServer || "",
-        enableDnsCache: settings.enableDnsCache || false,
-        dnsCacheSize: settings.dnsCacheSize || 1e3,
-        dnsCacheTtl: settings.dnsCacheTtl || 300,
-        enableDnsLoadBalance: settings.enableDnsLoadBalance || false,
-        dnsServers: settings.dnsServers || [],
-        enableDnsLogging: settings.enableDnsLogging || false,
-        enableDnsLeakProtection: settings.enableDnsLeakProtection || false,
-        dnsLeakProtectionMode: settings.dnsLeakProtectionMode || "relaxed",
-        enableDnsRules: settings.enableDnsRules || false,
-        dnsRules: settings.dnsRules || [],
-        enableDnsFallback: settings.enableDnsFallback || false,
-        dnsFallbackServers: settings.dnsFallbackServers || [],
-        enableTun: settings.enableTun || false,
-        tunDevice: settings.tunDevice || "utun0",
-        enableFakeIp: settings.enableFakeIp || false,
-        fakeIpRange: settings.fakeIpRange || "198.18.0.1/16",
-        enableUdp: settings.enableUdp || true,
-        enableIpv6: settings.enableIpv6 || false,
-        logLevel: settings.logLevel || "info",
-        enableLog: settings.enableLog || false,
-        logFile: settings.logFile || ""
-      };
-      console.log("[DynamicChainManager] Starting real proxy chain with selected nodes.");
-      await proxyManager.startChain(tempChainConfig, networkSettings);
+      if (bestNodes.length > 0) {
+        console.log(`[DynamicChainManager] Starting proxy manager with ${bestNodes.length} best nodes.`);
+        const result = await proxyManager.startChain({ ...chainConfig, name: `${chainConfig.name}_dynamic` }, { listenPort }, bestNodes);
+        console.log(`[DynamicChainManager] Proxy manager started successfully for chain: ${chainConfig.name}`);
+        return result;
+      } else {
+        console.warn("[DynamicChainManager] No nodes found after latency test for dynamic chain", chainConfig.name);
+        return { port: 0 };
+      }
     } catch (error) {
       console.error(`[DynamicChainManager] Failed to update and apply chain ${chainConfig.name}:`, error);
+      throw error;
     }
   }
-  // 可选：如果需要一个完整的临时配置对象
-  /*
-  private createTempStaticConfig(originalChain: ChainConfig, nodes: ProxyNode[]): ChainConfig {
-    return {
-      ...originalChain,
-      type: 'static',
-      proxies: nodes.map(n => n.id),
-      // 注意：这里的 nodes 数组需要在 proxyManager 中被正确解析
-    };
-  }
-  */
 }
 const dynamicChainManager = DynamicChainManager.getInstance();
 try {
@@ -24637,10 +24566,10 @@ electron.ipcMain.handle("dns:clearDnsCache", () => {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });
-electron.ipcMain.handle("proxy:start-dynamic-chain", async (_event, chainConfig) => {
+electron.ipcMain.handle("proxy:start-dynamic-chain", async (_event, { chain, listenPort }) => {
   try {
-    await dynamicChainManager.startChain(chainConfig);
-    return { success: true };
+    const result = await dynamicChainManager.startChain(chain, listenPort);
+    return { success: true, port: result.port };
   } catch (error) {
     console.error("启动动态代理链失败:", error);
     return { success: false, error: error instanceof Error ? error.message : String(error) };

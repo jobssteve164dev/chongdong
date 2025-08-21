@@ -4,7 +4,7 @@ import { join } from 'path';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { coreDownloader } from './coreDownloader';
 import { createConnection } from 'net';
-import { ProxyNode, ChainConfig } from '../shared/types';
+import { ProxyNode, ChainConfig, NetworkSettings } from '../shared/types';
 import { proxyChainConfigGenerator } from './proxyChainConfigGenerator';
 import { settingsManager } from './settingsManager';
 
@@ -15,37 +15,6 @@ interface ProxyProcess {
   config: any;
   port: number;
   networkSettings?: any;
-}
-
-// 添加网络设置接口
-export interface NetworkSettings {
-  enableDns: boolean;
-  dnsServer: string;
-  enableDoh: boolean;
-  dohServer: string;
-  enableDot: boolean;
-  dotServer: string;
-  enableDnsCache: boolean;
-  dnsCacheSize: number;
-  dnsCacheTtl: number;
-  enableDnsLoadBalance: boolean;
-  dnsServers: string[];
-  enableDnsLogging: boolean;
-  enableDnsLeakProtection: boolean;
-  dnsLeakProtectionMode: 'strict' | 'relaxed';
-  enableDnsRules: boolean;
-  dnsRules: any[];
-  enableDnsFallback: boolean;
-  dnsFallbackServers: string[];
-  enableTun: boolean;
-  tunDevice: string;
-  enableFakeIp: boolean;
-  fakeIpRange: string;
-  enableUdp: boolean;
-  enableIpv6: boolean;
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-  enableLog: boolean;
-  logFile: string;
 }
 
 export class ProxyManager {
@@ -944,7 +913,7 @@ export class ProxyManager {
   /**
    * 应用网络设置到配置
    */
-  private applyNetworkSettingsToConfig(config: any, networkSettings?: NetworkSettings): any {
+  private applyNetworkSettingsToConfig(config: any, networkSettings?: Partial<NetworkSettings>): any {
     if (!networkSettings) {
       return config;
     }
@@ -982,7 +951,7 @@ export class ProxyManager {
       
       // 添加多DNS服务器负载均衡
       if (networkSettings.enableDnsLoadBalance && networkSettings.dnsServers) {
-        networkSettings.dnsServers.forEach(server => {
+        networkSettings.dnsServers.forEach((server: string) => {
           if (server && server !== networkSettings.dnsServer && !dnsServers.includes(server)) {
             dnsServers.push(server);
           }
@@ -1070,29 +1039,35 @@ export class ProxyManager {
   /**
    * 启动代理链
    */
-  public async startChain(chainConfig: ChainConfig, networkSettings?: NetworkSettings): Promise<void> {
+  public async startChain(chainConfig: ChainConfig, networkSettings?: Partial<NetworkSettings>, nodes?: ProxyNode[]): Promise<{ port: number }> {
     console.log(`[ProxyManager] Starting proxy chain: ${chainConfig.name}`);
     
     try {
-      let nodes: ProxyNode[] = [];
+      let finalNodes: ProxyNode[] = [];
       
-      if (chainConfig.type === 'static') {
-        // 静态链：直接使用配置中的节点
-        // 这里需要从存储中获取完整的节点信息
-        nodes = await this.getNodesByIds(chainConfig.proxies);
-      } else if (chainConfig.type === 'dynamic') {
-        // 动态链：从订阅中获取节点
-        nodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+      // 如果直接传入了节点数组，使用它；否则从订阅中获取节点
+      if (nodes && nodes.length > 0) {
+        finalNodes = nodes;
+        console.log(`[ProxyManager] Using ${finalNodes.length} provided nodes for chain`);
+      } else {
+        // 从订阅中获取节点
+        console.log(`[ProxyManager] Getting nodes from subscriptions: ${chainConfig.proxies.join(', ')}`);
+        finalNodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+        console.log(`[ProxyManager] Found ${finalNodes.length} nodes from ${chainConfig.proxies.length} subscriptions`);
       }
       
-      if (nodes.length === 0) {
+      if (finalNodes.length === 0) {
         throw new Error('No valid nodes found for proxy chain');
       }
       
-      console.log(`[ProxyManager] Found ${nodes.length} nodes for chain:`, nodes.map(n => n.name));
+      console.log(`[ProxyManager] Found ${finalNodes.length} nodes for chain:`, finalNodes.map(n => n.name));
       
-      // 生成代理链配置
-      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(nodes);
+      // 生成代理链配置，并传入用户指定的端口
+      const listenPort = networkSettings?.listenPort;
+      if (!listenPort) {
+        throw new Error('Listen port must be provided to start a chain.');
+      }
+      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(finalNodes, listenPort);
       
       // 应用网络设置
       const finalConfig = this.applyNetworkSettingsToConfig(chainProxyConfig, networkSettings);
@@ -1102,93 +1077,50 @@ export class ProxyManager {
       
       console.log(`[ProxyManager] Proxy chain started successfully: ${chainConfig.name}`);
       
+      return { port: listenPort };
+      
     } catch (error) {
-      console.error(`[ProxyManager] Failed to start proxy chain: ${chainConfig.name}`, error);
+      console.error(`[ProxyManager] Failed to start chain ${chainConfig.name}:`, error);
       throw error;
     }
-  }
-
-  /**
-   * 根据节点ID获取完整的节点信息
-   */
-  private async getNodesByIds(nodeIds: string[]): Promise<ProxyNode[]> {
-    console.log(`[ProxyManager] Getting nodes by IDs: ${nodeIds.join(', ')}`);
-    
-    // 从settingsManager获取所有节点
-    const settings = settingsManager.getSettings();
-    const allNodes: ProxyNode[] = [];
-    
-    // 从订阅中获取节点
-    if (settings.subscriptions) {
-      settings.subscriptions.forEach((subscription: any) => {
-        if (subscription.enabled && subscription.servers) {
-          subscription.servers.forEach((server: any) => {
-            if (server.enabled) {
-              const node: ProxyNode = {
-                id: server.id,
-                name: server.name,
-                type: server.protocol as any,
-                server: server.host,
-                port: server.port,
-                subscriptionId: subscription.id,
-                uuid: server.uuid,
-                password: server.password,
-                encryption: server.encryption,
-                network: server.network,
-                wsPath: server.wsPath,
-                wsHost: server.wsHost,
-              };
-              allNodes.push(node);
-            }
-          });
-        }
-      });
-    }
-    
-    // 过滤出请求的节点
-    const requestedNodes = allNodes.filter(node => nodeIds.includes(node.id));
-    console.log(`[ProxyManager] Found ${requestedNodes.length} nodes out of ${nodeIds.length} requested`);
-    
-    return requestedNodes;
   }
 
   /**
    * 从订阅中获取节点
    */
   private async getNodesFromSubscriptions(subscriptionIds: string[]): Promise<ProxyNode[]> {
-    console.log(`[ProxyManager] Getting nodes from subscriptions: ${subscriptionIds.join(', ')}`);
+    const allNodes: ProxyNode[] = [];
     
-    const settings = settingsManager.getSettings();
-    const nodes: ProxyNode[] = [];
-    
-    if (settings.subscriptions) {
-      settings.subscriptions.forEach((subscription: any) => {
-        if (subscriptionIds.includes(subscription.id) && subscription.enabled && subscription.servers) {
-          subscription.servers.forEach((server: any) => {
-            if (server.enabled) {
-              const node: ProxyNode = {
-                id: server.id,
-                name: server.name,
-                type: server.protocol as any,
-                server: server.host,
-                port: server.port,
-                subscriptionId: subscription.id,
-                uuid: server.uuid,
-                password: server.password,
-                encryption: server.encryption,
-                network: server.network,
-                wsPath: server.wsPath,
-                wsHost: server.wsHost,
-              };
-              nodes.push(node);
-            }
-          });
-        }
-      });
+    for (const subId of subscriptionIds) {
+      const subscription = settingsManager.getSettings().subscriptions?.find(s => s.id === subId);
+      if (subscription && subscription.servers) {
+        const subscriptionNodes: ProxyNode[] = subscription.servers.map(server => {
+          const node: ProxyNode = {
+            id: server.id,
+            name: server.name,
+            type: server.protocol,
+            server: server.host,
+            port: server.port,
+            subscriptionId: subId,
+          };
+          
+          // 只添加存在的可选属性
+          if (server.uuid) node.uuid = server.uuid;
+          if (server.alterId) node.alterId = server.alterId;
+          if (server.username) node.username = server.username;
+          if (server.password) node.password = server.password;
+          if (server.encryption) node.encryption = server.encryption;
+          if (server.network) node.network = server.network;
+          if (server.wsPath) node.wsPath = server.wsPath;
+          if (server.host) node.wsHost = server.host;
+          
+          return node;
+        });
+        allNodes.push(...subscriptionNodes);
+      }
     }
     
-    console.log(`[ProxyManager] Found ${nodes.length} nodes from ${subscriptionIds.length} subscriptions`);
-    return nodes;
+    return allNodes;
   }
 }
 
