@@ -189,7 +189,7 @@ export class SystemProxyManager {
       console.log(`SOCKS代理: ${host}:${socksPort}`);
       
       // 验证代理设置是否生效
-      await this.verifyProxySettings(serviceLines);
+      await this.verifyProxySettings();
     } catch (error) {
       throw new Error(`Failed to set macOS proxy: ${error}`);
     }
@@ -198,31 +198,115 @@ export class SystemProxyManager {
   /**
    * 验证代理设置是否生效
    */
-  private async verifyProxySettings(services: string[]): Promise<void> {
+  public async verifyProxySettings(): Promise<void> {
     console.log(`=== 验证代理设置是否生效 ===`);
     
     try {
-      for (const service of services) {
-        if (service.trim()) {
-          console.log(`检查网络服务 "${service.trim()}" 的代理状态...`);
+      // 获取网络服务列表
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      // 检查所有网络服务的代理状态
+      const networkServices = ['Ethernet', 'Wi-Fi'];
+      
+      for (const service of networkServices) {
+        console.log(`检查网络服务 "${service}" 的代理状态...`);
+        
+        try {
+          // 检查HTTP代理
+          const httpResult = await execAsync(`networksetup -getwebproxy "${service}"`);
+          console.log(`HTTP代理状态: ${httpResult.stdout}`);
           
-          // 检查HTTP代理状态
-          const { stdout: httpStatus } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
-          console.log(`HTTP代理状态:`, httpStatus);
+          // 检查HTTPS代理
+          const httpsResult = await execAsync(`networksetup -getsecurewebproxy "${service}"`);
+          console.log(`HTTPS代理状态: ${httpsResult.stdout}`);
           
-          // 检查HTTPS代理状态
-          const { stdout: httpsStatus } = await execAsync(`networksetup -getsecurewebproxy "${service.trim()}"`);
-          console.log(`HTTPS代理状态:`, httpsStatus);
+          // 检查SOCKS代理
+          const socksResult = await execAsync(`networksetup -getsocksfirewallproxy "${service}"`);
+          console.log(`SOCKS代理状态: ${socksResult.stdout}`);
           
-          // 检查SOCKS代理状态
-          const { stdout: socksStatus } = await execAsync(`networksetup -getsocksfirewallproxy "${service.trim()}"`);
-          console.log(`SOCKS代理状态:`, socksStatus);
+          // 检查代理是否启用
+          const enabledResult = await execAsync(`networksetup -getwebproxy "${service}" | grep "Enabled:"`);
+          const isEnabled = enabledResult.stdout.includes('Yes');
+          console.log(`🔍 [代理验证] ${service} 代理启用状态: ${isEnabled ? '已启用' : '未启用'}`);
+          
+          if (!isEnabled) {
+            console.warn(`⚠️  [代理验证] ${service} 代理未启用，这可能是导致无法联网的原因`);
+          }
+          
+        } catch (error) {
+          console.error(`❌ [代理验证] 检查 ${service} 代理状态失败:`, error);
         }
       }
       
+      // 测试系统代理是否真正生效
+      console.log(`🔍 [代理验证] 开始测试系统代理是否真正生效...`);
+      await this.testSystemProxyEffectiveness();
+      
       console.log(`=== 代理设置验证完成 ===`);
+      
     } catch (error) {
       console.error(`代理设置验证失败:`, error);
+    }
+  }
+
+  /**
+   * 测试系统代理是否真正生效
+   */
+  private async testSystemProxyEffectiveness(): Promise<void> {
+    console.log(`🔍 [系统代理测试] 开始测试系统代理是否真正生效...`);
+    
+    try {
+      const https = require('https');
+      const http = require('http');
+      
+      // 测试URL
+      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
+      
+      console.log(`🔍 [系统代理测试] 测试URL: ${testUrl}`);
+      
+      const testRequest = () => {
+        return new Promise<{ success: boolean; statusCode?: number; error?: string }>((resolve) => {
+          const url = new URL(testUrl);
+          const isHttps = url.protocol === 'https:';
+          const client = isHttps ? https : http;
+          
+          const req = client.request(url, {
+            method: 'GET',
+            timeout: 10000
+          }, (res: any) => {
+            console.log(`✅ [系统代理测试] 请求成功，状态码: ${res.statusCode}`);
+            console.log(`🔍 [系统代理测试] 响应头:`, res.headers);
+            resolve({ success: true, statusCode: res.statusCode });
+          });
+          
+          req.on('error', (error: any) => {
+            console.error(`❌ [系统代理测试] 请求失败:`, error.message);
+            console.error(`🔍 [系统代理测试] 错误详情:`, error);
+            resolve({ success: false, error: error.message });
+          });
+          
+          req.on('timeout', () => {
+            console.error(`⏰ [系统代理测试] 请求超时`);
+            req.destroy();
+            resolve({ success: false, error: 'Request timeout' });
+          });
+          
+          req.end();
+        });
+      };
+      
+      const result = await testRequest();
+      if (result.success) {
+        console.log(`✅ [系统代理测试] 系统代理工作正常，能够通过代理访问外部网站`);
+      } else {
+        console.warn(`⚠️  [系统代理测试] 系统代理可能未生效，错误: ${result.error}`);
+        console.warn(`⚠️  [系统代理测试] 这可能是导致浏览器无法访问网站的原因`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ [系统代理测试] 测试过程中发生错误:`, error);
     }
   }
 

@@ -46,6 +46,7 @@ const child_process = require("child_process");
 const fs$1 = require("fs");
 const require$$1 = require("https");
 const require$$0$1 = require("net");
+const require$$8 = require("crypto");
 const require$$1$1 = require("util");
 const os = require("os");
 const require$$0$2 = require("dgram");
@@ -54,7 +55,6 @@ const require$$0$3 = require("url");
 const require$$4 = require("events");
 const require$$2 = require("assert");
 const stream = require("stream");
-const require$$8 = require("crypto");
 const require$$1$2 = require("tty");
 const zlib = require("zlib");
 const tls = require("tls");
@@ -1424,9 +1424,1315 @@ class SettingsManager {
   }
 }
 const settingsManager = SettingsManager.getInstance();
+var AdapterStatus = /* @__PURE__ */ ((AdapterStatus2) => {
+  AdapterStatus2["IDLE"] = "idle";
+  AdapterStatus2["STARTING"] = "starting";
+  AdapterStatus2["RUNNING"] = "running";
+  AdapterStatus2["ERROR"] = "error";
+  AdapterStatus2["STOPPING"] = "stopping";
+  AdapterStatus2["STOPPED"] = "stopped";
+  return AdapterStatus2;
+})(AdapterStatus || {});
+var MonitoringEventType = /* @__PURE__ */ ((MonitoringEventType2) => {
+  MonitoringEventType2["CONNECTION_START"] = "connection_start";
+  MonitoringEventType2["CONNECTION_END"] = "connection_end";
+  MonitoringEventType2["TRAFFIC_FLOW"] = "traffic_flow";
+  MonitoringEventType2["ERROR_OCCURRED"] = "error_occurred";
+  MonitoringEventType2["NODE_FAILURE"] = "node_failure";
+  MonitoringEventType2["NODE_RECOVERY"] = "node_recovery";
+  return MonitoringEventType2;
+})(MonitoringEventType || {});
+class ProtocolAdapter {
+  constructor(id, node2, port) {
+    this.status = AdapterStatus.IDLE;
+    this.monitoringListeners = [];
+    this.id = id;
+    this.node = node2;
+    this.port = port;
+    this.trafficStats = {
+      bytesReceived: 0,
+      bytesSent: 0,
+      connections: 0,
+      lastActivity: /* @__PURE__ */ new Date()
+    };
+  }
+  /**
+   * 启动协议适配器
+   */
+  async start() {
+    console.log(`[ProtocolAdapter] 启动协议适配器: ${this.id} (${this.node.name})`);
+    try {
+      this.status = AdapterStatus.STARTING;
+      this.startTime = /* @__PURE__ */ new Date();
+      await this.generateConfig();
+      await this.startSingBoxProcess();
+      await this.verifyPort();
+      this.status = AdapterStatus.RUNNING;
+      this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
+        adapterId: this.id,
+        nodeId: this.node.id,
+        port: this.port
+      });
+      console.log(`✅ [ProtocolAdapter] 协议适配器启动成功: ${this.id} (端口: ${this.port})`);
+    } catch (error) {
+      this.status = AdapterStatus.ERROR;
+      this.error = error instanceof Error ? error.message : String(error);
+      this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+        adapterId: this.id,
+        nodeId: this.node.id,
+        error: this.error
+      });
+      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
+      throw error;
+    }
+  }
+  /**
+   * 停止协议适配器
+   */
+  async stop() {
+    console.log(`[ProtocolAdapter] 停止协议适配器: ${this.id}`);
+    try {
+      this.status = AdapterStatus.STOPPING;
+      if (this.process) {
+        this.process.kill("SIGTERM");
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            if (this.process) {
+              this.process.kill("SIGKILL");
+            }
+            resolve();
+          }, 5e3);
+          this.process.on("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+      if (this.configPath && fs__namespace.existsSync(this.configPath)) {
+        fs__namespace.unlinkSync(this.configPath);
+      }
+      this.status = AdapterStatus.STOPPED;
+      this.process = void 0;
+      this.processId = void 0;
+      console.log(`✅ [ProtocolAdapter] 协议适配器停止成功: ${this.id}`);
+    } catch (error) {
+      console.error(`❌ [ProtocolAdapter] 协议适配器停止失败: ${this.id}`, error);
+      throw error;
+    }
+  }
+  /**
+   * 获取适配器信息
+   */
+  getInfo() {
+    return {
+      id: this.id,
+      node: this.node,
+      status: this.status,
+      port: this.port,
+      processId: this.processId,
+      error: this.error,
+      startTime: this.startTime,
+      trafficStats: { ...this.trafficStats }
+    };
+  }
+  /**
+   * 添加监控监听器
+   */
+  addMonitoringListener(callback) {
+    this.monitoringListeners.push(callback);
+  }
+  /**
+   * 移除监控监听器
+   */
+  removeMonitoringListener(callback) {
+    const index = this.monitoringListeners.indexOf(callback);
+    if (index > -1) {
+      this.monitoringListeners.splice(index, 1);
+    }
+  }
+  /**
+   * 生成sing-box配置
+   */
+  async generateConfig() {
+    const config = proxyChainConfigGenerator.generateChainConfig([this.node], this.port);
+    const configDir = path__namespace.join(process.env["HOME"] || "", "Library/Application Support/chongdong/proxy-configs");
+    if (!fs__namespace.existsSync(configDir)) {
+      fs__namespace.mkdirSync(configDir, { recursive: true });
+    }
+    this.configPath = path__namespace.join(configDir, `adapter_${this.id}.json`);
+    fs__namespace.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+    console.log(`[ProtocolAdapter] 配置文件已生成: ${this.configPath}`);
+    return config;
+  }
+  /**
+   * 启动sing-box进程
+   */
+  async startSingBoxProcess() {
+    var _a2, _b2;
+    const singBoxPath = path__namespace.join(process.env["HOME"] || "", "Library/Application Support/chongdong/bin/sing-box");
+    if (!fs__namespace.existsSync(singBoxPath)) {
+      throw new Error(`Sing-box 可执行文件不存在: ${singBoxPath}`);
+    }
+    const args = ["run", "-c", this.configPath];
+    const options = {
+      cwd: path__namespace.dirname(singBoxPath),
+      stdio: ["pipe", "pipe", "pipe"]
+    };
+    console.log(`[ProtocolAdapter] 启动sing-box进程: ${singBoxPath} ${args.join(" ")}`);
+    this.process = child_process.spawn(singBoxPath, args, options);
+    if (this.process && this.process.pid) {
+      this.processId = this.process.pid;
+    }
+    if (!this.process) {
+      throw new Error("Failed to spawn sing-box process");
+    }
+    (_a2 = this.process.stdout) == null ? void 0 : _a2.on("data", (data) => {
+      const output = data.toString();
+      console.log(`[ProtocolAdapter ${this.id}] stdout: ${output.trim()}`);
+      this.parseTrafficInfo(output);
+    });
+    (_b2 = this.process.stderr) == null ? void 0 : _b2.on("data", (data) => {
+      const errorMessage = data.toString();
+      console.error(`[ProtocolAdapter ${this.id}] stderr: ${errorMessage.trim()}`);
+      if (errorMessage.includes("error") || errorMessage.includes("failed")) {
+        this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+          adapterId: this.id,
+          nodeId: this.node.id,
+          error: errorMessage.trim()
+        });
+      }
+    });
+    this.process.on("exit", (code, signal) => {
+      console.log(`[ProtocolAdapter ${this.id}] 进程退出: code=${code}, signal=${signal}`);
+      if (code !== 0) {
+        this.status = AdapterStatus.ERROR;
+        this.error = `进程异常退出: code=${code}, signal=${signal}`;
+        this.emitMonitoringEvent(MonitoringEventType.NODE_FAILURE, {
+          adapterId: this.id,
+          nodeId: this.node.id,
+          error: this.error
+        });
+      }
+    });
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Sing-box进程启动超时"));
+      }, 1e4);
+      this.process.on("spawn", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      this.process.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+  /**
+   * 验证端口
+   */
+  async verifyPort() {
+    const { createConnection } = require("net");
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`端口验证超时: ${this.port}`));
+      }, 5e3);
+      const client = createConnection(this.port, "127.0.0.1", () => {
+        clearTimeout(timeout);
+        client.end();
+        resolve();
+      });
+      client.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(new Error(`端口验证失败: ${this.port} - ${error.message}`));
+      });
+    });
+  }
+  /**
+   * 解析流量信息
+   */
+  parseTrafficInfo(output) {
+    if (output.includes("connection")) {
+      this.trafficStats.connections++;
+      this.trafficStats.lastActivity = /* @__PURE__ */ new Date();
+    }
+  }
+  /**
+   * 发送监控事件
+   */
+  emitMonitoringEvent(type2, data) {
+    const event = {
+      type: type2,
+      timestamp: /* @__PURE__ */ new Date(),
+      adapterId: this.id,
+      nodeId: this.node.id,
+      data
+    };
+    this.monitoringListeners.forEach((callback) => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error(`[ProtocolAdapter] 监控监听器错误:`, error);
+      }
+    });
+  }
+}
+class TrafficRouter {
+  constructor(entryPort, adapters2) {
+    this.status = "idle";
+    this.monitoringListeners = [];
+    this.protectionRules = [];
+    this.activeConnections = /* @__PURE__ */ new Map();
+    this.entryPort = entryPort;
+    this.adapters = adapters2;
+    this.trafficStats = {
+      bytesReceived: 0,
+      bytesSent: 0,
+      connections: 0,
+      lastActivity: /* @__PURE__ */ new Date()
+    };
+  }
+  /**
+   * 启动流量路由器
+   */
+  async start() {
+    console.log(`[TrafficRouter] 启动流量路由器，入口端口: ${this.entryPort}`);
+    try {
+      this.status = "starting";
+      this.server = require$$0$1.createServer((clientSocket) => {
+        this.handleClientConnection(clientSocket);
+      });
+      await new Promise((resolve, reject) => {
+        this.server.listen(this.entryPort, "127.0.0.1", () => {
+          console.log(`✅ [TrafficRouter] 流量路由器启动成功，监听端口: ${this.entryPort}`);
+          resolve();
+        });
+        this.server.on("error", (error) => {
+          console.error(`❌ [TrafficRouter] 流量路由器启动失败:`, error);
+          reject(error);
+        });
+      });
+      this.status = "running";
+      this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
+        routerPort: this.entryPort,
+        adapterCount: this.adapters.length
+      });
+    } catch (error) {
+      this.status = "stopped";
+      console.error(`❌ [TrafficRouter] 流量路由器启动失败:`, error);
+      throw error;
+    }
+  }
+  /**
+   * 停止流量路由器
+   */
+  async stop() {
+    console.log(`[TrafficRouter] 停止流量路由器`);
+    try {
+      this.status = "stopping";
+      for (const [, socket] of this.activeConnections) {
+        socket.destroy();
+      }
+      this.activeConnections.clear();
+      if (this.server) {
+        await new Promise((resolve) => {
+          this.server.close(() => {
+            resolve();
+          });
+        });
+      }
+      this.status = "stopped";
+      console.log(`✅ [TrafficRouter] 流量路由器停止成功`);
+    } catch (error) {
+      console.error(`❌ [TrafficRouter] 流量路由器停止失败:`, error);
+      throw error;
+    }
+  }
+  /**
+   * 处理客户端连接
+   */
+  async handleClientConnection(clientSocket) {
+    const connectionId = this.generateConnectionId();
+    const clientAddress = `${clientSocket.remoteAddress}:${clientSocket.remotePort}`;
+    console.log(`[TrafficRouter] 新客户端连接: ${connectionId} (${clientAddress})`);
+    if (!this.checkProtectionRules(clientAddress)) {
+      console.log(`[TrafficRouter] 连接被防护规则阻止: ${clientAddress}`);
+      clientSocket.destroy();
+      return;
+    }
+    this.activeConnections.set(connectionId, clientSocket);
+    this.trafficStats.connections++;
+    this.trafficStats.lastActivity = /* @__PURE__ */ new Date();
+    try {
+      const firstAdapter = this.adapters[0];
+      if (!firstAdapter) {
+        throw new Error("没有可用的协议适配器");
+      }
+      const adapterInfo = firstAdapter.getInfo();
+      if (adapterInfo.status !== "running") {
+        throw new Error(`协议适配器未运行: ${adapterInfo.id}`);
+      }
+      console.log(`[TrafficRouter] 连接到第一个适配器: ${adapterInfo.id} (端口: ${adapterInfo.port})`);
+      const { createConnection } = require("net");
+      const adapterSocket = createConnection(adapterInfo.port, "127.0.0.1");
+      this.setupDataForwarding(clientSocket, adapterSocket, connectionId);
+      clientSocket.on("close", () => {
+        console.log(`[TrafficRouter] 客户端连接关闭: ${connectionId}`);
+        this.activeConnections.delete(connectionId);
+        this.trafficStats.connections--;
+        adapterSocket.destroy();
+      });
+      adapterSocket.on("close", () => {
+        console.log(`[TrafficRouter] 适配器连接关闭: ${connectionId}`);
+        this.activeConnections.delete(connectionId);
+        this.trafficStats.connections--;
+        clientSocket.destroy();
+      });
+      clientSocket.on("error", (error) => {
+        console.error(`[TrafficRouter] 客户端连接错误: ${connectionId}`, error);
+        this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+          connectionId,
+          error: error.message
+        });
+      });
+      adapterSocket.on("error", (error) => {
+        console.error(`[TrafficRouter] 适配器连接错误: ${connectionId}`, error);
+        this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+          connectionId,
+          error: error.message
+        });
+      });
+    } catch (error) {
+      console.error(`[TrafficRouter] 处理客户端连接失败: ${connectionId}`, error);
+      clientSocket.destroy();
+      this.activeConnections.delete(connectionId);
+      this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+        connectionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  /**
+   * 设置双向数据转发
+   */
+  setupDataForwarding(clientSocket, adapterSocket, connectionId) {
+    clientSocket.on("data", (data) => {
+      this.trafficStats.bytesReceived += data.length;
+      this.trafficStats.lastActivity = /* @__PURE__ */ new Date();
+      if (!adapterSocket.destroyed) {
+        adapterSocket.write(data);
+      }
+      this.emitMonitoringEvent(MonitoringEventType.TRAFFIC_FLOW, {
+        connectionId,
+        direction: "client_to_adapter",
+        bytes: data.length
+      });
+    });
+    adapterSocket.on("data", (data) => {
+      this.trafficStats.bytesSent += data.length;
+      this.trafficStats.lastActivity = /* @__PURE__ */ new Date();
+      if (!clientSocket.destroyed) {
+        clientSocket.write(data);
+      }
+      this.emitMonitoringEvent(MonitoringEventType.TRAFFIC_FLOW, {
+        connectionId,
+        direction: "adapter_to_client",
+        bytes: data.length
+      });
+    });
+  }
+  /**
+   * 检查防护规则
+   */
+  checkProtectionRules(clientAddress) {
+    for (const rule of this.protectionRules) {
+      if (!rule.enabled) continue;
+      switch (rule.type) {
+        case "blacklist":
+          if (rule.config.addresses && rule.config.addresses.includes(clientAddress)) {
+            console.log(`[TrafficRouter] 客户端地址在黑名单中: ${clientAddress}`);
+            return false;
+          }
+          break;
+        case "whitelist":
+          if (rule.config.addresses && !rule.config.addresses.includes(clientAddress)) {
+            console.log(`[TrafficRouter] 客户端地址不在白名单中: ${clientAddress}`);
+            return false;
+          }
+          break;
+      }
+    }
+    return true;
+  }
+  /**
+   * 生成连接ID
+   */
+  generateConnectionId() {
+    return `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+  /**
+   * 获取流量统计
+   */
+  getTrafficStats() {
+    return { ...this.trafficStats };
+  }
+  /**
+   * 获取状态
+   */
+  getStatus() {
+    return this.status;
+  }
+  /**
+   * 添加监控监听器
+   */
+  addMonitoringListener(callback) {
+    this.monitoringListeners.push(callback);
+  }
+  /**
+   * 移除监控监听器
+   */
+  removeMonitoringListener(callback) {
+    const index = this.monitoringListeners.indexOf(callback);
+    if (index > -1) {
+      this.monitoringListeners.splice(index, 1);
+    }
+  }
+  /**
+   * 添加防护规则
+   */
+  addProtectionRule(rule) {
+    this.protectionRules.push(rule);
+    console.log(`[TrafficRouter] 添加防护规则: ${rule.name}`);
+  }
+  /**
+   * 移除防护规则
+   */
+  removeProtectionRule(ruleId) {
+    const index = this.protectionRules.findIndex((rule) => rule.id === ruleId);
+    if (index > -1) {
+      const rule = this.protectionRules.splice(index, 1)[0];
+      if (rule) {
+        console.log(`[TrafficRouter] 移除防护规则: ${rule.name}`);
+      }
+    }
+  }
+  /**
+   * 发送监控事件
+   */
+  emitMonitoringEvent(type2, data) {
+    const event = {
+      type: type2,
+      timestamp: /* @__PURE__ */ new Date(),
+      data
+    };
+    this.monitoringListeners.forEach((callback) => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error(`[TrafficRouter] 监控监听器错误:`, error);
+      }
+    });
+  }
+}
+const byteToHex = [];
+for (let i = 0; i < 256; ++i) {
+  byteToHex.push((i + 256).toString(16).slice(1));
+}
+function unsafeStringify(arr, offset = 0) {
+  return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
+}
+const rnds8Pool = new Uint8Array(256);
+let poolPtr = rnds8Pool.length;
+function rng() {
+  if (poolPtr > rnds8Pool.length - 16) {
+    require$$8.randomFillSync(rnds8Pool);
+    poolPtr = 0;
+  }
+  return rnds8Pool.slice(poolPtr, poolPtr += 16);
+}
+const native = { randomUUID: require$$8.randomUUID };
+function v4(options, buf, offset) {
+  var _a2;
+  if (native.randomUUID && true && !options) {
+    return native.randomUUID();
+  }
+  options = options || {};
+  const rnds = options.random ?? ((_a2 = options.rng) == null ? void 0 : _a2.call(options)) ?? rng();
+  if (rnds.length < 16) {
+    throw new Error("Random bytes length must be >= 16");
+  }
+  rnds[6] = rnds[6] & 15 | 64;
+  rnds[8] = rnds[8] & 63 | 128;
+  return unsafeStringify(rnds);
+}
+class ProxyChainMiddlewareManager {
+  constructor(config) {
+    this.status = "idle";
+    this.adapters = [];
+    this.monitoringListeners = [];
+    this.protectionRules = [];
+    this.id = v4();
+    this.config = config;
+    this.trafficStats = {
+      bytesReceived: 0,
+      bytesSent: 0,
+      connections: 0,
+      lastActivity: /* @__PURE__ */ new Date()
+    };
+  }
+  /**
+   * 启动代理链中间件
+   */
+  async start() {
+    console.log(`[ProxyChainMiddlewareManager] 启动代理链中间件: ${this.id}`);
+    console.log(`[ProxyChainMiddlewareManager] 节点数量: ${this.config.nodes.length}`);
+    console.log(`[ProxyChainMiddlewareManager] 入口端口: ${this.config.entryPort}`);
+    try {
+      this.status = "starting";
+      this.startTime = /* @__PURE__ */ new Date();
+      await this.createProtocolAdapters();
+      await this.startProtocolAdapters();
+      await this.createAndStartTrafficRouter();
+      this.status = "running";
+      console.log(`✅ [ProxyChainMiddlewareManager] 代理链中间件启动成功: ${this.id}`);
+    } catch (error) {
+      this.status = "error";
+      this.error = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [ProxyChainMiddlewareManager] 代理链中间件启动失败: ${this.id}`, error);
+      await this.cleanup();
+      throw error;
+    }
+  }
+  /**
+   * 停止代理链中间件
+   */
+  async stop() {
+    console.log(`[ProxyChainMiddlewareManager] 停止代理链中间件: ${this.id}`);
+    try {
+      this.status = "stopping";
+      if (this.router) {
+        await this.router.stop();
+      }
+      await this.stopProtocolAdapters();
+      await this.cleanup();
+      this.status = "stopped";
+      console.log(`✅ [ProxyChainMiddlewareManager] 代理链中间件停止成功: ${this.id}`);
+    } catch (error) {
+      console.error(`❌ [ProxyChainMiddlewareManager] 代理链中间件停止失败: ${this.id}`, error);
+      throw error;
+    }
+  }
+  /**
+   * 获取中间件状态
+   */
+  getStatus() {
+    return {
+      id: this.id,
+      status: this.status,
+      adapters: this.adapters.map((adapter) => adapter.getInfo()),
+      entryPort: this.config.entryPort,
+      error: this.error,
+      startTime: this.startTime,
+      trafficStats: { ...this.trafficStats }
+    };
+  }
+  /**
+   * 获取流量统计
+   */
+  getTrafficStats() {
+    const totalStats = {
+      bytesReceived: 0,
+      bytesSent: 0,
+      connections: 0,
+      lastActivity: /* @__PURE__ */ new Date()
+    };
+    for (const adapter of this.adapters) {
+      const adapterStats = adapter.getInfo().trafficStats;
+      totalStats.bytesReceived += adapterStats.bytesReceived;
+      totalStats.bytesSent += adapterStats.bytesSent;
+      totalStats.connections += adapterStats.connections;
+    }
+    if (this.router) {
+      const routerStats = this.router.getTrafficStats();
+      totalStats.bytesReceived += routerStats.bytesReceived;
+      totalStats.bytesSent += routerStats.bytesSent;
+      totalStats.connections += routerStats.connections;
+    }
+    return totalStats;
+  }
+  /**
+   * 添加监控监听器
+   */
+  addMonitoringListener(callback) {
+    this.monitoringListeners.push(callback);
+    for (const adapter of this.adapters) {
+      adapter.addMonitoringListener(callback);
+    }
+    if (this.router) {
+      this.router.addMonitoringListener(callback);
+    }
+  }
+  /**
+   * 移除监控监听器
+   */
+  removeMonitoringListener(callback) {
+    const index = this.monitoringListeners.indexOf(callback);
+    if (index > -1) {
+      this.monitoringListeners.splice(index, 1);
+    }
+    for (const adapter of this.adapters) {
+      adapter.removeMonitoringListener(callback);
+    }
+    if (this.router) {
+      this.router.removeMonitoringListener(callback);
+    }
+  }
+  /**
+   * 添加防护规则
+   */
+  addProtectionRule(rule) {
+    this.protectionRules.push(rule);
+    if (this.router) {
+      this.router.addProtectionRule(rule);
+    }
+    console.log(`[ProxyChainMiddlewareManager] 添加防护规则: ${rule.name}`);
+  }
+  /**
+   * 移除防护规则
+   */
+  removeProtectionRule(ruleId) {
+    const index = this.protectionRules.findIndex((rule) => rule.id === ruleId);
+    if (index > -1) {
+      this.protectionRules.splice(index, 1);
+    }
+    if (this.router) {
+      this.router.removeProtectionRule(ruleId);
+    }
+  }
+  /**
+   * 创建协议适配器
+   */
+  async createProtocolAdapters() {
+    console.log(`[ProxyChainMiddlewareManager] 创建协议适配器...`);
+    this.adapters = [];
+    for (let i = 0; i < this.config.nodes.length; i++) {
+      const node2 = this.config.nodes[i];
+      if (!node2) {
+        console.warn(`[ProxyChainMiddlewareManager] 跳过无效节点: index ${i}`);
+        continue;
+      }
+      const adapterPort = this.config.entryPort + 1 + i;
+      const adapterId = `adapter_${node2.id}_${i}`;
+      console.log(`[ProxyChainMiddlewareManager] 创建适配器: ${adapterId} (端口: ${adapterPort})`);
+      const adapter = new ProtocolAdapter(adapterId, node2, adapterPort);
+      this.adapters.push(adapter);
+    }
+    console.log(`[ProxyChainMiddlewareManager] 创建了 ${this.adapters.length} 个协议适配器`);
+  }
+  /**
+   * 启动协议适配器
+   */
+  async startProtocolAdapters() {
+    console.log(`[ProxyChainMiddlewareManager] 启动协议适配器...`);
+    for (const adapter of this.adapters) {
+      try {
+        await adapter.start();
+        console.log(`✅ [ProxyChainMiddlewareManager] 适配器启动成功: ${adapter.getInfo().id}`);
+      } catch (error) {
+        console.error(`❌ [ProxyChainMiddlewareManager] 适配器启动失败: ${adapter.getInfo().id}`, error);
+        throw error;
+      }
+    }
+    console.log(`[ProxyChainMiddlewareManager] 所有协议适配器启动完成`);
+  }
+  /**
+   * 停止协议适配器
+   */
+  async stopProtocolAdapters() {
+    console.log(`[ProxyChainMiddlewareManager] 停止协议适配器...`);
+    const stopPromises = this.adapters.map(async (adapter) => {
+      try {
+        await adapter.stop();
+        console.log(`✅ [ProxyChainMiddlewareManager] 适配器停止成功: ${adapter.getInfo().id}`);
+      } catch (error) {
+        console.error(`❌ [ProxyChainMiddlewareManager] 适配器停止失败: ${adapter.getInfo().id}`, error);
+      }
+    });
+    await Promise.all(stopPromises);
+    console.log(`[ProxyChainMiddlewareManager] 所有协议适配器停止完成`);
+  }
+  /**
+   * 创建并启动流量路由器
+   */
+  async createAndStartTrafficRouter() {
+    console.log(`[ProxyChainMiddlewareManager] 创建并启动流量路由器...`);
+    this.router = new TrafficRouter(this.config.entryPort, this.adapters);
+    for (const rule of this.protectionRules) {
+      this.router.addProtectionRule(rule);
+    }
+    await this.router.start();
+    console.log(`✅ [ProxyChainMiddlewareManager] 流量路由器启动成功`);
+  }
+  /**
+   * 清理资源
+   */
+  async cleanup() {
+    this.adapters = [];
+    this.router = void 0;
+    this.error = void 0;
+    this.startTime = void 0;
+  }
+}
+const execAsync = require$$1$1.promisify(child_process.exec);
+class SystemProxyManager {
+  constructor() {
+  }
+  static getInstance() {
+    if (!SystemProxyManager.instance) {
+      SystemProxyManager.instance = new SystemProxyManager();
+    }
+    return SystemProxyManager.instance;
+  }
+  /**
+   * 设置系统代理
+   */
+  async setSystemProxy(host, socksPort, httpPort) {
+    switch (process.platform) {
+      case "win32":
+        await this.setWindowsProxy(host, httpPort || socksPort);
+        break;
+      case "darwin":
+        await this.setMacOSProxy(host, socksPort, httpPort);
+        break;
+      case "linux":
+        await this.setLinuxProxy(host, httpPort || socksPort);
+        break;
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * 清除系统代理
+   */
+  async clearSystemProxy() {
+    switch (process.platform) {
+      case "win32":
+        await this.clearWindowsProxy();
+        break;
+      case "darwin":
+        await this.clearMacOSProxy();
+        break;
+      case "linux":
+        await this.clearLinuxProxy();
+        break;
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * 获取当前系统代理设置
+   */
+  async getSystemProxy() {
+    switch (process.platform) {
+      case "win32":
+        return await this.getWindowsProxy();
+      case "darwin":
+        return await this.getMacOSProxy();
+      case "linux":
+        return await this.getLinuxProxy();
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * Windows系统代理设置
+   */
+  async setWindowsProxy(host, port) {
+    try {
+      await execAsync(`netsh winhttp set proxy ${host}:${port}`);
+      const script = `
+        $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+        Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 1
+        Set-ItemProperty -Path $regPath -Name ProxyServer -Value "${host}:${port}"
+        Set-ItemProperty -Path $regPath -Name ProxyOverride -Value "<-loopback>"
+      `;
+      await execAsync(`powershell -Command "${script}"`);
+      console.log(`Windows proxy set to ${host}:${port}`);
+    } catch (error) {
+      throw new Error(`Failed to set Windows proxy: ${error}`);
+    }
+  }
+  async clearWindowsProxy() {
+    try {
+      await execAsync("netsh winhttp reset proxy");
+      const script = `
+        $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+        Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 0
+        Remove-ItemProperty -Path $regPath -Name ProxyServer -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $regPath -Name ProxyOverride -ErrorAction SilentlyContinue
+      `;
+      await execAsync(`powershell -Command "${script}"`);
+      console.log("Windows proxy cleared");
+    } catch (error) {
+      throw new Error(`Failed to clear Windows proxy: ${error}`);
+    }
+  }
+  async getWindowsProxy() {
+    try {
+      const { stdout } = await execAsync("netsh winhttp show proxy");
+      const lines = stdout.split("\n");
+      for (const line of lines) {
+        if (line.includes("Proxy Server(s):")) {
+          const match = line.match(/(\d+\.\d+\.\d+\.\d+):(\d+)/);
+          if (match && match[1] && match[2]) {
+            return {
+              host: match[1],
+              port: parseInt(match[2]),
+              enabled: true
+            };
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to get Windows proxy:", error);
+      return null;
+    }
+  }
+  /**
+   * macOS系统代理设置
+   */
+  async setMacOSProxy(host, socksPort, httpPort) {
+    console.log(`=== 开始设置 macOS 系统代理 ===`);
+    console.log(`代理主机: ${host}`);
+    console.log(`SOCKS端口: ${socksPort}`);
+    console.log(`HTTP端口: ${httpPort || socksPort}`);
+    const actualHttpPort = httpPort || socksPort;
+    try {
+      console.log(`获取网络服务列表...`);
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
+      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
+      console.log(`找到网络服务:`, serviceLines);
+      for (const service of serviceLines) {
+        if (service.trim()) {
+          console.log(`设置网络服务 "${service.trim()}" 的代理...`);
+          console.log(`设置HTTP代理: ${host}:${actualHttpPort}`);
+          await execAsync(`networksetup -setwebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          console.log(`设置HTTPS代理: ${host}:${actualHttpPort}`);
+          await execAsync(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          console.log(`设置SOCKS代理: ${host}:${socksPort}`);
+          await execAsync(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${socksPort}`);
+          console.log(`启用HTTP代理`);
+          await execAsync(`networksetup -setwebproxystate "${service.trim()}" on`);
+          console.log(`启用HTTPS代理`);
+          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" on`);
+          console.log(`启用SOCKS代理`);
+          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" on`);
+        }
+      }
+      console.log(`=== macOS 系统代理设置完成 ===`);
+      console.log(`HTTP/HTTPS代理: ${host}:${actualHttpPort}`);
+      console.log(`SOCKS代理: ${host}:${socksPort}`);
+      await this.verifyProxySettings();
+    } catch (error) {
+      throw new Error(`Failed to set macOS proxy: ${error}`);
+    }
+  }
+  /**
+   * 验证代理设置是否生效
+   */
+  async verifyProxySettings() {
+    console.log(`=== 验证代理设置是否生效 ===`);
+    try {
+      const { exec: exec2 } = require("child_process");
+      const { promisify: promisify2 } = require("util");
+      const execAsync2 = promisify2(exec2);
+      const networkServices = ["Ethernet", "Wi-Fi"];
+      for (const service of networkServices) {
+        console.log(`检查网络服务 "${service}" 的代理状态...`);
+        try {
+          const httpResult = await execAsync2(`networksetup -getwebproxy "${service}"`);
+          console.log(`HTTP代理状态: ${httpResult.stdout}`);
+          const httpsResult = await execAsync2(`networksetup -getsecurewebproxy "${service}"`);
+          console.log(`HTTPS代理状态: ${httpsResult.stdout}`);
+          const socksResult = await execAsync2(`networksetup -getsocksfirewallproxy "${service}"`);
+          console.log(`SOCKS代理状态: ${socksResult.stdout}`);
+          const enabledResult = await execAsync2(`networksetup -getwebproxy "${service}" | grep "Enabled:"`);
+          const isEnabled = enabledResult.stdout.includes("Yes");
+          console.log(`🔍 [代理验证] ${service} 代理启用状态: ${isEnabled ? "已启用" : "未启用"}`);
+          if (!isEnabled) {
+            console.warn(`⚠️  [代理验证] ${service} 代理未启用，这可能是导致无法联网的原因`);
+          }
+        } catch (error) {
+          console.error(`❌ [代理验证] 检查 ${service} 代理状态失败:`, error);
+        }
+      }
+      console.log(`🔍 [代理验证] 开始测试系统代理是否真正生效...`);
+      await this.testSystemProxyEffectiveness();
+      console.log(`=== 代理设置验证完成 ===`);
+    } catch (error) {
+      console.error(`代理设置验证失败:`, error);
+    }
+  }
+  /**
+   * 测试系统代理是否真正生效
+   */
+  async testSystemProxyEffectiveness() {
+    console.log(`🔍 [系统代理测试] 开始测试系统代理是否真正生效...`);
+    try {
+      const https2 = require("https");
+      const http2 = require("http");
+      const testUrl = "http://connectivitycheck.gstatic.com/generate_204";
+      console.log(`🔍 [系统代理测试] 测试URL: ${testUrl}`);
+      const testRequest = () => {
+        return new Promise((resolve) => {
+          const url2 = new URL(testUrl);
+          const isHttps2 = url2.protocol === "https:";
+          const client = isHttps2 ? https2 : http2;
+          const req = client.request(url2, {
+            method: "GET",
+            timeout: 1e4
+          }, (res) => {
+            console.log(`✅ [系统代理测试] 请求成功，状态码: ${res.statusCode}`);
+            console.log(`🔍 [系统代理测试] 响应头:`, res.headers);
+            resolve({ success: true, statusCode: res.statusCode });
+          });
+          req.on("error", (error) => {
+            console.error(`❌ [系统代理测试] 请求失败:`, error.message);
+            console.error(`🔍 [系统代理测试] 错误详情:`, error);
+            resolve({ success: false, error: error.message });
+          });
+          req.on("timeout", () => {
+            console.error(`⏰ [系统代理测试] 请求超时`);
+            req.destroy();
+            resolve({ success: false, error: "Request timeout" });
+          });
+          req.end();
+        });
+      };
+      const result = await testRequest();
+      if (result.success) {
+        console.log(`✅ [系统代理测试] 系统代理工作正常，能够通过代理访问外部网站`);
+      } else {
+        console.warn(`⚠️  [系统代理测试] 系统代理可能未生效，错误: ${result.error}`);
+        console.warn(`⚠️  [系统代理测试] 这可能是导致浏览器无法访问网站的原因`);
+      }
+    } catch (error) {
+      console.error(`❌ [系统代理测试] 测试过程中发生错误:`, error);
+    }
+  }
+  async clearMacOSProxy() {
+    try {
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
+      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
+      for (const service of serviceLines) {
+        if (service.trim()) {
+          await execAsync(`networksetup -setwebproxystate "${service.trim()}" off`);
+          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" off`);
+          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" off`);
+        }
+      }
+      console.log("macOS proxy cleared");
+    } catch (error) {
+      throw new Error(`Failed to clear macOS proxy: ${error}`);
+    }
+  }
+  async getMacOSProxy() {
+    try {
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
+      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
+      for (const service of serviceLines) {
+        if (service.trim()) {
+          const { stdout } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
+          const lines = stdout.split("\n");
+          for (const line of lines) {
+            if (line.includes("Server:") && !line.includes("(null)")) {
+              const serverMatch = line.match(/Server: (.+)/);
+              const portMatch = stdout.match(/Port: (\d+)/);
+              if (serverMatch && portMatch && serverMatch[1] && portMatch[1]) {
+                return {
+                  host: serverMatch[1].trim(),
+                  port: parseInt(portMatch[1]),
+                  enabled: true
+                };
+              }
+            }
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to get macOS proxy:", error);
+      return null;
+    }
+  }
+  /**
+   * Linux系统代理设置
+   */
+  async setLinuxProxy(host, port) {
+    try {
+      const proxyUrl = `http://${host}:${port}`;
+      await execAsync(`export http_proxy=${proxyUrl}`);
+      await execAsync(`export https_proxy=${proxyUrl}`);
+      await execAsync(`export HTTP_PROXY=${proxyUrl}`);
+      await execAsync(`export HTTPS_PROXY=${proxyUrl}`);
+      try {
+        await execAsync(`gsettings set org.gnome.system.proxy mode 'manual'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.http host '${host}'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.http port ${port}`);
+        await execAsync(`gsettings set org.gnome.system.proxy.https host '${host}'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.https port ${port}`);
+      } catch (error) {
+        console.warn("GNOME settings not available, using environment variables only");
+      }
+      console.log(`Linux proxy set to ${host}:${port}`);
+    } catch (error) {
+      throw new Error(`Failed to set Linux proxy: ${error}`);
+    }
+  }
+  async clearLinuxProxy() {
+    try {
+      await execAsync("unset http_proxy");
+      await execAsync("unset https_proxy");
+      await execAsync("unset HTTP_PROXY");
+      await execAsync("unset HTTPS_PROXY");
+      try {
+        await execAsync('gsettings set org.gnome.system.proxy mode "none"');
+      } catch (error) {
+        console.warn("GNOME settings not available");
+      }
+      console.log("Linux proxy cleared");
+    } catch (error) {
+      throw new Error(`Failed to clear Linux proxy: ${error}`);
+    }
+  }
+  async getLinuxProxy() {
+    try {
+      const httpProxy = process.env["http_proxy"] || process.env["HTTP_PROXY"];
+      if (httpProxy) {
+        const match = httpProxy.match(/http:\/\/([^:]+):(\d+)/);
+        if (match && match[1] && match[2]) {
+          return {
+            host: match[1],
+            port: parseInt(match[2]),
+            enabled: true
+          };
+        }
+      }
+      try {
+        const { stdout } = await execAsync("gsettings get org.gnome.system.proxy mode");
+        if (stdout.includes("manual")) {
+          const { stdout: host } = await execAsync("gsettings get org.gnome.system.proxy.http host");
+          const { stdout: port } = await execAsync("gsettings get org.gnome.system.proxy.http port");
+          if (host && port) {
+            return {
+              host: host.trim().replace(/['"]/g, ""),
+              port: parseInt(port.trim()),
+              enabled: true
+            };
+          }
+        }
+      } catch (error) {
+        console.warn("GNOME settings not available");
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to get Linux proxy:", error);
+      return null;
+    }
+  }
+  /**
+   * 创建VPN连接
+   */
+  async createVPNConnection(config) {
+    switch (process.platform) {
+      case "win32":
+        await this.createWindowsVPN(config);
+        break;
+      case "darwin":
+        await this.createMacOSVPN(config);
+        break;
+      case "linux":
+        await this.createLinuxVPN(config);
+        break;
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * 连接VPN
+   */
+  async connectVPN(name) {
+    switch (process.platform) {
+      case "win32":
+        await this.connectWindowsVPN(name);
+        break;
+      case "darwin":
+        await this.connectMacOSVPN(name);
+        break;
+      case "linux":
+        await this.connectLinuxVPN(name);
+        break;
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * 断开VPN
+   */
+  async disconnectVPN(name) {
+    switch (process.platform) {
+      case "win32":
+        await this.disconnectWindowsVPN(name);
+        break;
+      case "darwin":
+        await this.disconnectMacOSVPN(name);
+        break;
+      case "linux":
+        await this.disconnectLinuxVPN(name);
+        break;
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+  }
+  /**
+   * Windows VPN操作
+   */
+  async createWindowsVPN(config) {
+    try {
+      const command = `Add-VpnConnection -Name "${config.name}" -ServerAddress "${config.server}" -TunnelType "${config.type}" -EncryptionLevel "Required" -AuthenticationMethod MSChapv2 -Force -PassThru -AllUserConnection`;
+      await execAsync(`powershell -Command "${command}"`);
+      console.log(`Windows VPN connection created: ${config.name}`);
+    } catch (error) {
+      throw new Error(`Failed to create Windows VPN: ${error}`);
+    }
+  }
+  async connectWindowsVPN(name) {
+    try {
+      await execAsync(`rasdial "${name}"`);
+      console.log(`Windows VPN connected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to connect Windows VPN: ${error}`);
+    }
+  }
+  async disconnectWindowsVPN(name) {
+    try {
+      await execAsync(`rasdial "${name}" /disconnect`);
+      console.log(`Windows VPN disconnected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to disconnect Windows VPN: ${error}`);
+    }
+  }
+  /**
+   * macOS VPN操作
+   */
+  async createMacOSVPN(config) {
+    try {
+      console.log(`macOS VPN creation not fully implemented for ${config.name}`);
+    } catch (error) {
+      throw new Error(`Failed to create macOS VPN: ${error}`);
+    }
+  }
+  async connectMacOSVPN(name) {
+    try {
+      await execAsync(`networksetup -connectpppoeservice "${name}"`);
+      console.log(`macOS VPN connected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to connect macOS VPN: ${error}`);
+    }
+  }
+  async disconnectMacOSVPN(name) {
+    try {
+      await execAsync(`networksetup -disconnectpppoeservice "${name}"`);
+      console.log(`macOS VPN disconnected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to disconnect macOS VPN: ${error}`);
+    }
+  }
+  /**
+   * Linux VPN操作
+   */
+  async createLinuxVPN(config) {
+    try {
+      console.log(`Linux VPN creation not fully implemented for ${config.name}`);
+    } catch (error) {
+      throw new Error(`Failed to create Linux VPN: ${error}`);
+    }
+  }
+  async connectLinuxVPN(name) {
+    try {
+      await execAsync(`nmcli connection up "${name}"`);
+      console.log(`Linux VPN connected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to connect Linux VPN: ${error}`);
+    }
+  }
+  async disconnectLinuxVPN(name) {
+    try {
+      await execAsync(`nmcli connection down "${name}"`);
+      console.log(`Linux VPN disconnected: ${name}`);
+    } catch (error) {
+      throw new Error(`Failed to disconnect Linux VPN: ${error}`);
+    }
+  }
+  /**
+   * 获取网络接口信息
+   */
+  getNetworkInterfaces() {
+    const interfaces = os.networkInterfaces();
+    const result = [];
+    for (const [name, nets] of Object.entries(interfaces)) {
+      if (nets) {
+        for (const net of nets) {
+          if (net.family === "IPv4") {
+            result.push({
+              name,
+              address: net.address,
+              netmask: net.netmask || "",
+              family: "IPv4",
+              internal: net.internal
+            });
+          }
+        }
+      }
+    }
+    return result;
+  }
+  /**
+   * 检查系统权限
+   */
+  async checkPermissions() {
+    const result = {
+      admin: false,
+      network: false,
+      vpn: false
+    };
+    try {
+      if (process.platform === "win32") {
+        await execAsync("net session");
+        result.admin = true;
+      } else {
+        await execAsync("sudo -n true");
+        result.admin = true;
+      }
+    } catch (error) {
+      result.admin = false;
+    }
+    try {
+      const interfaces = this.getNetworkInterfaces();
+      result.network = interfaces.length > 0;
+    } catch (error) {
+      result.network = false;
+    }
+    result.vpn = result.admin;
+    return result;
+  }
+}
+const systemProxyManager = SystemProxyManager.getInstance();
 class ProxyManager {
   constructor() {
     this.processes = /* @__PURE__ */ new Map();
+    this.useMiddleware = true;
     this.configDir = path$1.join(electron.app.getPath("userData"), "proxy-configs");
     this.binDir = path$1.join(electron.app.getPath("userData"), "bin");
     if (!fs$1.existsSync(this.configDir)) {
@@ -1442,86 +2748,6 @@ class ProxyManager {
     }
     return ProxyManager.instance;
   }
-  async testNodesLatency(nodes) {
-    const promises = nodes.map((node2) => this.testNodeLatency(node2));
-    const results = await Promise.allSettled(promises);
-    return results.map((result, index) => {
-      const node2 = nodes[index];
-      if (!node2) {
-        return { nodeId: "unknown", success: false, error: "Node not found at index", latency: 0, timestamp: Date.now() };
-      }
-      if (result.status === "fulfilled") {
-        return {
-          nodeId: node2.id,
-          ...result.value
-        };
-      } else {
-        return {
-          nodeId: node2.id,
-          success: false,
-          error: result.reason instanceof Error ? result.reason.message : "Unknown test error",
-          latency: 0,
-          timestamp: Date.now()
-        };
-      }
-    });
-  }
-  async testNodeLatency(node2) {
-    console.log(`[ProxyManager] Testing latency for node: ${node2.name} (${node2.id})`);
-    try {
-      const startTime = Date.now();
-      const https2 = require("https");
-      const http2 = require("http");
-      const testUrl = "http://connectivitycheck.gstatic.com/generate_204";
-      const timeout = 1e4;
-      return new Promise((resolve) => {
-        const url2 = new URL(testUrl);
-        const isHttps2 = url2.protocol === "https:";
-        const client = isHttps2 ? https2 : http2;
-        const req = client.request(url2, {
-          method: "GET",
-          timeout
-        }, () => {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          console.log(`延迟测试成功: ${node2.name}`, { latency });
-          resolve({
-            success: true,
-            latency,
-            timestamp: Date.now()
-          });
-        });
-        req.on("error", (error) => {
-          console.error(`延迟测试失败: ${node2.name}`, error);
-          resolve({
-            success: false,
-            error: error.message,
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        req.on("timeout", () => {
-          console.error(`延迟测试超时: ${node2.name}`);
-          req.destroy();
-          resolve({
-            success: false,
-            error: "Request timeout",
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        req.end();
-      });
-    } catch (error) {
-      console.error(`延迟测试失败: ${node2.name}`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-        latency: 0,
-        timestamp: Date.now()
-      };
-    }
-  }
   /**
    * 更新网络设置
    */
@@ -1533,38 +2759,39 @@ class ProxyManager {
    * 测试代理连接
    */
   async testProxyConnection(port) {
-    var _a2;
     console.log(`=== 开始代理连接测试 ===`);
     console.log(`测试端口: ${port}`);
     try {
-      const net = require("net");
-      const configFiles = require("fs").readdirSync(this.configDir);
-      const latestConfig = configFiles.filter((file) => file.startsWith("singbox_") && file.endsWith(".json")).sort().pop();
-      if (latestConfig) {
-        const configPath = require("path").join(this.configDir, latestConfig);
-        const config = JSON.parse(require("fs").readFileSync(configPath, "utf8"));
-        const proxyOutbound = (_a2 = config.outbounds) == null ? void 0 : _a2.find((outbound) => outbound.type !== "direct" && outbound.type !== "dns");
-        if (proxyOutbound) {
-          console.log(`测试代理服务器连接: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
-          const testConnection = () => {
+      const currentProcess = Array.from(this.processes.values()).find((p) => p.port === port);
+      if (!currentProcess) {
+        console.warn(`⚠️  未找到端口 ${port} 对应的进程配置`);
+        return;
+      }
+      console.log(`🔍 [连接测试] 当前进程配置:`, JSON.stringify(currentProcess.config, null, 2));
+      const outbounds = currentProcess.config.outbounds || [];
+      console.log(`🔍 [连接测试] 出站配置数量: ${outbounds.length}`);
+      for (const outbound of outbounds) {
+        if (outbound.type === "vmess" || outbound.type === "trojan" || outbound.type === "vless") {
+          console.log(`🔍 [连接测试] 测试代理服务器连接: ${outbound.server}:${outbound.server_port}`);
+          const testConnection = async () => {
             return new Promise((resolve) => {
-              const socket = net.createConnection({
-                host: proxyOutbound.server,
-                port: proxyOutbound.server_port,
-                timeout: 5e3
+              const socket = require$$0$1.createConnection({
+                host: outbound.server,
+                port: outbound.server_port,
+                timeout: 1e4
               });
               socket.on("connect", () => {
-                console.log(`✅ 代理服务器连接成功: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                console.log(`✅ [连接测试] 代理服务器连接成功: ${outbound.server}:${outbound.server_port}`);
                 socket.destroy();
                 resolve(true);
               });
               socket.on("error", (error) => {
-                console.error(`❌ 代理服务器连接失败: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
-                console.error(`错误详情: ${error.message}`);
+                console.error(`❌ [连接测试] 代理服务器连接失败: ${outbound.server}:${outbound.server_port}`, error.message);
+                socket.destroy();
                 resolve(false);
               });
               socket.on("timeout", () => {
-                console.error(`⏰ 代理服务器连接超时: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                console.error(`⏰ [连接测试] 代理服务器连接超时: ${outbound.server}:${outbound.server_port}`);
                 socket.destroy();
                 resolve(false);
               });
@@ -1572,13 +2799,71 @@ class ProxyManager {
           };
           const isConnected = await testConnection();
           if (!isConnected) {
-            console.warn(`⚠️  代理服务器可能不可用，这可能是导致无法联网的原因`);
+            console.warn(`⚠️  [连接测试] 代理服务器可能不可用，这可能是导致无法联网的原因`);
           }
         }
       }
+      console.log(`🔍 [连接测试] 开始测试通过代理访问外部网站...`);
+      await this.testProxyAccess(port);
       console.log(`代理连接测试完成`);
     } catch (error) {
       console.error(`代理连接测试失败:`, error);
+    }
+  }
+  /**
+   * 测试通过代理访问外部网站
+   */
+  async testProxyAccess(port) {
+    console.log(`🔍 [代理访问测试] 开始测试通过代理访问外部网站...`);
+    try {
+      const https2 = require("https");
+      const http2 = require("http");
+      const proxyUrl = `http://127.0.0.1:${port}`;
+      const testUrl = "http://connectivitycheck.gstatic.com/generate_204";
+      console.log(`🔍 [代理访问测试] 测试URL: ${testUrl}`);
+      console.log(`🔍 [代理访问测试] 代理地址: ${proxyUrl}`);
+      const testRequest = () => {
+        return new Promise((resolve) => {
+          const url2 = new URL(testUrl);
+          const isHttps2 = url2.protocol === "https:";
+          const client = isHttps2 ? https2 : http2;
+          const options = {
+            hostname: "127.0.0.1",
+            port,
+            path: testUrl,
+            method: "GET",
+            timeout: 1e4,
+            headers: {
+              "Host": url2.hostname
+            }
+          };
+          console.log(`🔍 [代理访问测试] 发送请求选项:`, options);
+          const req = client.request(options, (res) => {
+            console.log(`✅ [代理访问测试] 请求成功，状态码: ${res.statusCode}`);
+            console.log(`🔍 [代理访问测试] 响应头:`, res.headers);
+            resolve(true);
+          });
+          req.on("error", (error) => {
+            console.error(`❌ [代理访问测试] 请求失败:`, error.message);
+            console.error(`🔍 [代理访问测试] 错误详情:`, error);
+            resolve(false);
+          });
+          req.on("timeout", () => {
+            console.error(`⏰ [代理访问测试] 请求超时`);
+            req.destroy();
+            resolve(false);
+          });
+          req.end();
+        });
+      };
+      const success = await testRequest();
+      if (success) {
+        console.log(`✅ [代理访问测试] 通过代理访问外部网站成功`);
+      } else {
+        console.warn(`⚠️  [代理访问测试] 通过代理访问外部网站失败，这可能是导致无法联网的原因`);
+      }
+    } catch (error) {
+      console.error(`❌ [代理访问测试] 测试过程中发生错误:`, error);
     }
   }
   /**
@@ -1725,6 +3010,18 @@ class ProxyManager {
         const output = data.toString();
         console.log(`=== Sing-box 标准输出 ===`);
         console.log(`输出内容: ${output}`);
+        if (output.includes("inbound")) {
+          console.log(`🔍 [流量监控] 检测到入站连接: ${output}`);
+        }
+        if (output.includes("outbound")) {
+          console.log(`🔍 [流量监控] 检测到出站连接: ${output}`);
+        }
+        if (output.includes("route")) {
+          console.log(`🔍 [流量监控] 检测到路由规则匹配: ${output}`);
+        }
+        if (output.includes("error") || output.includes("failed")) {
+          console.error(`❌ [流量监控] 检测到错误: ${output}`);
+        }
       });
       childProcess.stderr.on("data", (data) => {
         var _a3, _b3;
@@ -1732,9 +3029,9 @@ class ProxyManager {
         console.error(`=== Sing-box 标准错误 ===`);
         console.error(`错误内容: ${errorMessage}`);
         if (errorMessage.includes("bind: address already in use")) {
-          console.log("检测到端口占用错误，进行详细诊断...");
+          console.log("🔍 [错误诊断] 检测到端口占用错误，进行详细诊断...");
           const port2 = ((_b3 = (_a3 = finalConfig.inbounds) == null ? void 0 : _a3[0]) == null ? void 0 : _b3.listen_port) || 1080;
-          console.log("立即发送端口占用通知，端口:", port2);
+          console.log("🔍 [错误诊断] 立即发送端口占用通知，端口:", port2);
           this.sendPortInUseNotification(port2, processId);
           childProcess.kill();
           setTimeout(() => {
@@ -1746,8 +3043,8 @@ class ProxyManager {
           return;
         }
         if (errorMessage.includes("decode config")) {
-          console.error("Sing-box 配置解析错误，请检查配置文件格式");
-          console.log("当前配置:", JSON.stringify(finalConfig, null, 2));
+          console.error("🔍 [错误诊断] Sing-box 配置解析错误，请检查配置文件格式");
+          console.log("🔍 [错误诊断] 当前配置:", JSON.stringify(finalConfig, null, 2));
           childProcess.kill();
           if (!resolved) {
             resolved = true;
@@ -1756,13 +3053,19 @@ class ProxyManager {
           return;
         }
         if (errorMessage.includes("FATAL")) {
-          console.error("Sing-box 致命错误:", errorMessage);
+          console.error("🔍 [错误诊断] Sing-box 致命错误:", errorMessage);
           childProcess.kill();
           if (!resolved) {
             resolved = true;
             reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
           }
           return;
+        }
+        if (errorMessage.includes("connection") || errorMessage.includes("connect")) {
+          console.error("🔍 [连接诊断] 检测到连接相关错误:", errorMessage);
+        }
+        if (errorMessage.includes("auth") || errorMessage.includes("authentication")) {
+          console.error("🔍 [认证诊断] 检测到认证相关错误:", errorMessage);
         }
       });
       this.processes.set(processId, {
@@ -1794,6 +3097,9 @@ class ProxyManager {
               console.log(`端口 ${port} 验证成功`);
               console.log(`进程ID: ${processId}`);
               await this.testProxyConnection(port);
+              console.log(`🔍 [代理验证] 开始验证系统代理设置...`);
+              const { systemProxyManager: systemProxyManager2 } = require("./systemProxyManager");
+              await systemProxyManager2.verifyProxySettings();
               resolved = true;
               resolve();
             } else {
@@ -2365,493 +3671,186 @@ class ProxyManager {
     }
     return allNodes;
   }
+  /**
+   * 启动代理链
+   */
+  async startProxyChain(chainId, nodes, port) {
+    console.log(`[ProxyManager] 启动代理链: ${chainId}`);
+    console.log(`[ProxyManager] 使用 ${this.useMiddleware ? "中间件" : "传统sing-box"} 模式`);
+    console.log(`[ProxyManager] 节点数量: ${nodes.length}`);
+    if (this.useMiddleware) {
+      await this.startProxyChainWithMiddleware(chainId, nodes, port);
+    } else {
+      await this.startProxyChainWithSingBox(chainId, nodes, port);
+    }
+  }
+  /**
+   * 使用中间件启动代理链
+   */
+  async startProxyChainWithMiddleware(chainId, nodes, port) {
+    console.log(`[ProxyManager] 使用中间件启动代理链: ${chainId}`);
+    try {
+      if (this.middlewareManager) {
+        await this.middlewareManager.stop();
+      }
+      const config = {
+        entryPort: port,
+        nodes,
+        enableMonitoring: true,
+        enableProtection: true,
+        maxRetries: 3,
+        timeout: 1e4
+      };
+      this.middlewareManager = new ProxyChainMiddlewareManager(config);
+      this.middlewareManager.addMonitoringListener((event) => {
+        console.log(`[ProxyManager] 中间件监控事件: ${event.type}`, event.data);
+      });
+      await this.middlewareManager.start();
+      await systemProxyManager.setSystemProxy("127.0.0.1", port, port);
+      console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
+    } catch (error) {
+      console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
+      console.log(`[ProxyManager] 回退到传统sing-box模式`);
+      this.useMiddleware = false;
+      await this.startProxyChainWithSingBox(chainId, nodes, port);
+    }
+  }
+  /**
+   * 使用传统sing-box启动代理链
+   */
+  async startProxyChainWithSingBox(chainId, nodes, port) {
+    console.log(`[ProxyManager] 使用传统sing-box启动代理链: ${chainId}`);
+    proxyChainConfigGenerator.generateChainConfig(nodes, port);
+  }
+  /**
+   * 停止代理链
+   */
+  async stopProxyChain(chainId) {
+    console.log(`[ProxyManager] 停止代理链: ${chainId}`);
+    if (this.middlewareManager) {
+      await this.middlewareManager.stop();
+      this.middlewareManager = void 0;
+    }
+    const process2 = this.processes.get(chainId);
+    if (process2) {
+      this.processes.delete(chainId);
+    }
+    console.log(`✅ [ProxyManager] 代理链停止成功: ${chainId}`);
+  }
+  /**
+   * 获取代理链状态
+   */
+  getProxyChainStatus(chainId) {
+    if (this.middlewareManager) {
+      return this.middlewareManager.getStatus();
+    }
+    const process2 = this.processes.get(chainId);
+    return process2 ? { status: "running", ...process2 } : { status: "stopped" };
+  }
+  /**
+   * 获取流量统计
+   */
+  getTrafficStats() {
+    if (this.middlewareManager) {
+      return this.middlewareManager.getTrafficStats();
+    }
+    return { bytesReceived: 0, bytesSent: 0, connections: 0 };
+  }
+  /**
+   * 切换代理链模式
+   */
+  setUseMiddleware(useMiddleware) {
+    this.useMiddleware = useMiddleware;
+    console.log(`[ProxyManager] 切换代理链模式: ${useMiddleware ? "中间件" : "传统sing-box"}`);
+  }
+  /**
+   * 测试节点延迟
+   */
+  async testNodeLatency(node2) {
+    console.log(`[ProxyManager] Testing latency for node: ${node2.name} (${node2.id})`);
+    try {
+      const startTime = Date.now();
+      const https2 = require("https");
+      const http2 = require("http");
+      const testUrl = "http://connectivitycheck.gstatic.com/generate_204";
+      const timeout = 1e4;
+      return new Promise((resolve) => {
+        const url2 = new URL(testUrl);
+        const isHttps2 = url2.protocol === "https:";
+        const client = isHttps2 ? https2 : http2;
+        const req = client.request(url2, {
+          method: "GET",
+          timeout
+        }, () => {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          console.log(`延迟测试成功: ${node2.name}`, { latency });
+          resolve({
+            success: true,
+            latency,
+            timestamp: Date.now()
+          });
+        });
+        req.on("error", (error) => {
+          console.error(`延迟测试失败: ${node2.name}`, error);
+          resolve({
+            success: false,
+            error: error.message,
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        req.on("timeout", () => {
+          console.error(`延迟测试超时: ${node2.name}`);
+          req.destroy();
+          resolve({
+            success: false,
+            error: "Request timeout",
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        req.end();
+      });
+    } catch (error) {
+      console.error(`延迟测试失败: ${node2.name}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        latency: 0,
+        timestamp: Date.now()
+      };
+    }
+  }
+  /**
+   * 测试多个节点延迟
+   */
+  async testNodesLatency(nodes) {
+    const promises = nodes.map((node2) => this.testNodeLatency(node2));
+    const results = await Promise.allSettled(promises);
+    return results.map((result, index) => {
+      const node2 = nodes[index];
+      if (!node2) {
+        return { nodeId: "unknown", success: false, error: "Node not found at index", latency: 0, timestamp: Date.now() };
+      }
+      if (result.status === "fulfilled") {
+        return {
+          nodeId: node2.id,
+          ...result.value
+        };
+      } else {
+        return {
+          nodeId: node2.id,
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : "Unknown test error",
+          latency: 0,
+          timestamp: Date.now()
+        };
+      }
+    });
+  }
 }
 const proxyManager = ProxyManager.getInstance();
-const execAsync = require$$1$1.promisify(child_process.exec);
-class SystemProxyManager {
-  constructor() {
-  }
-  static getInstance() {
-    if (!SystemProxyManager.instance) {
-      SystemProxyManager.instance = new SystemProxyManager();
-    }
-    return SystemProxyManager.instance;
-  }
-  /**
-   * 设置系统代理
-   */
-  async setSystemProxy(host, socksPort, httpPort) {
-    switch (process.platform) {
-      case "win32":
-        await this.setWindowsProxy(host, httpPort || socksPort);
-        break;
-      case "darwin":
-        await this.setMacOSProxy(host, socksPort, httpPort);
-        break;
-      case "linux":
-        await this.setLinuxProxy(host, httpPort || socksPort);
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * 清除系统代理
-   */
-  async clearSystemProxy() {
-    switch (process.platform) {
-      case "win32":
-        await this.clearWindowsProxy();
-        break;
-      case "darwin":
-        await this.clearMacOSProxy();
-        break;
-      case "linux":
-        await this.clearLinuxProxy();
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * 获取当前系统代理设置
-   */
-  async getSystemProxy() {
-    switch (process.platform) {
-      case "win32":
-        return await this.getWindowsProxy();
-      case "darwin":
-        return await this.getMacOSProxy();
-      case "linux":
-        return await this.getLinuxProxy();
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * Windows系统代理设置
-   */
-  async setWindowsProxy(host, port) {
-    try {
-      await execAsync(`netsh winhttp set proxy ${host}:${port}`);
-      const script = `
-        $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-        Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 1
-        Set-ItemProperty -Path $regPath -Name ProxyServer -Value "${host}:${port}"
-        Set-ItemProperty -Path $regPath -Name ProxyOverride -Value "<-loopback>"
-      `;
-      await execAsync(`powershell -Command "${script}"`);
-      console.log(`Windows proxy set to ${host}:${port}`);
-    } catch (error) {
-      throw new Error(`Failed to set Windows proxy: ${error}`);
-    }
-  }
-  async clearWindowsProxy() {
-    try {
-      await execAsync("netsh winhttp reset proxy");
-      const script = `
-        $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-        Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 0
-        Remove-ItemProperty -Path $regPath -Name ProxyServer -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path $regPath -Name ProxyOverride -ErrorAction SilentlyContinue
-      `;
-      await execAsync(`powershell -Command "${script}"`);
-      console.log("Windows proxy cleared");
-    } catch (error) {
-      throw new Error(`Failed to clear Windows proxy: ${error}`);
-    }
-  }
-  async getWindowsProxy() {
-    try {
-      const { stdout } = await execAsync("netsh winhttp show proxy");
-      const lines = stdout.split("\n");
-      for (const line of lines) {
-        if (line.includes("Proxy Server(s):")) {
-          const match = line.match(/(\d+\.\d+\.\d+\.\d+):(\d+)/);
-          if (match && match[1] && match[2]) {
-            return {
-              host: match[1],
-              port: parseInt(match[2]),
-              enabled: true
-            };
-          }
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to get Windows proxy:", error);
-      return null;
-    }
-  }
-  /**
-   * macOS系统代理设置
-   */
-  async setMacOSProxy(host, socksPort, httpPort) {
-    console.log(`=== 开始设置 macOS 系统代理 ===`);
-    console.log(`代理主机: ${host}`);
-    console.log(`SOCKS端口: ${socksPort}`);
-    console.log(`HTTP端口: ${httpPort || socksPort}`);
-    const actualHttpPort = httpPort || socksPort;
-    try {
-      console.log(`获取网络服务列表...`);
-      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
-      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
-      console.log(`找到网络服务:`, serviceLines);
-      for (const service of serviceLines) {
-        if (service.trim()) {
-          console.log(`设置网络服务 "${service.trim()}" 的代理...`);
-          console.log(`设置HTTP代理: ${host}:${actualHttpPort}`);
-          await execAsync(`networksetup -setwebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
-          console.log(`设置HTTPS代理: ${host}:${actualHttpPort}`);
-          await execAsync(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
-          console.log(`设置SOCKS代理: ${host}:${socksPort}`);
-          await execAsync(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${socksPort}`);
-          console.log(`启用HTTP代理`);
-          await execAsync(`networksetup -setwebproxystate "${service.trim()}" on`);
-          console.log(`启用HTTPS代理`);
-          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" on`);
-          console.log(`启用SOCKS代理`);
-          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" on`);
-        }
-      }
-      console.log(`=== macOS 系统代理设置完成 ===`);
-      console.log(`HTTP/HTTPS代理: ${host}:${actualHttpPort}`);
-      console.log(`SOCKS代理: ${host}:${socksPort}`);
-      await this.verifyProxySettings(serviceLines);
-    } catch (error) {
-      throw new Error(`Failed to set macOS proxy: ${error}`);
-    }
-  }
-  /**
-   * 验证代理设置是否生效
-   */
-  async verifyProxySettings(services) {
-    console.log(`=== 验证代理设置是否生效 ===`);
-    try {
-      for (const service of services) {
-        if (service.trim()) {
-          console.log(`检查网络服务 "${service.trim()}" 的代理状态...`);
-          const { stdout: httpStatus } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
-          console.log(`HTTP代理状态:`, httpStatus);
-          const { stdout: httpsStatus } = await execAsync(`networksetup -getsecurewebproxy "${service.trim()}"`);
-          console.log(`HTTPS代理状态:`, httpsStatus);
-          const { stdout: socksStatus } = await execAsync(`networksetup -getsocksfirewallproxy "${service.trim()}"`);
-          console.log(`SOCKS代理状态:`, socksStatus);
-        }
-      }
-      console.log(`=== 代理设置验证完成 ===`);
-    } catch (error) {
-      console.error(`代理设置验证失败:`, error);
-    }
-  }
-  async clearMacOSProxy() {
-    try {
-      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
-      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
-      for (const service of serviceLines) {
-        if (service.trim()) {
-          await execAsync(`networksetup -setwebproxystate "${service.trim()}" off`);
-          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" off`);
-          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" off`);
-        }
-      }
-      console.log("macOS proxy cleared");
-    } catch (error) {
-      throw new Error(`Failed to clear macOS proxy: ${error}`);
-    }
-  }
-  async getMacOSProxy() {
-    try {
-      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
-      const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
-      for (const service of serviceLines) {
-        if (service.trim()) {
-          const { stdout } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
-          const lines = stdout.split("\n");
-          for (const line of lines) {
-            if (line.includes("Server:") && !line.includes("(null)")) {
-              const serverMatch = line.match(/Server: (.+)/);
-              const portMatch = stdout.match(/Port: (\d+)/);
-              if (serverMatch && portMatch && serverMatch[1] && portMatch[1]) {
-                return {
-                  host: serverMatch[1].trim(),
-                  port: parseInt(portMatch[1]),
-                  enabled: true
-                };
-              }
-            }
-          }
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to get macOS proxy:", error);
-      return null;
-    }
-  }
-  /**
-   * Linux系统代理设置
-   */
-  async setLinuxProxy(host, port) {
-    try {
-      const proxyUrl = `http://${host}:${port}`;
-      await execAsync(`export http_proxy=${proxyUrl}`);
-      await execAsync(`export https_proxy=${proxyUrl}`);
-      await execAsync(`export HTTP_PROXY=${proxyUrl}`);
-      await execAsync(`export HTTPS_PROXY=${proxyUrl}`);
-      try {
-        await execAsync(`gsettings set org.gnome.system.proxy mode 'manual'`);
-        await execAsync(`gsettings set org.gnome.system.proxy.http host '${host}'`);
-        await execAsync(`gsettings set org.gnome.system.proxy.http port ${port}`);
-        await execAsync(`gsettings set org.gnome.system.proxy.https host '${host}'`);
-        await execAsync(`gsettings set org.gnome.system.proxy.https port ${port}`);
-      } catch (error) {
-        console.warn("GNOME settings not available, using environment variables only");
-      }
-      console.log(`Linux proxy set to ${host}:${port}`);
-    } catch (error) {
-      throw new Error(`Failed to set Linux proxy: ${error}`);
-    }
-  }
-  async clearLinuxProxy() {
-    try {
-      await execAsync("unset http_proxy");
-      await execAsync("unset https_proxy");
-      await execAsync("unset HTTP_PROXY");
-      await execAsync("unset HTTPS_PROXY");
-      try {
-        await execAsync('gsettings set org.gnome.system.proxy mode "none"');
-      } catch (error) {
-        console.warn("GNOME settings not available");
-      }
-      console.log("Linux proxy cleared");
-    } catch (error) {
-      throw new Error(`Failed to clear Linux proxy: ${error}`);
-    }
-  }
-  async getLinuxProxy() {
-    try {
-      const httpProxy = process.env["http_proxy"] || process.env["HTTP_PROXY"];
-      if (httpProxy) {
-        const match = httpProxy.match(/http:\/\/([^:]+):(\d+)/);
-        if (match && match[1] && match[2]) {
-          return {
-            host: match[1],
-            port: parseInt(match[2]),
-            enabled: true
-          };
-        }
-      }
-      try {
-        const { stdout } = await execAsync("gsettings get org.gnome.system.proxy mode");
-        if (stdout.includes("manual")) {
-          const { stdout: host } = await execAsync("gsettings get org.gnome.system.proxy.http host");
-          const { stdout: port } = await execAsync("gsettings get org.gnome.system.proxy.http port");
-          if (host && port) {
-            return {
-              host: host.trim().replace(/['"]/g, ""),
-              port: parseInt(port.trim()),
-              enabled: true
-            };
-          }
-        }
-      } catch (error) {
-        console.warn("GNOME settings not available");
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to get Linux proxy:", error);
-      return null;
-    }
-  }
-  /**
-   * 创建VPN连接
-   */
-  async createVPNConnection(config) {
-    switch (process.platform) {
-      case "win32":
-        await this.createWindowsVPN(config);
-        break;
-      case "darwin":
-        await this.createMacOSVPN(config);
-        break;
-      case "linux":
-        await this.createLinuxVPN(config);
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * 连接VPN
-   */
-  async connectVPN(name) {
-    switch (process.platform) {
-      case "win32":
-        await this.connectWindowsVPN(name);
-        break;
-      case "darwin":
-        await this.connectMacOSVPN(name);
-        break;
-      case "linux":
-        await this.connectLinuxVPN(name);
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * 断开VPN
-   */
-  async disconnectVPN(name) {
-    switch (process.platform) {
-      case "win32":
-        await this.disconnectWindowsVPN(name);
-        break;
-      case "darwin":
-        await this.disconnectMacOSVPN(name);
-        break;
-      case "linux":
-        await this.disconnectLinuxVPN(name);
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
-    }
-  }
-  /**
-   * Windows VPN操作
-   */
-  async createWindowsVPN(config) {
-    try {
-      const command = `Add-VpnConnection -Name "${config.name}" -ServerAddress "${config.server}" -TunnelType "${config.type}" -EncryptionLevel "Required" -AuthenticationMethod MSChapv2 -Force -PassThru -AllUserConnection`;
-      await execAsync(`powershell -Command "${command}"`);
-      console.log(`Windows VPN connection created: ${config.name}`);
-    } catch (error) {
-      throw new Error(`Failed to create Windows VPN: ${error}`);
-    }
-  }
-  async connectWindowsVPN(name) {
-    try {
-      await execAsync(`rasdial "${name}"`);
-      console.log(`Windows VPN connected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to connect Windows VPN: ${error}`);
-    }
-  }
-  async disconnectWindowsVPN(name) {
-    try {
-      await execAsync(`rasdial "${name}" /disconnect`);
-      console.log(`Windows VPN disconnected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to disconnect Windows VPN: ${error}`);
-    }
-  }
-  /**
-   * macOS VPN操作
-   */
-  async createMacOSVPN(config) {
-    try {
-      console.log(`macOS VPN creation not fully implemented for ${config.name}`);
-    } catch (error) {
-      throw new Error(`Failed to create macOS VPN: ${error}`);
-    }
-  }
-  async connectMacOSVPN(name) {
-    try {
-      await execAsync(`networksetup -connectpppoeservice "${name}"`);
-      console.log(`macOS VPN connected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to connect macOS VPN: ${error}`);
-    }
-  }
-  async disconnectMacOSVPN(name) {
-    try {
-      await execAsync(`networksetup -disconnectpppoeservice "${name}"`);
-      console.log(`macOS VPN disconnected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to disconnect macOS VPN: ${error}`);
-    }
-  }
-  /**
-   * Linux VPN操作
-   */
-  async createLinuxVPN(config) {
-    try {
-      console.log(`Linux VPN creation not fully implemented for ${config.name}`);
-    } catch (error) {
-      throw new Error(`Failed to create Linux VPN: ${error}`);
-    }
-  }
-  async connectLinuxVPN(name) {
-    try {
-      await execAsync(`nmcli connection up "${name}"`);
-      console.log(`Linux VPN connected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to connect Linux VPN: ${error}`);
-    }
-  }
-  async disconnectLinuxVPN(name) {
-    try {
-      await execAsync(`nmcli connection down "${name}"`);
-      console.log(`Linux VPN disconnected: ${name}`);
-    } catch (error) {
-      throw new Error(`Failed to disconnect Linux VPN: ${error}`);
-    }
-  }
-  /**
-   * 获取网络接口信息
-   */
-  getNetworkInterfaces() {
-    const interfaces = os.networkInterfaces();
-    const result = [];
-    for (const [name, nets] of Object.entries(interfaces)) {
-      if (nets) {
-        for (const net of nets) {
-          if (net.family === "IPv4") {
-            result.push({
-              name,
-              address: net.address,
-              netmask: net.netmask || "",
-              family: "IPv4",
-              internal: net.internal
-            });
-          }
-        }
-      }
-    }
-    return result;
-  }
-  /**
-   * 检查系统权限
-   */
-  async checkPermissions() {
-    const result = {
-      admin: false,
-      network: false,
-      vpn: false
-    };
-    try {
-      if (process.platform === "win32") {
-        await execAsync("net session");
-        result.admin = true;
-      } else {
-        await execAsync("sudo -n true");
-        result.admin = true;
-      }
-    } catch (error) {
-      result.admin = false;
-    }
-    try {
-      const interfaces = this.getNetworkInterfaces();
-      result.network = interfaces.length > 0;
-    } catch (error) {
-      result.network = false;
-    }
-    result.vpn = result.admin;
-    return result;
-  }
-}
-const systemProxyManager = SystemProxyManager.getInstance();
 const log = {
   info: (message, data, category) => {
     console.log(`[INFO] [${category || "CrashMonitor"}] ${message}`, data || "");
@@ -23351,16 +24350,33 @@ class DynamicChainManager {
       console.log(`[DynamicChainManager] Testing latency for ${nodesToTest.length} nodes...`);
       const testResults = await proxyManager.testNodesLatency(nodesToTest);
       const bestNodes = [];
+      const selectedProtocol = this.selectCompatibleProtocol(nodesToTest);
+      console.log(`[DynamicChainManager] 选择的兼容协议类型: ${selectedProtocol}`);
       for (const subId of chainConfig.proxies) {
         const nodesInSub = subscriptionNodeMap.get(subId) || [];
         const resultsForSub = testResults.filter((r) => nodesInSub.some((n) => n.id === r.nodeId));
-        const validResults = resultsForSub.filter((r) => r.success && r.latency > 0);
+        const validResults = resultsForSub.filter((r) => {
+          const node2 = nodesInSub.find((n) => n.id === r.nodeId);
+          return r.success && r.latency > 0 && node2 && node2.type === selectedProtocol;
+        });
         if (validResults.length > 0) {
           validResults.sort((a, b) => a.latency - b.latency);
           const bestResult = validResults[0];
           const bestNode = nodesInSub.find((n) => n.id === bestResult.nodeId);
           if (bestNode) {
             bestNodes.push(bestNode);
+            console.log(`[DynamicChainManager] 为订阅 ${subId} 选择节点: ${bestNode.name} (协议: ${bestNode.type}, 延迟: ${bestResult.latency}ms)`);
+          }
+        } else {
+          const fallbackResults = resultsForSub.filter((r) => r.success && r.latency > 0);
+          if (fallbackResults.length > 0) {
+            fallbackResults.sort((a, b) => a.latency - b.latency);
+            const fallbackResult = fallbackResults[0];
+            const fallbackNode = nodesInSub.find((n) => n.id === fallbackResult.nodeId);
+            if (fallbackNode) {
+              bestNodes.push(fallbackNode);
+              console.log(`[DynamicChainManager] 为订阅 ${subId} 选择备用节点: ${fallbackNode.name} (协议: ${fallbackNode.type}, 延迟: ${fallbackResult.latency}ms)`);
+            }
           }
         }
       }
@@ -23381,6 +24397,28 @@ class DynamicChainManager {
       console.error(`[DynamicChainManager] Failed to update and apply chain ${chainConfig.name}:`, error);
       throw error;
     }
+  }
+  selectCompatibleProtocol(nodes) {
+    const protocols = /* @__PURE__ */ new Set();
+    nodes.forEach((node2) => {
+      protocols.add(node2.type);
+    });
+    if (protocols.size === 0) {
+      return "vmess";
+    }
+    const protocolCounts = {};
+    protocols.forEach((p) => {
+      protocolCounts[p] = (protocolCounts[p] || 0) + 1;
+    });
+    let mostCommonProtocol = "vmess";
+    let maxCount = 0;
+    for (const protocol in protocolCounts) {
+      if (protocolCounts[protocol] && protocolCounts[protocol] > maxCount) {
+        mostCommonProtocol = protocol;
+        maxCount = protocolCounts[protocol];
+      }
+    }
+    return mostCommonProtocol;
   }
 }
 const dynamicChainManager = DynamicChainManager.getInstance();

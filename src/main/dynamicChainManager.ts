@@ -117,17 +117,39 @@ export class DynamicChainManager {
       
       // 4. 从每个订阅组中选出最优节点
       const bestNodes: ProxyNode[] = [];
+      const selectedProtocol = this.selectCompatibleProtocol(nodesToTest);
+      
+      console.log(`[DynamicChainManager] 选择的兼容协议类型: ${selectedProtocol}`);
+      
       for (const subId of chainConfig.proxies) {
         const nodesInSub = subscriptionNodeMap.get(subId) || [];
-        const resultsForSub = testResults.filter(r => nodesInSub.some(n => n.id === r.nodeId));
+        const resultsForSub = testResults.filter((r: any) => nodesInSub.some(n => n.id === r.nodeId));
         
-        const validResults = resultsForSub.filter(r => r.success && r.latency > 0);
+        // 优先选择相同协议的节点
+        const validResults = resultsForSub.filter((r: any) => {
+          const node = nodesInSub.find(n => n.id === r.nodeId);
+          return r.success && r.latency > 0 && node && node.type === selectedProtocol;
+        });
+        
         if (validResults.length > 0) {
-          validResults.sort((a, b) => a.latency - b.latency);
+          validResults.sort((a: any, b: any) => a.latency - b.latency);
           const bestResult = validResults[0];
           const bestNode = nodesInSub.find(n => n.id === bestResult.nodeId);
           if (bestNode) {
             bestNodes.push(bestNode);
+            console.log(`[DynamicChainManager] 为订阅 ${subId} 选择节点: ${bestNode.name} (协议: ${bestNode.type}, 延迟: ${bestResult.latency}ms)`);
+          }
+        } else {
+          // 如果没有相同协议的节点，选择延迟最低的节点
+          const fallbackResults = resultsForSub.filter((r: any) => r.success && r.latency > 0);
+          if (fallbackResults.length > 0) {
+            fallbackResults.sort((a: any, b: any) => a.latency - b.latency);
+            const fallbackResult = fallbackResults[0];
+            const fallbackNode = nodesInSub.find(n => n.id === fallbackResult.nodeId);
+            if (fallbackNode) {
+              bestNodes.push(fallbackNode);
+              console.log(`[DynamicChainManager] 为订阅 ${subId} 选择备用节点: ${fallbackNode.name} (协议: ${fallbackNode.type}, 延迟: ${fallbackResult.latency}ms)`);
+            }
           }
         }
       }
@@ -153,6 +175,33 @@ export class DynamicChainManager {
       console.error(`[DynamicChainManager] Failed to update and apply chain ${chainConfig.name}:`, error);
       throw error;
     }
+  }
+
+  private selectCompatibleProtocol(nodes: ProxyNode[]): string {
+    const protocols = new Set<string>();
+    nodes.forEach(node => {
+      protocols.add(node.type);
+    });
+
+    if (protocols.size === 0) {
+      return 'vmess'; // 默认协议
+    }
+
+    // 尝试找到最常见的协议
+    const protocolCounts: { [key: string]: number } = {};
+    protocols.forEach(p => {
+      protocolCounts[p] = (protocolCounts[p] || 0) + 1;
+    });
+
+    let mostCommonProtocol = 'vmess'; // 默认值
+    let maxCount = 0;
+    for (const protocol in protocolCounts) {
+      if (protocolCounts[protocol] && protocolCounts[protocol] > maxCount) {
+        mostCommonProtocol = protocol;
+        maxCount = protocolCounts[protocol];
+      }
+    }
+    return mostCommonProtocol;
   }
 }
 

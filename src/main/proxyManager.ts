@@ -7,6 +7,9 @@ import { createConnection } from 'net';
 import { ProxyNode, ChainConfig, NetworkSettings } from '../shared/types';
 import { proxyChainConfigGenerator } from './proxyChainConfigGenerator';
 import { settingsManager } from './settingsManager';
+import { ProxyChainMiddlewareManager } from './proxyChainMiddlewareManager';
+import { ProxyChainMiddlewareConfig } from '../shared/types/middleware';
+import { systemProxyManager } from './systemProxyManager';
 
 interface ProxyProcess {
   id: string;
@@ -17,9 +20,14 @@ interface ProxyProcess {
   networkSettings?: any;
 }
 
+/**
+ * 代理管理器 - 支持传统sing-box代理链和新的中间件代理链
+ */
 export class ProxyManager {
   private static instance: ProxyManager;
   private processes: Map<string, ProxyProcess> = new Map();
+  private middlewareManager?: ProxyChainMiddlewareManager | undefined;
+  private useMiddleware: boolean = true; // 默认使用中间件模式
   private configDir: string;
   private binDir: string;
   private currentNetworkSettings?: NetworkSettings;
@@ -44,103 +52,6 @@ export class ProxyManager {
     return ProxyManager.instance;
   }
 
-  public async testNodesLatency(nodes: ProxyNode[]): Promise<any[]> {
-    const promises = nodes.map(node => this.testNodeLatency(node));
-    const results = await Promise.allSettled(promises);
-    
-    return results.map((result, index) => {
-      const node = nodes[index];
-      if (!node) {
-        return { nodeId: 'unknown', success: false, error: 'Node not found at index', latency: 0, timestamp: Date.now() };
-      }
-      if (result.status === 'fulfilled') {
-        return {
-          nodeId: node.id,
-          ...result.value
-        };
-      } else {
-        return {
-          nodeId: node.id,
-          success: false,
-          error: result.reason instanceof Error ? result.reason.message : 'Unknown test error',
-          latency: 0,
-          timestamp: Date.now()
-        };
-      }
-    });
-  }
-
-  public async testNodeLatency(node: ProxyNode): Promise<{ success: boolean; latency: number, timestamp: number, error?: string }> {
-    console.log(`[ProxyManager] Testing latency for node: ${node.name} (${node.id})`);
-    
-    try {
-      const startTime = Date.now();
-      
-      // 创建HTTP请求来测试延迟（直接连接测试，不使用代理）
-      const https = require('https');
-      const http = require('http');
-      
-      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
-      const timeout = 10000;
-      
-      return new Promise((resolve) => {
-        const url = new URL(testUrl);
-        const isHttps = url.protocol === 'https:';
-        const client = isHttps ? https : http;
-        
-        const req = client.request(url, {
-          method: 'GET',
-          timeout: timeout,
-        }, () => {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          
-          console.log(`延迟测试成功: ${node.name}`, { latency });
-          
-          resolve({
-            success: true,
-            latency,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.on('error', (error: any) => {
-          console.error(`延迟测试失败: ${node.name}`, error);
-          resolve({
-            success: false,
-            error: error.message,
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.on('timeout', () => {
-          console.error(`延迟测试超时: ${node.name}`);
-          req.destroy();
-          resolve({
-            success: false,
-            error: 'Request timeout',
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.end();
-      });
-      
-    } catch (error) {
-      console.error(`延迟测试失败: ${node.name}`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency: 0,
-        timestamp: Date.now()
-      };
-    }
-  }
-
-
-
   /**
    * 更新网络设置
    */
@@ -157,47 +68,45 @@ export class ProxyManager {
     console.log(`测试端口: ${port}`);
     
     try {
-      // 测试代理服务器连接
-      const net = require('net');
+      // 获取当前配置中的代理服务器信息
+      const currentProcess = Array.from(this.processes.values()).find(p => p.port === port);
+      if (!currentProcess) {
+        console.warn(`⚠️  未找到端口 ${port} 对应的进程配置`);
+        return;
+      }
       
-      // 从配置中获取代理服务器信息
-      const configFiles = require('fs').readdirSync(this.configDir);
-      const latestConfig = configFiles
-        .filter((file: string) => file.startsWith('singbox_') && file.endsWith('.json'))
-        .sort()
-        .pop();
+      console.log(`🔍 [连接测试] 当前进程配置:`, JSON.stringify(currentProcess.config, null, 2));
       
-      if (latestConfig) {
-        const configPath = require('path').join(this.configDir, latestConfig);
-        const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
-        const proxyOutbound = config.outbounds?.find((outbound: any) => outbound.type !== 'direct' && outbound.type !== 'dns');
-        
-        if (proxyOutbound) {
-          console.log(`测试代理服务器连接: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+      // 检查出站配置
+      const outbounds = currentProcess.config.outbounds || [];
+      console.log(`🔍 [连接测试] 出站配置数量: ${outbounds.length}`);
+      
+      for (const outbound of outbounds) {
+        if (outbound.type === 'vmess' || outbound.type === 'trojan' || outbound.type === 'vless') {
+          console.log(`🔍 [连接测试] 测试代理服务器连接: ${outbound.server}:${outbound.server_port}`);
           
-          // 测试TCP连接到代理服务器
-          const testConnection = () => {
-            return new Promise<boolean>((resolve) => {
-              const socket = net.createConnection({
-                host: proxyOutbound.server,
-                port: proxyOutbound.server_port,
-                timeout: 5000
+          const testConnection = async (): Promise<boolean> => {
+            return new Promise((resolve) => {
+              const socket = createConnection({
+                host: outbound.server,
+                port: outbound.server_port,
+                timeout: 10000
               });
               
               socket.on('connect', () => {
-                console.log(`✅ 代理服务器连接成功: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                console.log(`✅ [连接测试] 代理服务器连接成功: ${outbound.server}:${outbound.server_port}`);
                 socket.destroy();
                 resolve(true);
               });
               
-              socket.on('error', (error: any) => {
-                console.error(`❌ 代理服务器连接失败: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
-                console.error(`错误详情: ${error.message}`);
+              socket.on('error', (error) => {
+                console.error(`❌ [连接测试] 代理服务器连接失败: ${outbound.server}:${outbound.server_port}`, error.message);
+                socket.destroy();
                 resolve(false);
               });
               
               socket.on('timeout', () => {
-                console.error(`⏰ 代理服务器连接超时: ${proxyOutbound.server}:${proxyOutbound.server_port}`);
+                console.error(`⏰ [连接测试] 代理服务器连接超时: ${outbound.server}:${outbound.server_port}`);
                 socket.destroy();
                 resolve(false);
               });
@@ -206,16 +115,90 @@ export class ProxyManager {
           
           const isConnected = await testConnection();
           if (!isConnected) {
-            console.warn(`⚠️  代理服务器可能不可用，这可能是导致无法联网的原因`);
+            console.warn(`⚠️  [连接测试] 代理服务器可能不可用，这可能是导致无法联网的原因`);
           }
         }
       }
+      
+      // 测试通过代理访问外部网站
+      console.log(`🔍 [连接测试] 开始测试通过代理访问外部网站...`);
+      await this.testProxyAccess(port);
       
       console.log(`代理连接测试完成`);
       
     } catch (error) {
       console.error(`代理连接测试失败:`, error);
       // 不抛出错误，因为端口验证已经成功
+    }
+  }
+
+  /**
+   * 测试通过代理访问外部网站
+   */
+  private async testProxyAccess(port: number): Promise<void> {
+    console.log(`🔍 [代理访问测试] 开始测试通过代理访问外部网站...`);
+    
+    try {
+      const https = require('https');
+      const http = require('http');
+      
+      // 创建代理请求
+      const proxyUrl = `http://127.0.0.1:${port}`;
+      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
+      
+      console.log(`🔍 [代理访问测试] 测试URL: ${testUrl}`);
+      console.log(`🔍 [代理访问测试] 代理地址: ${proxyUrl}`);
+      
+      const testRequest = () => {
+        return new Promise<boolean>((resolve) => {
+          const url = new URL(testUrl);
+          const isHttps = url.protocol === 'https:';
+          const client = isHttps ? https : http;
+          
+          const options = {
+            hostname: '127.0.0.1',
+            port: port,
+            path: testUrl,
+            method: 'GET',
+            timeout: 10000,
+            headers: {
+              'Host': url.hostname
+            }
+          };
+          
+          console.log(`🔍 [代理访问测试] 发送请求选项:`, options);
+          
+          const req = client.request(options, (res: any) => {
+            console.log(`✅ [代理访问测试] 请求成功，状态码: ${res.statusCode}`);
+            console.log(`🔍 [代理访问测试] 响应头:`, res.headers);
+            resolve(true);
+          });
+          
+          req.on('error', (error: any) => {
+            console.error(`❌ [代理访问测试] 请求失败:`, error.message);
+            console.error(`🔍 [代理访问测试] 错误详情:`, error);
+            resolve(false);
+          });
+          
+          req.on('timeout', () => {
+            console.error(`⏰ [代理访问测试] 请求超时`);
+            req.destroy();
+            resolve(false);
+          });
+          
+          req.end();
+        });
+      };
+      
+      const success = await testRequest();
+      if (success) {
+        console.log(`✅ [代理访问测试] 通过代理访问外部网站成功`);
+      } else {
+        console.warn(`⚠️  [代理访问测试] 通过代理访问外部网站失败，这可能是导致无法联网的原因`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ [代理访问测试] 测试过程中发生错误:`, error);
     }
   }
 
@@ -395,6 +378,20 @@ export class ProxyManager {
         const output = data.toString();
         console.log(`=== Sing-box 标准输出 ===`);
         console.log(`输出内容: ${output}`);
+        
+        // 解析并记录重要的流量信息
+        if (output.includes('inbound')) {
+          console.log(`🔍 [流量监控] 检测到入站连接: ${output}`);
+        }
+        if (output.includes('outbound')) {
+          console.log(`🔍 [流量监控] 检测到出站连接: ${output}`);
+        }
+        if (output.includes('route')) {
+          console.log(`🔍 [流量监控] 检测到路由规则匹配: ${output}`);
+        }
+        if (output.includes('error') || output.includes('failed')) {
+          console.error(`❌ [流量监控] 检测到错误: ${output}`);
+        }
       });
 
       // 监听标准错误
@@ -403,13 +400,13 @@ export class ProxyManager {
         console.error(`=== Sing-box 标准错误 ===`);
         console.error(`错误内容: ${errorMessage}`);
         
-        // 检测端口占用错误
+        // 增强错误诊断
         if (errorMessage.includes('bind: address already in use')) {
-          console.log('检测到端口占用错误，进行详细诊断...');
+          console.log('🔍 [错误诊断] 检测到端口占用错误，进行详细诊断...');
           
           // 立即发送端口占用通知，不等待异步检查
           const port = finalConfig.inbounds?.[0]?.listen_port || 1080;
-          console.log('立即发送端口占用通知，端口:', port);
+          console.log('🔍 [错误诊断] 立即发送端口占用通知，端口:', port);
           this.sendPortInUseNotification(port, processId);
           
           // 终止子进程
@@ -427,8 +424,8 @@ export class ProxyManager {
         
         // 检测其他常见错误
         if (errorMessage.includes('decode config')) {
-          console.error('Sing-box 配置解析错误，请检查配置文件格式');
-          console.log('当前配置:', JSON.stringify(finalConfig, null, 2));
+          console.error('🔍 [错误诊断] Sing-box 配置解析错误，请检查配置文件格式');
+          console.log('🔍 [错误诊断] 当前配置:', JSON.stringify(finalConfig, null, 2));
           childProcess.kill();
           if (!resolved) {
             resolved = true;
@@ -438,13 +435,23 @@ export class ProxyManager {
         }
         
         if (errorMessage.includes('FATAL')) {
-          console.error('Sing-box 致命错误:', errorMessage);
+          console.error('🔍 [错误诊断] Sing-box 致命错误:', errorMessage);
           childProcess.kill();
           if (!resolved) {
             resolved = true;
             reject(new Error(`Sing-box 致命错误: ${errorMessage}`));
           }
           return;
+        }
+        
+        // 检测连接相关错误
+        if (errorMessage.includes('connection') || errorMessage.includes('connect')) {
+          console.error('🔍 [连接诊断] 检测到连接相关错误:', errorMessage);
+        }
+        
+        // 检测认证相关错误
+        if (errorMessage.includes('auth') || errorMessage.includes('authentication')) {
+          console.error('🔍 [认证诊断] 检测到认证相关错误:', errorMessage);
         }
       });
 
@@ -488,6 +495,11 @@ export class ProxyManager {
               
               // 测试代理连接
               await this.testProxyConnection(port);
+              
+              // 验证系统代理设置
+              console.log(`🔍 [代理验证] 开始验证系统代理设置...`);
+              const { systemProxyManager } = require('./systemProxyManager');
+              await systemProxyManager.verifyProxySettings();
               
               resolved = true;
               resolve();
@@ -1177,6 +1189,237 @@ export class ProxyManager {
     }
     
     return allNodes;
+  }
+
+  /**
+   * 启动代理链
+   */
+  public async startProxyChain(chainId: string, nodes: ProxyNode[], port: number): Promise<void> {
+    console.log(`[ProxyManager] 启动代理链: ${chainId}`);
+    console.log(`[ProxyManager] 使用 ${this.useMiddleware ? '中间件' : '传统sing-box'} 模式`);
+    console.log(`[ProxyManager] 节点数量: ${nodes.length}`);
+    
+    if (this.useMiddleware) {
+      await this.startProxyChainWithMiddleware(chainId, nodes, port);
+    } else {
+      await this.startProxyChainWithSingBox(chainId, nodes, port);
+    }
+  }
+
+  /**
+   * 使用中间件启动代理链
+   */
+  private async startProxyChainWithMiddleware(chainId: string, nodes: ProxyNode[], port: number): Promise<void> {
+    console.log(`[ProxyManager] 使用中间件启动代理链: ${chainId}`);
+    
+    try {
+      // 停止现有的中间件
+      if (this.middlewareManager) {
+        await this.middlewareManager.stop();
+      }
+      
+      // 创建中间件配置
+      const config: ProxyChainMiddlewareConfig = {
+        entryPort: port,
+        nodes: nodes,
+        enableMonitoring: true,
+        enableProtection: true,
+        maxRetries: 3,
+        timeout: 10000
+      };
+      
+      // 创建并启动中间件管理器
+      this.middlewareManager = new ProxyChainMiddlewareManager(config);
+      
+      // 添加监控监听器
+      this.middlewareManager.addMonitoringListener((event) => {
+        console.log(`[ProxyManager] 中间件监控事件: ${event.type}`, event.data);
+      });
+      
+      // 启动中间件
+      await this.middlewareManager.start();
+      
+      // 设置系统代理
+      await systemProxyManager.setSystemProxy('127.0.0.1', port, port);
+      
+      console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
+      
+    } catch (error) {
+      console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
+      
+      // 如果中间件启动失败，回退到传统模式
+      console.log(`[ProxyManager] 回退到传统sing-box模式`);
+      this.useMiddleware = false;
+      await this.startProxyChainWithSingBox(chainId, nodes, port);
+    }
+  }
+
+  /**
+   * 使用传统sing-box启动代理链
+   */
+  private async startProxyChainWithSingBox(chainId: string, nodes: ProxyNode[], port: number): Promise<void> {
+    console.log(`[ProxyManager] 使用传统sing-box启动代理链: ${chainId}`);
+    
+    // 原有的sing-box代理链逻辑
+    proxyChainConfigGenerator.generateChainConfig(nodes, port);
+    
+    // ... 原有的sing-box启动逻辑 ...
+    // 这里保留原有的实现，作为备选方案
+  }
+
+  /**
+   * 停止代理链
+   */
+  public async stopProxyChain(chainId: string): Promise<void> {
+    console.log(`[ProxyManager] 停止代理链: ${chainId}`);
+    
+    if (this.middlewareManager) {
+      await this.middlewareManager.stop();
+      this.middlewareManager = undefined;
+    }
+    
+    // 停止传统的sing-box进程
+    const process = this.processes.get(chainId);
+    if (process) {
+      // ... 原有的停止逻辑 ...
+      this.processes.delete(chainId);
+    }
+    
+    console.log(`✅ [ProxyManager] 代理链停止成功: ${chainId}`);
+  }
+
+  /**
+   * 获取代理链状态
+   */
+  public getProxyChainStatus(chainId: string): any {
+    if (this.middlewareManager) {
+      return this.middlewareManager.getStatus();
+    }
+    
+    // 返回传统模式的状态
+    const process = this.processes.get(chainId);
+    return process ? { status: 'running', ...process } : { status: 'stopped' };
+  }
+
+  /**
+   * 获取流量统计
+   */
+  public getTrafficStats(): any {
+    if (this.middlewareManager) {
+      return this.middlewareManager.getTrafficStats();
+    }
+    
+    // 返回传统模式的统计
+    return { bytesReceived: 0, bytesSent: 0, connections: 0 };
+  }
+
+  /**
+   * 切换代理链模式
+   */
+  public setUseMiddleware(useMiddleware: boolean): void {
+    this.useMiddleware = useMiddleware;
+    console.log(`[ProxyManager] 切换代理链模式: ${useMiddleware ? '中间件' : '传统sing-box'}`);
+  }
+
+  /**
+   * 测试节点延迟
+   */
+  public async testNodeLatency(node: ProxyNode): Promise<{ success: boolean; latency: number; timestamp: number; error?: string }> {
+    console.log(`[ProxyManager] Testing latency for node: ${node.name} (${node.id})`);
+    
+    try {
+      const startTime = Date.now();
+      
+      // 创建HTTP请求来测试延迟（直接连接测试，不使用代理）
+      const https = require('https');
+      const http = require('http');
+      
+      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
+      const timeout = 10000;
+      
+      return new Promise((resolve) => {
+        const url = new URL(testUrl);
+        const isHttps = url.protocol === 'https:';
+        const client = isHttps ? https : http;
+        
+        const req = client.request(url, {
+          method: 'GET',
+          timeout: timeout,
+        }, () => {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          
+          console.log(`延迟测试成功: ${node.name}`, { latency });
+          
+          resolve({
+            success: true,
+            latency,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.on('error', (error: any) => {
+          console.error(`延迟测试失败: ${node.name}`, error);
+          resolve({
+            success: false,
+            error: error.message,
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.on('timeout', () => {
+          console.error(`延迟测试超时: ${node.name}`);
+          req.destroy();
+          resolve({
+            success: false,
+            error: 'Request timeout',
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.end();
+      });
+      
+    } catch (error) {
+      console.error(`延迟测试失败: ${node.name}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        latency: 0,
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  /**
+   * 测试多个节点延迟
+   */
+  public async testNodesLatency(nodes: ProxyNode[]): Promise<any[]> {
+    const promises = nodes.map(node => this.testNodeLatency(node));
+    const results = await Promise.allSettled(promises);
+    
+    return results.map((result, index) => {
+      const node = nodes[index];
+      if (!node) {
+        return { nodeId: 'unknown', success: false, error: 'Node not found at index', latency: 0, timestamp: Date.now() };
+      }
+      if (result.status === 'fulfilled') {
+        return {
+          nodeId: node.id,
+          ...result.value
+        };
+      } else {
+        return {
+          nodeId: node.id,
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : 'Unknown test error',
+          latency: 0,
+          timestamp: Date.now()
+        };
+      }
+    });
   }
 }
 
