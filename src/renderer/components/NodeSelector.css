@@ -1,4 +1,197 @@
 /* src/renderer/components/NodeSelector.css */
-.ant-list-item-meta-title {
-  font-size: 16px;
+.node-selector {
+  width: 100%;
+}
+
+.node-selector .ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+.node-selector .ant-collapse-item {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.node-selector .ant-collapse-item:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.node-selector .ant-collapse-header {
+  padding: 16px 24px !important;
+  background: #fafafa;
+  border-radius: 8px 8px 0 0;
+}
+
+.node-selector .ant-collapse-content {
+  border-top: 1px solid #f0f0f0;
+}
+
+.node-selector .ant-collapse-content-box {
+  padding: 16px 24px;
+}
+
+.node-selector .ant-list-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #f5f5f5;
+  transition: background-color 0.2s ease;
+}
+
+.node-selector .ant-list-item:hover {
+  background-color: #fafafa;
+  border-radius: 4px;
+}
+
+.node-selector .ant-list-item:last-child {
+  border-bottom: none;
+}
+
+.node-selector .ant-list-item-meta-title {
+  font-weight: 500;
+  color: #262626;
+}
+
+.node-selector .ant-list-item-meta-description {
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.node-selector .ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.node-selector .ant-btn {
+  border-radius: 4px;
+  font-size: 12px;
+  height: 28px;
+  padding: 0 12px;
+}
+
+.node-selector .ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.node-selector .ant-btn-primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.node-selector .ant-progress {
+  margin-top: 8px;
+}
+
+.node-selector .ant-progress-bg {
+  background: #1890ff;
+}
+
+.node-selector .ant-progress-active .ant-progress-bg::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+}
+
+/* 分组头部样式 */
+.node-selector .ant-collapse-header .ant-space {
+  width: 100%;
+}
+
+.node-selector .ant-collapse-header .ant-typography {
+  margin: 0;
+}
+
+/* 批量测试按钮样式 */
+.node-selector .ant-btn-loading {
+  pointer-events: none;
+}
+
+/* 排序控制区域样式 */
+.node-selector .ant-row {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+}
+
+.node-selector .ant-select {
+  min-width: 120px;
+}
+
+/* 统计信息样式 */
+.node-selector .ant-typography {
+  font-size: 12px;
+  color: #595959;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .node-selector .ant-collapse-header {
+    padding: 12px 16px !important;
+  }
+  
+  .node-selector .ant-collapse-content-box {
+    padding: 12px 16px;
+  }
+  
+  .node-selector .ant-list-item {
+    padding: 8px 0;
+  }
+  
+  .node-selector .ant-space {
+    gap: 4px !important;
+  }
+  
+  .node-selector .ant-btn {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+}
+
+/* 动画效果 */
+.node-selector .ant-collapse-item {
+  transition: all 0.3s ease;
+}
+
+.node-selector .ant-collapse-content {
+  transition: all 0.3s ease;
+}
+
+/* 空状态样式 */
+.node-selector .ant-empty {
+  padding: 40px 0;
+}
+
+/* 工具提示样式 */
+.node-selector .ant-tooltip {
+  font-size: 12px;
+}
+
+/* 标签颜色定制 */
+.node-selector .ant-tag-green {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #52c41a;
+}
+
+.node-selector .ant-tag-blue {
+  background: #e6f7ff;
+  border-color: #91d5ff;
+  color: #1890ff;
+}
+
+.node-selector .ant-tag-red {
+  background: #fff2f0;
+  border-color: #ffccc7;
+  color: #ff4d4f;
+}
+
+.node-selector .ant-tag-orange {
+  background: #fff7e6;
+  border-color: #ffd591;
+  color: #fa8c16;
 }
