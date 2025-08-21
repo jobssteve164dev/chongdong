@@ -13,20 +13,27 @@ import {
 } from '@ant-design/icons';
 import { proxyEngine, ProxyStatus } from '../utils/proxyEngine';
 import { systemProxy, ProxySettings } from '../utils/systemProxy';
-import { ChainConfig, ProxyNode, AppSettings } from '../../shared/types';
+import { ChainConfig, ProxyNode, AppSettings, Subscription } from '../../shared/types';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import ProxyChainBuilder from '../components/ProxyChainBuilder';
 import NodeSelector from '../components/NodeSelector';
 import { useNodeStore, NodeStore } from '../utils/stores';
 import { DefaultSettings } from '../utils/defaultSettings';
 import './ProxyManagement.css';
+import * as _ from 'lodash';
 
 const { TabPane } = Tabs;
+
+interface GroupedNodes {
+  [subscriptionId: string]: ProxyNode[];
+}
 
 const ProxyManagement: React.FC = () => {
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
   const [systemProxySettings, setSystemProxySettings] = useState<ProxySettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [groupedNodes, setGroupedNodes] = useState<GroupedNodes>({});
+  const [subscriptionMap, setSubscriptionMap] = useState<Record<string, string>>({});
   
   // 从 Zustand store 获取节点和延迟信息
   const nodes = useNodeStore((state: NodeStore) => state.nodes);
@@ -46,6 +53,7 @@ const ProxyManagement: React.FC = () => {
   useEffect(() => {
     loadChainConfigs();
     loadSystemProxy();
+    loadAndGroupNodes();
 
     const handlePortInUse = (data: { port: number; processId: string }) => {
       Modal.confirm({
@@ -64,6 +72,56 @@ const ProxyManagement: React.FC = () => {
       // 清理IPC监听器
     };
   }, []);
+
+  useEffect(() => {
+    // 当节点列表变化时，重新进行分组
+    loadAndGroupNodes();
+  }, [nodes]);
+
+  const loadAndGroupNodes = () => {
+    const subscriptions = Storage.get<Subscription[]>(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []) || [];
+    const subMap: Record<string, string> = {};
+    subscriptions.forEach(sub => {
+      subMap[sub.id] = sub.name;
+    });
+    // 添加一个用于“未分组”节点的特殊条目
+    subMap['ungrouped'] = '手动添加/未分组';
+    setSubscriptionMap(subMap);
+
+    // 从订阅数据中生成节点数据，并设置正确的 subscriptionId
+    const nodesFromSubscriptions: ProxyNode[] = [];
+    subscriptions.forEach(subscription => {
+      if (subscription.enabled && subscription.servers) {
+        subscription.servers.forEach(server => {
+          if (server.enabled) {
+            const node: ProxyNode = {
+              id: server.id,
+              name: server.name,
+              type: server.protocol as any,
+              server: server.host,
+              port: server.port,
+              subscriptionId: subscription.id, // 设置订阅ID
+              uuid: server.uuid,
+              password: server.password,
+              encryption: server.encryption,
+              network: server.network,
+              wsPath: server.wsPath,
+              wsHost: server.wsHost,
+            };
+            nodesFromSubscriptions.push(node);
+          }
+        });
+      }
+    });
+
+    // 合并从订阅生成的节点和现有的手动添加的节点
+    const manualNodes = nodes.filter(node => !node.subscriptionId);
+    const allNodes = [...nodesFromSubscriptions, ...manualNodes];
+
+    // 按订阅ID分组
+    const grouped = _.groupBy(allNodes, (node: ProxyNode) => node.subscriptionId || 'ungrouped');
+    setGroupedNodes(grouped);
+  };
 
   const loadChainConfigs = () => {
     const savedChainConfigs = Storage.get<ChainConfig[]>('chain_configs', []) || [];
@@ -154,9 +212,14 @@ const ProxyManagement: React.FC = () => {
   const handleStartChainProxy = async (chain: ChainConfig) => {
     setLoading(true);
     try {
-      // TODO: 实现代理链启动逻辑
-      console.log('启动代理链:', chain.name);
-      message.success('代理链启动成功（模拟）');
+      if (chain.type === 'dynamic') {
+        await window.electron.ipcRenderer.invoke('proxy:start-dynamic-chain', chain);
+        message.success(`动态代理链 "${chain.name}" 已启动`);
+      } else {
+        // TODO: 实现静态代理链启动逻辑
+        console.log('启动静态代理链:', chain.name);
+        message.success('静态代理链启动成功（模拟）');
+      }
       
       // 更新全局状态
       setProxyConnected(true);
@@ -203,12 +266,13 @@ const ProxyManagement: React.FC = () => {
     }
   };
 
-  const handleChainBuilderSave = (chainData: { name: string; description: string; nodes: any[] }) => {
+  const handleChainBuilderSave = (chainData: { name: string; description: string; nodes: any[], type: 'static' | 'dynamic', proxies: string[] }) => {
     const newChain: ChainConfig = {
       id: `chain_${Date.now()}`,
       name: chainData.name,
       description: chainData.description,
-      proxies: chainData.nodes.map(node => node.id), // 假设节点对象有id
+      type: chainData.type,
+      proxies: chainData.proxies,
       rules: [],
       enabled: false,
       createdAt: new Date(),
@@ -273,13 +337,18 @@ const ProxyManagement: React.FC = () => {
       <Tabs defaultActiveKey="nodes">
         <TabPane tab="选择节点" key="nodes">
           <Card title="可用节点列表">
-            <NodeSelector nodes={nodes} onSelect={handleStartProxy} />
+            <NodeSelector 
+              nodes={nodes} 
+              onSelect={handleStartProxy} 
+            />
           </Card>
         </TabPane>
         <TabPane tab="代理链" key="chains">
           <Card title="配置代理链">
             <ProxyChainBuilder 
               nodes={nodes}
+              groupedNodes={groupedNodes}
+              subscriptionMap={subscriptionMap}
               onSave={handleChainBuilderSave} 
               existingChains={chainConfigs}
               onDeleteChain={handleDeleteChain}

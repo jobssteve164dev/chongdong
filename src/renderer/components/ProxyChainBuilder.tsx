@@ -15,7 +15,9 @@ import {
   Col,
   Badge,
   Empty,
-  Spin
+  Spin,
+  Collapse,
+  Radio // 新增
 } from 'antd';
 import { 
   DragDropContext, 
@@ -46,6 +48,14 @@ import './ProxyChainBuilder.css';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { Panel } = Collapse;
+
+type ChainType = 'static' | 'dynamic';
+
+interface ChainSubscription {
+  id: string;
+  name: string;
+}
 
 interface ChainNode {
   id: string;
@@ -53,10 +63,16 @@ interface ChainNode {
   config?: any; // 进阶配置
 }
 
+interface GroupedNodes {
+  [subscriptionId: string]: ProxyNode[];
+}
+
 interface ProxyChainBuilderProps {
   nodes: ProxyNode[];
-  onSave?: (chain: { name: string; description: string; nodes: ChainNode[] }) => void;
-  initialChain?: { name: string; description: string; nodes: ChainNode[] };
+  groupedNodes?: GroupedNodes;
+  subscriptionMap?: Record<string, string>;
+  onSave?: (chain: { name: string; description: string; nodes: (ChainNode | ChainSubscription)[], type: ChainType, proxies: string[] }) => void;
+  initialChain?: { name: string; description: string; nodes: (ChainNode | ChainSubscription)[] };
   existingChains?: ChainConfig[];
   onDeleteChain?: (chainId: string) => void;
   onStartChain?: (chain: ChainConfig) => void;
@@ -64,6 +80,8 @@ interface ProxyChainBuilderProps {
 
 const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({ 
   nodes,
+  groupedNodes = {},
+  subscriptionMap = {},
   onSave, 
   initialChain,
   existingChains = [],
@@ -71,13 +89,18 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
   onStartChain
 }) => {
   const [chainNodes, setChainNodes] = useState<ChainNode[]>([]);
+  const [dynamicChainProxies, setDynamicChainProxies] = useState<ChainSubscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingNode, setEditingNode] = useState<ChainNode | null>(null);
   const [chainName, setChainName] = useState(initialChain?.name || '');
   const [chainDescription, setChainDescription] = useState(initialChain?.description || '');
   const [savedChains, setSavedChains] = useState<ChainConfig[]>(existingChains);
+  const [chainType, setChainType] = useState<ChainType>('static'); // 新增状态
   const [form] = Form.useForm();
+
+  // 从store获取延迟更新方法
+  const setNodeLatency = useNodeStore((state: NodeStore) => state.setNodeLatency);
 
   // 从store获取默认代理链ID
   const defaultChainId = useNodeStore((state: NodeStore) => state.defaultChainId);
@@ -107,32 +130,90 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
     const { source, destination } = result;
     console.log('源位置:', source, '目标位置:', destination);
 
-    // 从可用节点拖拽到链中
-    if (source.droppableId === 'available-nodes' && destination.droppableId === 'chain-nodes') {
-      console.log('从可用节点拖拽到链中');
-      const draggedNode = nodes[source.index];
-      console.log('拖拽的节点:', draggedNode);
-      
-      if (draggedNode) {
-        const newNode: ChainNode = {
-          id: `chain-${Date.now()}-${Math.random()}`,
-          server: draggedNode
-        };
-
+    if (chainType === 'static') {
+      // 从可用节点拖拽到链中
+      if (source.droppableId.startsWith('available-nodes-') && destination.droppableId === 'chain-nodes') {
+        console.log('从可用节点拖拽到链中');
+        const draggedNode = getNodeFromGroup(source.droppableId, source.index);
+        console.log('拖拽的节点:', draggedNode);
+        
+        if (draggedNode) {
+          const newNode: ChainNode = {
+            id: `chain-${Date.now()}-${Math.random()}`,
+            server: draggedNode
+          };
+    
+          const newChainNodes = Array.from(chainNodes);
+          newChainNodes.splice(destination.index, 0, newNode);
+          console.log('新的链节点:', newChainNodes);
+          setChainNodes(newChainNodes);
+        }
+      }
+      // 在链中重新排序
+      else if (source.droppableId === 'chain-nodes' && destination.droppableId === 'chain-nodes') {
+        console.log('在链中重新排序');
         const newChainNodes = Array.from(chainNodes);
-        newChainNodes.splice(destination.index, 0, newNode);
-        console.log('新的链节点:', newChainNodes);
+        const [removed] = newChainNodes.splice(source.index, 1);
+        newChainNodes.splice(destination.index, 0, removed);
         setChainNodes(newChainNodes);
       }
+    } else { // 动态链逻辑
+      if (source.droppableId === 'available-subscriptions' && destination.droppableId === 'chain-nodes') {
+        const subId = result.draggableId;
+        const subName = subscriptionMap[subId];
+        if (subName && !dynamicChainProxies.some(p => p.id === subId)) {
+          const newProxy: ChainSubscription = { id: subId, name: subName };
+          const newProxies = Array.from(dynamicChainProxies);
+          newProxies.splice(destination.index, 0, newProxy);
+          setDynamicChainProxies(newProxies);
+        }
+      } else if (source.droppableId === 'chain-nodes' && destination.droppableId === 'chain-nodes') {
+        const newProxies = Array.from(dynamicChainProxies);
+        const [removed] = newProxies.splice(source.index, 1);
+        newProxies.splice(destination.index, 0, removed);
+        setDynamicChainProxies(newProxies);
+      }
     }
-    // 在链中重新排序
-    else if (source.droppableId === 'chain-nodes' && destination.droppableId === 'chain-nodes') {
-      console.log('在链中重新排序');
-      const newChainNodes = Array.from(chainNodes);
-      const [removed] = newChainNodes.splice(source.index, 1);
-      newChainNodes.splice(destination.index, 0, removed);
-      setChainNodes(newChainNodes);
+  };
+
+  const handleBatchTestLatency = async (nodesToTest: ProxyNode[]) => {
+    if (nodesToTest.length === 0) return;
+
+    message.info(`开始为 ${nodesToTest.length} 个节点测试延迟...`);
+    setLoading(true);
+
+    try {
+      const result = await window.electron.ipcRenderer.invoke('proxy:test-latency-group', nodesToTest);
+
+      if (result.success) {
+        let successCount = 0;
+        result.data.forEach((res: any) => {
+          if (res.success) {
+            successCount++;
+          }
+          setNodeLatency(res.nodeId, res.latency, res.timestamp);
+        });
+        message.success(`批量测试完成: ${successCount}/${result.data.length} 个节点成功。`);
+      } else {
+        message.error(`批量测试失败: ${result.error}`);
+      }
+    } catch (error) {
+      message.error(`批量测试IPC调用失败: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // 识别拖拽的节点
+  const getNodeFromGroup = (droppableId: string, index: number): ProxyNode | undefined => {
+    if (droppableId.startsWith('available-nodes-')) {
+      const subscriptionId = droppableId.replace('available-nodes-', '');
+      const group = groupedNodes[subscriptionId];
+      if (group) {
+        return group[index];
+      }
+    }
+    return undefined;
   };
 
   // 从链中移除节点
@@ -175,24 +256,47 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
       message.error('请输入代理链名称');
       return;
     }
-    if (chainNodes.length === 0) {
+    
+    if (chainType === 'static' && chainNodes.length === 0) {
       message.error('请至少添加一个节点到代理链');
       return;
     }
 
-    const chain = {
+    if (chainType === 'dynamic' && dynamicChainProxies.length === 0) {
+      message.error('请至少添加一个订阅分组到代理链');
+      return;
+    }
+
+    const baseChain = {
       name: chainName,
       description: chainDescription,
-      nodes: chainNodes
     };
 
-    onSave?.(chain);
+    if (chainType === 'static') {
+      const staticChain = {
+        ...baseChain,
+        type: 'static' as const,
+        nodes: chainNodes,
+        proxies: chainNodes.map(n => n.server.id)
+      };
+      onSave?.(staticChain);
+    } else {
+      const dynamicChain = {
+        ...baseChain,
+        type: 'dynamic' as const,
+        nodes: dynamicChainProxies, // Pass subscription groups
+        proxies: dynamicChainProxies.map(p => p.id)
+      };
+      onSave?.(dynamicChain);
+    }
+
     message.success('代理链保存成功');
   };
 
   // 清空代理链
   const handleClearChain = () => {
     setChainNodes([]);
+    setDynamicChainProxies([]);
     setChainName('');
     setChainDescription('');
   };
@@ -331,6 +435,10 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
           </h3>
           <div className="chain-header">
             <Space direction="vertical" style={{ width: '100%' }}>
+              <Radio.Group onChange={(e) => setChainType(e.target.value)} value={chainType} style={{ marginBottom: 16 }}>
+                <Radio.Button value="static">静态链 (手动选择节点)</Radio.Button>
+                <Radio.Button value="dynamic">动态链 (按订阅分组选择)</Radio.Button>
+              </Radio.Group>
               <Input
                 placeholder="输入代理链名称"
                 value={chainName}
@@ -347,13 +455,13 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
           </div>
 
           <Row gutter={16} style={{ marginTop: '16px' }}>
-        {/* 可用节点区域 */}
+        {/* 可用节点/分组区域 */}
         <Col span={12}>
           <Card 
             title={
               <Space>
                 <CloudOutlined />
-                可用节点 ({nodes.length})
+                {chainType === 'static' ? `可用节点 (${nodes.length})` : `可用订阅分组 (${Object.keys(groupedNodes).length})`}
               </Space>
             }
             size="small"
@@ -363,64 +471,131 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <Spin />
               </div>
-            ) : nodes.length === 0 ? (
+            ) : chainType === 'static' && nodes.length === 0 ? (
               <Empty description="暂无可用节点" />
             ) : (
-              <Droppable droppableId="available-nodes">
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`nodes-list ${snapshot.isDraggingOver ? 'dragging-over' : ''}`}
-                    style={{
-                      minHeight: '200px',
-                      border: snapshot.isDraggingOver ? '2px dashed #52c41a' : '2px dashed #d9d9d9',
-                      borderRadius: '8px',
-                      padding: '16px',
-                      background: snapshot.isDraggingOver ? 'rgba(82, 196, 26, 0.05)' : 'transparent'
-                    }}
-                  >
-                    {nodes.map((node, index) => (
-                      <Draggable key={node.id} draggableId={node.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`node-card ${snapshot.isDragging ? 'dragging' : ''}`}
-                            style={{
-                              ...provided.draggableProps.style,
-                              transform: snapshot.isDragging ? provided.draggableProps.style?.transform : 'none',
-                              opacity: snapshot.isDragging ? 0.8 : 1,
-                            }}
-                          >
-                            <Card size="small" className="node-item">
-                              <div className="node-info">
-                                <div className="node-header">
-                                  <Space>
-                                    {getProtocolIcon(node.type as string)}
-                                    <Text strong>{node.name}</Text>
-                                    <Tag color={getProtocolColor(node.type as string)}>
-                                      {(node.type as string).toUpperCase()}
-                                    </Tag>
-                                  </Space>
-                                </div>
-                                <div className="node-details">
-                                  <Text type="secondary">
-                                    {node.server}:{node.port}
-                                  </Text>
-                                  {/* Latency badge can be added here if Node type supports it */}
-                                </div>
-                              </div>
-                            </Card>
+              <>
+                {chainType === 'static' ? (
+                  <Collapse defaultActiveKey={Object.keys(groupedNodes)}>
+                    {Object.entries(groupedNodes).map(([subscriptionId, nodesInGroup]) => (
+                      <Panel 
+                        header={
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                            <span>{`${subscriptionMap[subscriptionId] || '未知订阅'} (${nodesInGroup.length})`}</span>
+                            <Tooltip title={`批量测试该分组下所有节点的延迟`}>
+                              <Button
+                                size="small"
+                                icon={<ThunderboltOutlined />}
+                                onClick={(e) => {
+                                  e.stopPropagation(); // 防止点击按钮时触发Collapse的折叠/展开
+                                  handleBatchTestLatency(nodesInGroup);
+                                }}
+                              >
+                                批量测试
+                              </Button>
+                            </Tooltip>
                           </div>
-                        )}
-                      </Draggable>
+                        }
+                        key={subscriptionId}
+                      >
+                        <Droppable droppableId={`available-nodes-${subscriptionId}`}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className={`nodes-list ${snapshot.isDraggingOver ? 'dragging-over' : ''}`}
+                              style={{
+                                minHeight: '100px',
+                                background: snapshot.isDraggingOver ? 'rgba(82, 196, 26, 0.05)' : 'transparent',
+                                borderRadius: '8px',
+                                padding: '8px',
+                              }}
+                            >
+                              {nodesInGroup.map((node, index) => (
+                                <Draggable key={node.id} draggableId={node.id} index={index}>
+                                  {(provided, snapshot) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                      className={`node-card ${snapshot.isDragging ? 'dragging' : ''}`}
+                                      style={{
+                                        ...provided.draggableProps.style,
+                                        transform: snapshot.isDragging ? provided.draggableProps.style?.transform : 'none',
+                                        opacity: snapshot.isDragging ? 0.8 : 1,
+                                        marginBottom: '8px',
+                                      }}
+                                    >
+                                      <Card size="small" className="node-item">
+                                        <div className="node-info">
+                                          <div className="node-header">
+                                            <Space>
+                                              {getProtocolIcon(node.type as string)}
+                                              <Text strong>{node.name}</Text>
+                                              <Tag color={getProtocolColor(node.type as string)}>
+                                                {(node.type as string).toUpperCase()}
+                                              </Tag>
+                                            </Space>
+                                          </div>
+                                          <div className="node-details">
+                                            <Text type="secondary">
+                                              {node.server}:{node.port}
+                                            </Text>
+                                            {/* Latency badge can be added here if Node type supports it */}
+                                          </div>
+                                        </div>
+                                      </Card>
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                              {provided.placeholder}
+                            </div>
+                          )}
+                        </Droppable>
+                      </Panel>
                     ))}
-                    {provided.placeholder}
-                  </div>
+                  </Collapse>
+                ) : (
+                  <Droppable droppableId="available-subscriptions">
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`nodes-list ${snapshot.isDraggingOver ? 'dragging-over' : ''}`}
+                        style={{
+                          minHeight: '200px',
+                          background: snapshot.isDraggingOver ? 'rgba(82, 196, 26, 0.05)' : 'transparent',
+                        }}
+                      >
+                        {Object.entries(groupedNodes).map(([subscriptionId, nodesInGroup], index) => (
+                          <Draggable key={subscriptionId} draggableId={subscriptionId} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={`node-card ${snapshot.isDragging ? 'dragging' : ''}`}
+                                style={{
+                                  ...provided.draggableProps.style,
+                                  marginBottom: '8px',
+                                }}
+                              >
+                                <Card size="small" className="node-item">
+                                  <Text strong>{subscriptionMap[subscriptionId] || '未知订阅'}</Text>
+                                  <br />
+                                  <Text type="secondary">{nodesInGroup.length} 个节点</Text>
+                                </Card>
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
                 )}
-              </Droppable>
+              </>
             )}
           </Card>
         </Col>
@@ -431,7 +606,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
             title={
               <Space>
                 <LinkOutlined />
-                代理链 ({chainNodes.length})
+                代理链 ({chainType === 'static' ? chainNodes.length : dynamicChainProxies.length})
               </Space>
             }
             size="small"
@@ -442,7 +617,10 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                   size="small" 
                   icon={<ClearOutlined />} 
                   onClick={handleClearChain}
-                  disabled={chainNodes.length === 0}
+                  disabled={
+                    (chainType === 'static' && chainNodes.length === 0) ||
+                    (chainType === 'dynamic' && dynamicChainProxies.length === 0)
+                  }
                 >
                   清空
                 </Button>
@@ -451,7 +629,11 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                   size="small" 
                   icon={<SaveOutlined />} 
                   onClick={handleSaveChain}
-                  disabled={chainNodes.length === 0}
+                  disabled={
+                    !chainName.trim() || 
+                    (chainType === 'static' && chainNodes.length === 0) ||
+                    (chainType === 'dynamic' && dynamicChainProxies.length === 0)
+                  }
                 >
                   保存
                 </Button>
@@ -472,7 +654,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                     background: snapshot.isDraggingOver ? 'rgba(24, 144, 255, 0.05)' : 'transparent'
                   }}
                 >
-                  {chainNodes.length === 0 ? (
+                  {chainType === 'static' && chainNodes.length === 0 || chainType === 'dynamic' && dynamicChainProxies.length === 0 ? (
                     <div style={{ 
                       textAlign: 'center', 
                       padding: '40px 20px',
@@ -480,81 +662,122 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
                       fontSize: '14px'
                     }}>
                       <LinkOutlined style={{ fontSize: '24px', marginBottom: '8px', display: 'block' }} />
-                      拖拽节点到此处构建代理链
+                      拖拽{chainType === 'static' ? '节点' : '订阅分组'}到此处构建代理链
                     </div>
                   ) : (
-                    chainNodes.map((node, index) => (
-                      <Draggable key={node.id} draggableId={node.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`chain-node ${snapshot.isDragging ? 'dragging' : ''}`}
-                            style={{
-                              ...provided.draggableProps.style,
-                              transform: snapshot.isDragging ? provided.draggableProps.style?.transform : 'none',
-                              opacity: snapshot.isDragging ? 0.8 : 1,
-                            }}
-                          >
-                            <Card size="small" className="chain-node-item">
-                              <div className="chain-node-content">
-                                <div className="node-index">
-                                  <Badge count={index + 1} style={{ backgroundColor: '#1890ff' }} />
-                                </div>
-                                <div className="node-info">
-                                  <div className="node-header">
-                                    <Space>
-                                      {getProtocolIcon(node.server.type as string)}
-                                      <Text strong>{node.server.name}</Text>
-                                      <Tag color={getProtocolColor(node.server.type as string)}>
-                                        {(node.server.type as string).toUpperCase()}
-                                      </Tag>
-                                      {node.config && (
-                                        <Tag color="orange" icon={<SettingOutlined />}>
-                                          已配置
+                    <>
+                      {chainType === 'static' ? chainNodes.map((node, index) => (
+                        <Draggable key={node.id} draggableId={node.id} index={index}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className={`chain-node ${snapshot.isDragging ? 'dragging' : ''}`}
+                              style={{
+                                ...provided.draggableProps.style,
+                                transform: snapshot.isDragging ? provided.draggableProps.style?.transform : 'none',
+                                opacity: snapshot.isDragging ? 0.8 : 1,
+                              }}
+                            >
+                              <Card size="small" className="chain-node-item">
+                                <div className="chain-node-content">
+                                  <div className="node-index">
+                                    <Badge count={index + 1} style={{ backgroundColor: '#1890ff' }} />
+                                  </div>
+                                  <div className="node-info">
+                                    <div className="node-header">
+                                      <Space>
+                                        {getProtocolIcon(node.server.type as string)}
+                                        <Text strong>{node.server.name}</Text>
+                                        <Tag color={getProtocolColor(node.server.type as string)}>
+                                          {(node.server.type as string).toUpperCase()}
                                         </Tag>
-                                      )}
+                                        {node.config && (
+                                          <Tag color="orange" icon={<SettingOutlined />}>
+                                            已配置
+                                          </Tag>
+                                        )}
+                                      </Space>
+                                    </div>
+                                    <div className="node-details">
+                                      <Text type="secondary">
+                                        {node.server.server}:{node.server.port}
+                                      </Text>
+                                    </div>
+                                  </div>
+                                  <div className="node-actions">
+                                    <Space>
+                                      <Tooltip title="编辑配置">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<EditOutlined />}
+                                          onClick={() => editNodeConfig(node)}
+                                        />
+                                      </Tooltip>
+                                      <Tooltip title="移除">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          danger
+                                          icon={<DeleteOutlined />}
+                                          onClick={() => removeNodeFromChain(node.id)}
+                                        />
+                                      </Tooltip>
                                     </Space>
                                   </div>
-                                  <div className="node-details">
-                                    <Text type="secondary">
-                                      {node.server.server}:{node.server.port}
-                                    </Text>
-                                  </div>
                                 </div>
-                                <div className="node-actions">
-                                  <Space>
-                                    <Tooltip title="编辑配置">
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<EditOutlined />}
-                                        onClick={() => editNodeConfig(node)}
-                                      />
-                                    </Tooltip>
+                                {index < chainNodes.length - 1 && (
+                                  <div className="chain-arrow">
+                                    <ArrowDownOutlined />
+                                  </div>
+                                )}
+                              </Card>
+                            </div>
+                          )}
+                        </Draggable>
+                      )) : dynamicChainProxies.map((sub, index) => (
+                        <Draggable key={sub.id} draggableId={sub.id} index={index}>
+                          {(provided, snapshot) => (
+                             <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className={`chain-node ${snapshot.isDragging ? 'dragging' : ''}`}
+                              style={{ ...provided.draggableProps.style }}
+                            >
+                              <Card size="small" className="chain-node-item">
+                                <div className="chain-node-content">
+                                  <div className="node-index">
+                                    <Badge count={index + 1} style={{ backgroundColor: '#1890ff' }} />
+                                  </div>
+                                  <div className="node-info">
+                                    <Text strong>{sub.name}</Text>
+                                  </div>
+                                  <div className="node-actions">
                                     <Tooltip title="移除">
                                       <Button
                                         type="text"
                                         size="small"
                                         danger
                                         icon={<DeleteOutlined />}
-                                        onClick={() => removeNodeFromChain(node.id)}
+                                        onClick={() => setDynamicChainProxies(dynamicChainProxies.filter(p => p.id !== sub.id))}
                                       />
                                     </Tooltip>
-                                  </Space>
+                                  </div>
                                 </div>
-                              </div>
-                              {index < chainNodes.length - 1 && (
-                                <div className="chain-arrow">
-                                  <ArrowDownOutlined />
-                                </div>
-                              )}
-                            </Card>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))
+                                {index < dynamicChainProxies.length - 1 && (
+                                  <div className="chain-arrow">
+                                    <ArrowDownOutlined />
+                                  </div>
+                                )}
+                              </Card>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                    </>
                   )}
                   {provided.placeholder}
                 </div>

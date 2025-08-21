@@ -4,6 +4,9 @@ import { join } from 'path';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { coreDownloader } from './coreDownloader';
 import { createConnection } from 'net';
+import { ProxyNode, ChainConfig } from '../shared/types';
+import { proxyChainConfigGenerator } from './proxyChainConfigGenerator';
+import { settingsManager } from './settingsManager';
 
 interface ProxyProcess {
   id: string;
@@ -70,6 +73,47 @@ export class ProxyManager {
       ProxyManager.instance = new ProxyManager();
     }
     return ProxyManager.instance;
+  }
+
+  public async testNodesLatency(nodes: ProxyNode[]): Promise<any[]> {
+    const promises = nodes.map(node => this.testNodeLatency(node.id));
+    const results = await Promise.allSettled(promises);
+    
+    return results.map((result, index) => {
+      const node = nodes[index];
+      if (!node) {
+        return { nodeId: 'unknown', success: false, error: 'Node not found at index', latency: 0, timestamp: Date.now() };
+      }
+      if (result.status === 'fulfilled') {
+        return {
+          nodeId: node.id,
+          ...result.value
+        };
+      } else {
+        return {
+          nodeId: node.id,
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : 'Unknown test error',
+          latency: 0,
+          timestamp: Date.now()
+        };
+      }
+    });
+  }
+
+  public async testNodeLatency(nodeId: string): Promise<{ success: boolean; latency: number, timestamp: number, error?: string }> {
+    console.log(`[ProxyManager] Mock testing latency for node: ${nodeId}`);
+    // 这是一个模拟的延迟测试实现
+    return new Promise(resolve => {
+      const latency = Math.floor(Math.random() * 451) + 50; // Random latency 50-500ms
+      setTimeout(() => {
+        if (Math.random() > 0.1) { // 90% success rate
+          resolve({ success: true, latency, timestamp: Date.now() });
+        } else {
+          resolve({ success: false, latency: 0, timestamp: Date.now(), error: 'Mock Test failed' });
+        }
+      }, latency);
+    });
   }
 
   /**
@@ -1021,6 +1065,130 @@ export class ProxyManager {
     } else {
       console.log('没有找到窗口，无法发送通知');
     }
+  }
+
+  /**
+   * 启动代理链
+   */
+  public async startChain(chainConfig: ChainConfig, networkSettings?: NetworkSettings): Promise<void> {
+    console.log(`[ProxyManager] Starting proxy chain: ${chainConfig.name}`);
+    
+    try {
+      let nodes: ProxyNode[] = [];
+      
+      if (chainConfig.type === 'static') {
+        // 静态链：直接使用配置中的节点
+        // 这里需要从存储中获取完整的节点信息
+        nodes = await this.getNodesByIds(chainConfig.proxies);
+      } else if (chainConfig.type === 'dynamic') {
+        // 动态链：从订阅中获取节点
+        nodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+      }
+      
+      if (nodes.length === 0) {
+        throw new Error('No valid nodes found for proxy chain');
+      }
+      
+      console.log(`[ProxyManager] Found ${nodes.length} nodes for chain:`, nodes.map(n => n.name));
+      
+      // 生成代理链配置
+      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(nodes);
+      
+      // 应用网络设置
+      const finalConfig = this.applyNetworkSettingsToConfig(chainProxyConfig, networkSettings);
+      
+      // 启动代理链
+      await this.startSingbox(finalConfig, networkSettings);
+      
+      console.log(`[ProxyManager] Proxy chain started successfully: ${chainConfig.name}`);
+      
+    } catch (error) {
+      console.error(`[ProxyManager] Failed to start proxy chain: ${chainConfig.name}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 根据节点ID获取完整的节点信息
+   */
+  private async getNodesByIds(nodeIds: string[]): Promise<ProxyNode[]> {
+    console.log(`[ProxyManager] Getting nodes by IDs: ${nodeIds.join(', ')}`);
+    
+    // 从settingsManager获取所有节点
+    const settings = settingsManager.getSettings();
+    const allNodes: ProxyNode[] = [];
+    
+    // 从订阅中获取节点
+    if (settings.subscriptions) {
+      settings.subscriptions.forEach((subscription: any) => {
+        if (subscription.enabled && subscription.servers) {
+          subscription.servers.forEach((server: any) => {
+            if (server.enabled) {
+              const node: ProxyNode = {
+                id: server.id,
+                name: server.name,
+                type: server.protocol as any,
+                server: server.host,
+                port: server.port,
+                subscriptionId: subscription.id,
+                uuid: server.uuid,
+                password: server.password,
+                encryption: server.encryption,
+                network: server.network,
+                wsPath: server.wsPath,
+                wsHost: server.wsHost,
+              };
+              allNodes.push(node);
+            }
+          });
+        }
+      });
+    }
+    
+    // 过滤出请求的节点
+    const requestedNodes = allNodes.filter(node => nodeIds.includes(node.id));
+    console.log(`[ProxyManager] Found ${requestedNodes.length} nodes out of ${nodeIds.length} requested`);
+    
+    return requestedNodes;
+  }
+
+  /**
+   * 从订阅中获取节点
+   */
+  private async getNodesFromSubscriptions(subscriptionIds: string[]): Promise<ProxyNode[]> {
+    console.log(`[ProxyManager] Getting nodes from subscriptions: ${subscriptionIds.join(', ')}`);
+    
+    const settings = settingsManager.getSettings();
+    const nodes: ProxyNode[] = [];
+    
+    if (settings.subscriptions) {
+      settings.subscriptions.forEach((subscription: any) => {
+        if (subscriptionIds.includes(subscription.id) && subscription.enabled && subscription.servers) {
+          subscription.servers.forEach((server: any) => {
+            if (server.enabled) {
+              const node: ProxyNode = {
+                id: server.id,
+                name: server.name,
+                type: server.protocol as any,
+                server: server.host,
+                port: server.port,
+                subscriptionId: subscription.id,
+                uuid: server.uuid,
+                password: server.password,
+                encryption: server.encryption,
+                network: server.network,
+                wsPath: server.wsPath,
+                wsHost: server.wsHost,
+              };
+              nodes.push(node);
+            }
+          });
+        }
+      });
+    }
+    
+    console.log(`[ProxyManager] Found ${nodes.length} nodes from ${subscriptionIds.length} subscriptions`);
+    return nodes;
   }
 }
 

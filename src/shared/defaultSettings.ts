@@ -10,9 +10,13 @@ export class DefaultSettings {
    */
   static getDefaultAppSettings(): AppSettings {
     return {
+      v2rayPath: '',
+      clashPath: '',
+      singBoxPath: '',
       theme: 'auto',
       language: 'zh-CN',
       autoStart: false,
+      proxyMode: 'global',
       systemProxy: true,
       proxyPort: 7897, // HTTP端口
       socksPort: 7896, // SOCKS端口

@@ -82,27 +82,49 @@ const NodeSelector: React.FC<NodeSelectorProps> = ({ nodes, onSelect }) => {
       });
     });
     
+    // 添加默认分组
+    groups.set('ungrouped', {
+      subscriptionId: 'ungrouped',
+      subscriptionName: '手动添加/未分组',
+      nodes: []
+    });
+    
+    // 从订阅数据中生成节点数据，并设置正确的 subscriptionId
+    const nodesFromSubscriptions: ProxyNode[] = [];
+    subscriptions.forEach(subscription => {
+      if (subscription.enabled && subscription.servers) {
+        subscription.servers.forEach(server => {
+          if (server.enabled) {
+            const node: ProxyNode = {
+              id: server.id,
+              name: server.name,
+              type: server.protocol as any,
+              server: server.host,
+              port: server.port,
+              subscriptionId: subscription.id, // 设置订阅ID
+              uuid: server.uuid,
+              password: server.password,
+              encryption: server.encryption,
+              network: server.network,
+              wsPath: server.wsPath,
+              wsHost: server.wsHost,
+            };
+            nodesFromSubscriptions.push(node);
+          }
+        });
+      }
+    });
+
+    // 合并从订阅生成的节点和现有的手动添加的节点
+    const manualNodes = nodes.filter(node => !node.subscriptionId);
+    const allNodes = [...nodesFromSubscriptions, ...manualNodes];
+    
     // 将节点分配到对应分组
-    nodes.forEach(node => {
-      // 通过节点ID查找对应的订阅
-      const subscription = subscriptions.find(sub => 
-        sub.servers.some(server => server.id === node.id)
-      );
-      
-      if (subscription) {
-        const group = groups.get(subscription.id);
-        if (group) {
-          group.nodes.push(node);
-        }
-      } else {
-        // 如果没有找到对应订阅，放入默认分组
-        const defaultGroup = groups.get('default') || {
-          subscriptionId: 'default',
-          subscriptionName: '未分组节点',
-          nodes: []
-        };
-        defaultGroup.nodes.push(node);
-        groups.set('default', defaultGroup);
+    allNodes.forEach(node => {
+      const subscriptionId = node.subscriptionId || 'ungrouped';
+      const group = groups.get(subscriptionId);
+      if (group) {
+        group.nodes.push(node);
       }
     });
     

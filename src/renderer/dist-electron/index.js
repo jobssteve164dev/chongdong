@@ -927,6 +927,510 @@ class CoreDownloader {
   }
 }
 const coreDownloader = CoreDownloader.getInstance();
+class ProxyChainConfigGenerator {
+  constructor() {
+    this.portPool = /* @__PURE__ */ new Set();
+    this.PORT_RANGE_START = 1080;
+    this.PORT_RANGE_END = 1200;
+    for (let port = this.PORT_RANGE_START; port <= this.PORT_RANGE_END; port++) {
+      this.portPool.add(port);
+    }
+  }
+  static getInstance() {
+    if (!ProxyChainConfigGenerator.instance) {
+      ProxyChainConfigGenerator.instance = new ProxyChainConfigGenerator();
+    }
+    return ProxyChainConfigGenerator.instance;
+  }
+  /**
+   * 分配一个可用端口
+   */
+  allocatePort() {
+    for (const port of this.portPool) {
+      this.portPool.delete(port);
+      return port;
+    }
+    throw new Error("No available ports in the pool");
+  }
+  /**
+   * 释放端口回池中
+   */
+  releasePort(port) {
+    if (port >= this.PORT_RANGE_START && port <= this.PORT_RANGE_END) {
+      this.portPool.add(port);
+    }
+  }
+  /**
+   * 生成代理链配置
+   */
+  generateChainConfig(nodes) {
+    if (nodes.length === 0) {
+      throw new Error("No nodes provided for chain configuration");
+    }
+    console.log(`[ProxyChainConfigGenerator] Generating chain config for ${nodes.length} nodes`);
+    const chainNodes = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const node2 = nodes[i];
+      if (!node2) continue;
+      const localPort = this.allocatePort();
+      const upstreamPort = i > 0 && chainNodes[i - 1] ? chainNodes[i - 1].localPort : void 0;
+      chainNodes.push({
+        node: node2,
+        localPort,
+        upstreamPort
+      });
+    }
+    const inbounds = chainNodes.length > 0 && chainNodes[0] ? this.generateInbounds(chainNodes[0]) : [];
+    const outbounds = this.generateOutbounds(chainNodes);
+    const route = this.generateRoute(chainNodes);
+    const log2 = this.generateLogConfig();
+    const config = {
+      inbounds,
+      outbounds,
+      route,
+      log: log2
+    };
+    console.log(`[ProxyChainConfigGenerator] Generated chain config:`, JSON.stringify(config, null, 2));
+    return config;
+  }
+  /**
+   * 生成入站配置
+   */
+  generateInbounds(firstNode) {
+    return [
+      {
+        type: "mixed",
+        tag: "mixed-in",
+        listen: "127.0.0.1",
+        listen_port: firstNode.localPort,
+        users: []
+      }
+    ];
+  }
+  /**
+   * 生成出站配置
+   */
+  generateOutbounds(chainNodes) {
+    const outbounds = [];
+    chainNodes.forEach((chainNode, index) => {
+      const isLastNode = index === chainNodes.length - 1;
+      if (isLastNode) {
+        outbounds.push(this.generateDirectOutbound(chainNode));
+      } else {
+        const nextNode = chainNodes[index + 1];
+        if (nextNode) {
+          outbounds.push(this.generateProxyOutbound(chainNode, nextNode));
+        }
+      }
+    });
+    outbounds.push({
+      type: "direct",
+      tag: "direct"
+    });
+    return outbounds;
+  }
+  /**
+   * 生成代理出站配置（连接到下一个节点）
+   */
+  generateProxyOutbound(currentNode, nextNode) {
+    const proxyConfig = this.generateProxyConfig(currentNode.node, nextNode.localPort);
+    return {
+      ...proxyConfig,
+      tag: `proxy-${currentNode.node.id}`
+    };
+  }
+  /**
+   * 生成直连出站配置（最后一个节点）
+   */
+  generateDirectOutbound(lastNode) {
+    return {
+      type: "direct",
+      tag: `proxy-${lastNode.node.id}`
+    };
+  }
+  /**
+   * 根据节点类型生成具体的代理配置
+   */
+  generateProxyConfig(node2, _targetPort) {
+    const baseConfig = {
+      server: node2.server,
+      server_port: node2.port,
+      tag: `proxy-${node2.id}`
+    };
+    switch (node2.type) {
+      case "vmess":
+        return {
+          type: "vmess",
+          ...baseConfig,
+          uuid: node2.uuid,
+          security: node2.encryption || "auto",
+          network: node2.network || "tcp",
+          ...node2.network === "ws" && {
+            transport: {
+              type: "ws",
+              path: node2.wsPath || "/",
+              host: node2.wsHost || node2.server
+            }
+          }
+        };
+      case "vless":
+        return {
+          type: "vless",
+          ...baseConfig,
+          uuid: node2.uuid,
+          flow: "",
+          encryption: "none",
+          network: node2.network || "tcp",
+          ...node2.network === "ws" && {
+            transport: {
+              type: "ws",
+              path: node2.wsPath || "/",
+              host: node2.wsHost || node2.server
+            }
+          }
+        };
+      case "shadowsocks":
+        return {
+          type: "shadowsocks",
+          ...baseConfig,
+          method: node2.encryption || "aes-256-gcm",
+          password: node2.password || ""
+        };
+      case "trojan":
+        return {
+          type: "trojan",
+          ...baseConfig,
+          password: node2.password || ""
+        };
+      default:
+        throw new Error(`Unsupported proxy type: ${node2.type}`);
+    }
+  }
+  /**
+   * 生成路由配置
+   */
+  generateRoute(chainNodes) {
+    const rules = [];
+    if (chainNodes.length > 0 && chainNodes[0]) {
+      rules.push({
+        inbound_tag: ["mixed-in"],
+        outbound_tag: `proxy-${chainNodes[0].node.id}`
+      });
+    }
+    return {
+      rules,
+      final: "direct"
+    };
+  }
+  /**
+   * 生成日志配置
+   */
+  generateLogConfig() {
+    return {
+      level: "info",
+      timestamp: true
+    };
+  }
+  /**
+   * 清理端口分配
+   */
+  cleanup() {
+    this.portPool.clear();
+    for (let port = this.PORT_RANGE_START; port <= this.PORT_RANGE_END; port++) {
+      this.releasePort(port);
+    }
+  }
+}
+const proxyChainConfigGenerator = ProxyChainConfigGenerator.getInstance();
+class DefaultSettings {
+  /**
+   * 获取默认应用设置
+   */
+  static getDefaultAppSettings() {
+    return {
+      v2rayPath: "",
+      clashPath: "",
+      singBoxPath: "",
+      theme: "auto",
+      language: "zh-CN",
+      autoStart: false,
+      proxyMode: "global",
+      systemProxy: true,
+      proxyPort: 7897,
+      // HTTP端口
+      socksPort: 7896,
+      // SOCKS端口
+      mixedPort: 7897,
+      // 混合端口使用HTTP端口
+      allowLan: false,
+      mode: "rule",
+      logLevel: "info",
+      enableLog: true,
+      logFile: "chongdong.log",
+      enableUdp: true,
+      enableIpv6: false,
+      enableTun: false,
+      tunDevice: "utun0",
+      enableFakeIp: true,
+      fakeIpRange: "198.18.0.1/16",
+      enableDns: true,
+      dnsServer: "8.8.8.8",
+      enableDoh: false,
+      dohServer: "https://dns.google/dns-query",
+      // 新增DNS安全性和隐私性配置
+      enableDot: false,
+      dotServer: "tls://1.1.1.1:853",
+      enableDnsCache: true,
+      dnsCacheSize: 1e3,
+      dnsCacheTtl: 300,
+      enableDnsLoadBalance: true,
+      dnsServers: [
+        "8.8.8.8",
+        "8.8.4.4",
+        "1.1.1.1",
+        "1.0.0.1"
+      ],
+      enableDnsLogging: false,
+      enableDnsLeakProtection: true,
+      dnsLeakProtectionMode: "strict",
+      dnsLeakStrict: false,
+      // 严格模式默认关闭
+      enableDnsRules: true,
+      dnsRules: [
+        {
+          id: "block-ads",
+          name: "屏蔽广告域名",
+          pattern: "ads.",
+          patternType: "suffix",
+          action: "block",
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: "block-tracking",
+          name: "屏蔽追踪域名",
+          pattern: "tracking.",
+          patternType: "suffix",
+          action: "block",
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: "local-domains",
+          name: "本地域名直连",
+          pattern: ".local",
+          patternType: "suffix",
+          action: "direct",
+          enabled: true,
+          priority: 200
+        }
+      ],
+      enableDnsFallback: true,
+      dnsFallbackServers: [
+        "114.114.114.114",
+        "223.5.5.5"
+      ],
+      proxyEngine: "singbox",
+      engineSettings: {},
+      // 延迟测试设置
+      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
+      latencyTestTimeout: 1e4,
+      latencyTestRetries: 3,
+      latencyTestInterval: 10,
+      enableAutoLatencyTest: false,
+      latencyTestConcurrency: 3,
+      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
+      latencyTestValidityPeriod: 30
+    };
+  }
+  /**
+   * 获取默认用户偏好设置
+   */
+  static getDefaultUserPreferences() {
+    return {
+      windowSize: { width: 1200, height: 800 },
+      windowPosition: { x: 100, y: 100 },
+      sidebarCollapsed: false,
+      autoHideMenuBar: false,
+      alwaysOnTop: false,
+      minimizeToTray: true,
+      startMinimized: false,
+      enableNotifications: true,
+      notificationSound: true,
+      enableHotkeys: true,
+      hotkeys: {
+        toggleProxy: "Ctrl+Shift+P",
+        showMainWindow: "Ctrl+Shift+M",
+        quickSwitch: "Ctrl+Shift+S"
+      }
+    };
+  }
+  /**
+   * 获取默认引擎设置
+   */
+  static getDefaultEngineSettings() {
+    return {
+      proxyEngine: "singbox",
+      engineSettings: {}
+    };
+  }
+  /**
+   * 获取默认网络设置
+   */
+  static getDefaultNetworkSettings() {
+    return {
+      enableDns: true,
+      dnsServer: "8.8.8.8",
+      enableDoh: false,
+      dohServer: "https://dns.google/dns-query",
+      // 新增DNS安全性和隐私性配置
+      enableDot: false,
+      dotServer: "tls://1.1.1.1:853",
+      enableDnsCache: true,
+      dnsCacheSize: 1e3,
+      dnsCacheTtl: 300,
+      enableDnsLoadBalance: true,
+      dnsServers: [
+        "8.8.8.8",
+        "8.8.4.4",
+        "1.1.1.1",
+        "1.0.0.1"
+      ],
+      enableDnsLogging: false,
+      enableDnsLeakProtection: true,
+      dnsLeakProtectionMode: "strict",
+      enableDnsRules: true,
+      dnsRules: [
+        {
+          id: "block-ads",
+          name: "屏蔽广告域名",
+          pattern: "ads.",
+          patternType: "suffix",
+          action: "block",
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: "block-tracking",
+          name: "屏蔽追踪域名",
+          pattern: "tracking.",
+          patternType: "suffix",
+          action: "block",
+          enabled: true,
+          priority: 100
+        },
+        {
+          id: "local-domains",
+          name: "本地域名直连",
+          pattern: ".local",
+          patternType: "suffix",
+          action: "direct",
+          enabled: true,
+          priority: 200
+        }
+      ],
+      enableDnsFallback: true,
+      dnsFallbackServers: [
+        "114.114.114.114",
+        "223.5.5.5"
+      ],
+      enableTun: false,
+      tunDevice: "utun0",
+      enableFakeIp: true,
+      fakeIpRange: "198.18.0.1/16",
+      enableUdp: true,
+      enableIpv6: false,
+      logLevel: "info",
+      enableLog: true,
+      logFile: "chongdong.log"
+    };
+  }
+  /**
+   * 获取默认延迟测试设置
+   */
+  static getDefaultLatencyTestSettings() {
+    return {
+      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
+      latencyTestTimeout: 1e4,
+      latencyTestRetries: 3,
+      latencyTestInterval: 10,
+      enableAutoLatencyTest: false,
+      latencyTestConcurrency: 3,
+      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
+      latencyTestValidityPeriod: 30
+    };
+  }
+}
+class SettingsManager {
+  constructor() {
+    const userDataPath = electron.app.getPath("userData");
+    this.settingsPath = path__namespace.join(userDataPath, "settings.json");
+    this.preferencesPath = path__namespace.join(userDataPath, "preferences.json");
+  }
+  static getInstance() {
+    if (!SettingsManager.instance) {
+      SettingsManager.instance = new SettingsManager();
+    }
+    return SettingsManager.instance;
+  }
+  /**
+   * 读取应用设置
+   */
+  getSettings() {
+    try {
+      if (fs__namespace.existsSync(this.settingsPath)) {
+        const data = fs__namespace.readFileSync(this.settingsPath, "utf8");
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      console.error("Failed to read settings:", error);
+    }
+    return this.getDefaultSettings();
+  }
+  /**
+   * 读取用户偏好设置
+   */
+  getPreferences() {
+    try {
+      if (fs__namespace.existsSync(this.preferencesPath)) {
+        const data = fs__namespace.readFileSync(this.preferencesPath, "utf8");
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      console.error("Failed to read preferences:", error);
+    }
+    return this.getDefaultPreferences();
+  }
+  /**
+   * 保存应用设置
+   */
+  saveSettings(settings) {
+    try {
+      fs__namespace.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2));
+      console.log("Settings saved successfully");
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+    }
+  }
+  /**
+   * 保存用户偏好设置
+   */
+  savePreferences(preferences) {
+    try {
+      fs__namespace.writeFileSync(this.preferencesPath, JSON.stringify(preferences, null, 2));
+      console.log("Preferences saved successfully");
+    } catch (error) {
+      console.error("Failed to save preferences:", error);
+    }
+  }
+  getDefaultSettings() {
+    return DefaultSettings.getDefaultAppSettings();
+  }
+  getDefaultPreferences() {
+    return DefaultSettings.getDefaultUserPreferences();
+  }
+}
+const settingsManager = SettingsManager.getInstance();
 class ProxyManager {
   constructor() {
     this.processes = /* @__PURE__ */ new Map();
@@ -944,6 +1448,43 @@ class ProxyManager {
       ProxyManager.instance = new ProxyManager();
     }
     return ProxyManager.instance;
+  }
+  async testNodesLatency(nodes) {
+    const promises = nodes.map((node2) => this.testNodeLatency(node2.id));
+    const results = await Promise.allSettled(promises);
+    return results.map((result, index) => {
+      const node2 = nodes[index];
+      if (!node2) {
+        return { nodeId: "unknown", success: false, error: "Node not found at index", latency: 0, timestamp: Date.now() };
+      }
+      if (result.status === "fulfilled") {
+        return {
+          nodeId: node2.id,
+          ...result.value
+        };
+      } else {
+        return {
+          nodeId: node2.id,
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : "Unknown test error",
+          latency: 0,
+          timestamp: Date.now()
+        };
+      }
+    });
+  }
+  async testNodeLatency(nodeId) {
+    console.log(`[ProxyManager] Mock testing latency for node: ${nodeId}`);
+    return new Promise((resolve) => {
+      const latency = Math.floor(Math.random() * 451) + 50;
+      setTimeout(() => {
+        if (Math.random() > 0.1) {
+          resolve({ success: true, latency, timestamp: Date.now() });
+        } else {
+          resolve({ success: false, latency: 0, timestamp: Date.now(), error: "Mock Test failed" });
+        }
+      }, latency);
+    });
   }
   /**
    * 更新网络设置
@@ -1722,6 +2263,102 @@ class ProxyManager {
       console.log("没有找到窗口，无法发送通知");
     }
   }
+  /**
+   * 启动代理链
+   */
+  async startChain(chainConfig, networkSettings) {
+    console.log(`[ProxyManager] Starting proxy chain: ${chainConfig.name}`);
+    try {
+      let nodes = [];
+      if (chainConfig.type === "static") {
+        nodes = await this.getNodesByIds(chainConfig.proxies);
+      } else if (chainConfig.type === "dynamic") {
+        nodes = await this.getNodesFromSubscriptions(chainConfig.proxies);
+      }
+      if (nodes.length === 0) {
+        throw new Error("No valid nodes found for proxy chain");
+      }
+      console.log(`[ProxyManager] Found ${nodes.length} nodes for chain:`, nodes.map((n) => n.name));
+      const chainProxyConfig = proxyChainConfigGenerator.generateChainConfig(nodes);
+      const finalConfig = this.applyNetworkSettingsToConfig(chainProxyConfig, networkSettings);
+      await this.startSingbox(finalConfig, networkSettings);
+      console.log(`[ProxyManager] Proxy chain started successfully: ${chainConfig.name}`);
+    } catch (error) {
+      console.error(`[ProxyManager] Failed to start proxy chain: ${chainConfig.name}`, error);
+      throw error;
+    }
+  }
+  /**
+   * 根据节点ID获取完整的节点信息
+   */
+  async getNodesByIds(nodeIds) {
+    console.log(`[ProxyManager] Getting nodes by IDs: ${nodeIds.join(", ")}`);
+    const settings = settingsManager.getSettings();
+    const allNodes = [];
+    if (settings.subscriptions) {
+      settings.subscriptions.forEach((subscription) => {
+        if (subscription.enabled && subscription.servers) {
+          subscription.servers.forEach((server2) => {
+            if (server2.enabled) {
+              const node2 = {
+                id: server2.id,
+                name: server2.name,
+                type: server2.protocol,
+                server: server2.host,
+                port: server2.port,
+                subscriptionId: subscription.id,
+                uuid: server2.uuid,
+                password: server2.password,
+                encryption: server2.encryption,
+                network: server2.network,
+                wsPath: server2.wsPath,
+                wsHost: server2.wsHost
+              };
+              allNodes.push(node2);
+            }
+          });
+        }
+      });
+    }
+    const requestedNodes = allNodes.filter((node2) => nodeIds.includes(node2.id));
+    console.log(`[ProxyManager] Found ${requestedNodes.length} nodes out of ${nodeIds.length} requested`);
+    return requestedNodes;
+  }
+  /**
+   * 从订阅中获取节点
+   */
+  async getNodesFromSubscriptions(subscriptionIds) {
+    console.log(`[ProxyManager] Getting nodes from subscriptions: ${subscriptionIds.join(", ")}`);
+    const settings = settingsManager.getSettings();
+    const nodes = [];
+    if (settings.subscriptions) {
+      settings.subscriptions.forEach((subscription) => {
+        if (subscriptionIds.includes(subscription.id) && subscription.enabled && subscription.servers) {
+          subscription.servers.forEach((server2) => {
+            if (server2.enabled) {
+              const node2 = {
+                id: server2.id,
+                name: server2.name,
+                type: server2.protocol,
+                server: server2.host,
+                port: server2.port,
+                subscriptionId: subscription.id,
+                uuid: server2.uuid,
+                password: server2.password,
+                encryption: server2.encryption,
+                network: server2.network,
+                wsPath: server2.wsPath,
+                wsHost: server2.wsHost
+              };
+              nodes.push(node2);
+            }
+          });
+        }
+      });
+    }
+    console.log(`[ProxyManager] Found ${nodes.length} nodes from ${subscriptionIds.length} subscriptions`);
+    return nodes;
+  }
 }
 const proxyManager = ProxyManager.getInstance();
 const execAsync = require$$1$1.promisify(child_process.exec);
@@ -2209,291 +2846,6 @@ class SystemProxyManager {
   }
 }
 const systemProxyManager = SystemProxyManager.getInstance();
-class DefaultSettings {
-  /**
-   * 获取默认应用设置
-   */
-  static getDefaultAppSettings() {
-    return {
-      theme: "auto",
-      language: "zh-CN",
-      autoStart: false,
-      systemProxy: true,
-      proxyPort: 7897,
-      // HTTP端口
-      socksPort: 7896,
-      // SOCKS端口
-      mixedPort: 7897,
-      // 混合端口使用HTTP端口
-      allowLan: false,
-      mode: "rule",
-      logLevel: "info",
-      enableLog: true,
-      logFile: "chongdong.log",
-      enableUdp: true,
-      enableIpv6: false,
-      enableTun: false,
-      tunDevice: "utun0",
-      enableFakeIp: true,
-      fakeIpRange: "198.18.0.1/16",
-      enableDns: true,
-      dnsServer: "8.8.8.8",
-      enableDoh: false,
-      dohServer: "https://dns.google/dns-query",
-      // 新增DNS安全性和隐私性配置
-      enableDot: false,
-      dotServer: "tls://1.1.1.1:853",
-      enableDnsCache: true,
-      dnsCacheSize: 1e3,
-      dnsCacheTtl: 300,
-      enableDnsLoadBalance: true,
-      dnsServers: [
-        "8.8.8.8",
-        "8.8.4.4",
-        "1.1.1.1",
-        "1.0.0.1"
-      ],
-      enableDnsLogging: false,
-      enableDnsLeakProtection: true,
-      dnsLeakProtectionMode: "strict",
-      dnsLeakStrict: false,
-      // 严格模式默认关闭
-      enableDnsRules: true,
-      dnsRules: [
-        {
-          id: "block-ads",
-          name: "屏蔽广告域名",
-          pattern: "ads.",
-          patternType: "suffix",
-          action: "block",
-          enabled: true,
-          priority: 100
-        },
-        {
-          id: "block-tracking",
-          name: "屏蔽追踪域名",
-          pattern: "tracking.",
-          patternType: "suffix",
-          action: "block",
-          enabled: true,
-          priority: 100
-        },
-        {
-          id: "local-domains",
-          name: "本地域名直连",
-          pattern: ".local",
-          patternType: "suffix",
-          action: "direct",
-          enabled: true,
-          priority: 200
-        }
-      ],
-      enableDnsFallback: true,
-      dnsFallbackServers: [
-        "114.114.114.114",
-        "223.5.5.5"
-      ],
-      proxyEngine: "singbox",
-      engineSettings: {},
-      // 延迟测试设置
-      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
-      latencyTestTimeout: 1e4,
-      latencyTestRetries: 3,
-      latencyTestInterval: 10,
-      enableAutoLatencyTest: false,
-      latencyTestConcurrency: 3,
-      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
-      latencyTestValidityPeriod: 30
-    };
-  }
-  /**
-   * 获取默认用户偏好设置
-   */
-  static getDefaultUserPreferences() {
-    return {
-      windowSize: { width: 1200, height: 800 },
-      windowPosition: { x: 100, y: 100 },
-      sidebarCollapsed: false,
-      autoHideMenuBar: false,
-      alwaysOnTop: false,
-      minimizeToTray: true,
-      startMinimized: false,
-      enableNotifications: true,
-      notificationSound: true,
-      enableHotkeys: true,
-      hotkeys: {
-        toggleProxy: "Ctrl+Shift+P",
-        showMainWindow: "Ctrl+Shift+M",
-        quickSwitch: "Ctrl+Shift+S"
-      }
-    };
-  }
-  /**
-   * 获取默认引擎设置
-   */
-  static getDefaultEngineSettings() {
-    return {
-      proxyEngine: "singbox",
-      engineSettings: {}
-    };
-  }
-  /**
-   * 获取默认网络设置
-   */
-  static getDefaultNetworkSettings() {
-    return {
-      enableDns: true,
-      dnsServer: "8.8.8.8",
-      enableDoh: false,
-      dohServer: "https://dns.google/dns-query",
-      // 新增DNS安全性和隐私性配置
-      enableDot: false,
-      dotServer: "tls://1.1.1.1:853",
-      enableDnsCache: true,
-      dnsCacheSize: 1e3,
-      dnsCacheTtl: 300,
-      enableDnsLoadBalance: true,
-      dnsServers: [
-        "8.8.8.8",
-        "8.8.4.4",
-        "1.1.1.1",
-        "1.0.0.1"
-      ],
-      enableDnsLogging: false,
-      enableDnsLeakProtection: true,
-      dnsLeakProtectionMode: "strict",
-      enableDnsRules: true,
-      dnsRules: [
-        {
-          id: "block-ads",
-          name: "屏蔽广告域名",
-          pattern: "ads.",
-          patternType: "suffix",
-          action: "block",
-          enabled: true,
-          priority: 100
-        },
-        {
-          id: "block-tracking",
-          name: "屏蔽追踪域名",
-          pattern: "tracking.",
-          patternType: "suffix",
-          action: "block",
-          enabled: true,
-          priority: 100
-        },
-        {
-          id: "local-domains",
-          name: "本地域名直连",
-          pattern: ".local",
-          patternType: "suffix",
-          action: "direct",
-          enabled: true,
-          priority: 200
-        }
-      ],
-      enableDnsFallback: true,
-      dnsFallbackServers: [
-        "114.114.114.114",
-        "223.5.5.5"
-      ],
-      enableTun: false,
-      tunDevice: "utun0",
-      enableFakeIp: true,
-      fakeIpRange: "198.18.0.1/16",
-      enableUdp: true,
-      enableIpv6: false,
-      logLevel: "info",
-      enableLog: true,
-      logFile: "chongdong.log"
-    };
-  }
-  /**
-   * 获取默认延迟测试设置
-   */
-  static getDefaultLatencyTestSettings() {
-    return {
-      latencyTestUrl: "http://connectivitycheck.gstatic.com/generate_204",
-      latencyTestTimeout: 1e4,
-      latencyTestRetries: 3,
-      latencyTestInterval: 10,
-      enableAutoLatencyTest: false,
-      latencyTestConcurrency: 3,
-      latencyTestUrls: "http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com",
-      latencyTestValidityPeriod: 30
-    };
-  }
-}
-class SettingsManager {
-  constructor() {
-    const userDataPath = electron.app.getPath("userData");
-    this.settingsPath = path__namespace.join(userDataPath, "settings.json");
-    this.preferencesPath = path__namespace.join(userDataPath, "preferences.json");
-  }
-  static getInstance() {
-    if (!SettingsManager.instance) {
-      SettingsManager.instance = new SettingsManager();
-    }
-    return SettingsManager.instance;
-  }
-  /**
-   * 读取应用设置
-   */
-  getSettings() {
-    try {
-      if (fs__namespace.existsSync(this.settingsPath)) {
-        const data = fs__namespace.readFileSync(this.settingsPath, "utf8");
-        return JSON.parse(data);
-      }
-    } catch (error) {
-      console.error("Failed to read settings:", error);
-    }
-    return this.getDefaultSettings();
-  }
-  /**
-   * 读取用户偏好设置
-   */
-  getPreferences() {
-    try {
-      if (fs__namespace.existsSync(this.preferencesPath)) {
-        const data = fs__namespace.readFileSync(this.preferencesPath, "utf8");
-        return JSON.parse(data);
-      }
-    } catch (error) {
-      console.error("Failed to read preferences:", error);
-    }
-    return this.getDefaultPreferences();
-  }
-  /**
-   * 保存应用设置
-   */
-  saveSettings(settings) {
-    try {
-      fs__namespace.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2));
-      console.log("Settings saved successfully");
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-    }
-  }
-  /**
-   * 保存用户偏好设置
-   */
-  savePreferences(preferences) {
-    try {
-      fs__namespace.writeFileSync(this.preferencesPath, JSON.stringify(preferences, null, 2));
-      console.log("Preferences saved successfully");
-    } catch (error) {
-      console.error("Failed to save preferences:", error);
-    }
-  }
-  getDefaultSettings() {
-    return DefaultSettings.getDefaultAppSettings();
-  }
-  getDefaultPreferences() {
-    return DefaultSettings.getDefaultUserPreferences();
-  }
-}
-const settingsManager = SettingsManager.getInstance();
 const log = {
   info: (message, data, category) => {
     console.log(`[INFO] [${category || "CrashMonitor"}] ${message}`, data || "");
@@ -16060,14 +16412,7 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type;
-var hasRequiredType;
-function requireType() {
-  if (hasRequiredType) return type;
-  hasRequiredType = 1;
-  type = TypeError;
-  return type;
-}
+var type = TypeError;
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -16313,7 +16658,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = requireType();
+  var $TypeError2 = type;
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -16386,7 +16731,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = requireType();
+var $TypeError$1 = type;
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -16717,7 +17062,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = requireType();
+var $TypeError = type;
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -22917,6 +23262,155 @@ class DnsService {
   }
 }
 const dnsService = new DnsService();
+class LocalSubscriptionStore {
+  getSubscriptions() {
+    const allSettings = settingsManager.getSettings();
+    return allSettings.subscriptions || [];
+  }
+}
+class DynamicChainManager {
+  constructor() {
+    this.activeTimers = /* @__PURE__ */ new Map();
+    this.localSubscriptionStore = new LocalSubscriptionStore();
+  }
+  static getInstance() {
+    if (!DynamicChainManager.instance) {
+      DynamicChainManager.instance = new DynamicChainManager();
+    }
+    return DynamicChainManager.instance;
+  }
+  async startChain(chainConfig) {
+    if (chainConfig.type !== "dynamic" || !chainConfig.proxies) {
+      throw new Error("Invalid dynamic chain configuration.");
+    }
+    console.log(`[DynamicChainManager] Starting dynamic chain: ${chainConfig.name}`);
+    await this.updateAndApplyChain(chainConfig);
+    const updateInterval = 3e5;
+    if (this.activeTimers.has(chainConfig.id)) {
+      clearInterval(this.activeTimers.get(chainConfig.id));
+    }
+    const timer = setInterval(() => {
+      console.log(`[DynamicChainManager] Performing scheduled update for chain: ${chainConfig.name}`);
+      this.updateAndApplyChain(chainConfig);
+    }, updateInterval);
+    this.activeTimers.set(chainConfig.id, timer);
+  }
+  stopChain(chainId) {
+    if (this.activeTimers.has(chainId)) {
+      clearInterval(this.activeTimers.get(chainId));
+      this.activeTimers.delete(chainId);
+      console.log(`[DynamicChainManager] Stopped scheduled updates for chain ID: ${chainId}`);
+    }
+  }
+  async updateAndApplyChain(chainConfig) {
+    try {
+      const allSubscriptions = this.localSubscriptionStore.getSubscriptions();
+      const nodesToTest = [];
+      const subscriptionNodeMap = /* @__PURE__ */ new Map();
+      for (const subId of chainConfig.proxies) {
+        const subscription = allSubscriptions.find((s) => s.id === subId);
+        if (subscription && subscription.servers) {
+          const subscriptionNodes = subscription.servers.map((server2) => ({
+            // 直接从 server 对象映射到 ProxyNode 所需的字段
+            id: server2.id,
+            name: server2.name,
+            type: server2.protocol,
+            // `protocol` 映射到 `type`
+            server: server2.host,
+            // `host` 映射到 `server`
+            port: server2.port,
+            subscriptionId: subId
+            // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
+            // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
+          }));
+          nodesToTest.push(...subscriptionNodes);
+          subscriptionNodeMap.set(subId, subscriptionNodes);
+        }
+      }
+      if (nodesToTest.length === 0) {
+        console.warn(`[DynamicChainManager] No nodes found for dynamic chain ${chainConfig.name}.`);
+        return;
+      }
+      const testResults = await proxyManager.testNodesLatency(nodesToTest);
+      const bestNodes = [];
+      for (const subId of chainConfig.proxies) {
+        const nodesInSub = subscriptionNodeMap.get(subId) || [];
+        const resultsForSub = testResults.filter((r) => nodesInSub.some((n) => n.id === r.nodeId));
+        const validResults = resultsForSub.filter((r) => r.success && r.latency > 0);
+        if (validResults.length > 0) {
+          validResults.sort((a, b) => a.latency - b.latency);
+          const bestResult = validResults[0];
+          const bestNode = nodesInSub.find((n) => n.id === bestResult.nodeId);
+          if (bestNode) {
+            bestNodes.push(bestNode);
+          }
+        }
+      }
+      if (bestNodes.length === 0) {
+        console.error(`[DynamicChainManager] Could not find any valid nodes for chain ${chainConfig.name} after testing.`);
+        return;
+      }
+      console.log(`[DynamicChainManager] Best nodes selected for ${chainConfig.name}:`, bestNodes.map((n) => n.name));
+      const tempChainConfig = {
+        id: chainConfig.id,
+        name: `${chainConfig.name}_dynamic`,
+        description: `Dynamic chain based on ${chainConfig.name}`,
+        type: "static",
+        proxies: bestNodes.map((n) => n.id),
+        rules: [],
+        enabled: true,
+        createdAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      };
+      const settings = settingsManager.getSettings();
+      const networkSettings = {
+        enableDns: settings.enableDns || false,
+        dnsServer: settings.dnsServer || "8.8.8.8",
+        enableDoh: settings.enableDoh || false,
+        dohServer: settings.dohServer || "",
+        enableDot: settings.enableDot || false,
+        dotServer: settings.dotServer || "",
+        enableDnsCache: settings.enableDnsCache || false,
+        dnsCacheSize: settings.dnsCacheSize || 1e3,
+        dnsCacheTtl: settings.dnsCacheTtl || 300,
+        enableDnsLoadBalance: settings.enableDnsLoadBalance || false,
+        dnsServers: settings.dnsServers || [],
+        enableDnsLogging: settings.enableDnsLogging || false,
+        enableDnsLeakProtection: settings.enableDnsLeakProtection || false,
+        dnsLeakProtectionMode: settings.dnsLeakProtectionMode || "relaxed",
+        enableDnsRules: settings.enableDnsRules || false,
+        dnsRules: settings.dnsRules || [],
+        enableDnsFallback: settings.enableDnsFallback || false,
+        dnsFallbackServers: settings.dnsFallbackServers || [],
+        enableTun: settings.enableTun || false,
+        tunDevice: settings.tunDevice || "utun0",
+        enableFakeIp: settings.enableFakeIp || false,
+        fakeIpRange: settings.fakeIpRange || "198.18.0.1/16",
+        enableUdp: settings.enableUdp || true,
+        enableIpv6: settings.enableIpv6 || false,
+        logLevel: settings.logLevel || "info",
+        enableLog: settings.enableLog || false,
+        logFile: settings.logFile || ""
+      };
+      console.log("[DynamicChainManager] Starting real proxy chain with selected nodes.");
+      await proxyManager.startChain(tempChainConfig, networkSettings);
+    } catch (error) {
+      console.error(`[DynamicChainManager] Failed to update and apply chain ${chainConfig.name}:`, error);
+    }
+  }
+  // 可选：如果需要一个完整的临时配置对象
+  /*
+  private createTempStaticConfig(originalChain: ChainConfig, nodes: ProxyNode[]): ChainConfig {
+    return {
+      ...originalChain,
+      type: 'static',
+      proxies: nodes.map(n => n.id),
+      // 注意：这里的 nodes 数组需要在 proxyManager 中被正确解析
+    };
+  }
+  */
+}
+const dynamicChainManager = DynamicChainManager.getInstance();
 try {
   electron.app.disableHardwareAcceleration();
   console.log("已禁用硬件加速");
@@ -24140,6 +24634,24 @@ electron.ipcMain.handle("dns:clearDnsCache", () => {
     dnsService.clearDnsCache();
     return { success: true };
   } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+});
+electron.ipcMain.handle("proxy:start-dynamic-chain", async (_event, chainConfig) => {
+  try {
+    await dynamicChainManager.startChain(chainConfig);
+    return { success: true };
+  } catch (error) {
+    console.error("启动动态代理链失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+electron.ipcMain.handle("dns:start-service", async (_event, _settings) => {
+  try {
+    await dnsService.startDnsService();
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to start DNS service:", error);
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 });

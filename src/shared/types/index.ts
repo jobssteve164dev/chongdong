@@ -69,10 +69,15 @@ export interface Subscription {
 
 // 应用设置
 export interface AppSettings {
-  theme: 'light' | 'dark' | 'auto';
-  language: string;
+  v2rayPath: string;
+  clashPath: string;
+  singBoxPath: string;
+  theme: 'light' | 'dark' | 'system' | 'auto'; // 添加 'auto' 以保持兼容性
+  language?: string; // 添加可选的 language 属性
   autoStart: boolean;
   systemProxy: boolean;
+  proxyMode: 'direct' | 'global' | 'rule';
+  subscriptions?: Subscription[]; // 添加可选的订阅列表
   proxyPort: number;
   socksPort: number;
   mixedPort: number;
@@ -249,13 +254,14 @@ export interface AppError {
 export interface ProxyNode {
   id: string;
   name: string;
-  type: ProxyProtocol | string;
+  type: ProxyProtocol;
   server: string;
   port: number;
+  subscriptionId?: string; // 添加订阅ID字段，用于节点分组
   // Extended properties for config generation
   uuid?: string;
   password?: string;
-  security?: string;
+  encryption?: string;
   network?: string;
   wsPath?: string;
   wsHost?: string;
@@ -266,7 +272,8 @@ export interface ChainConfig {
   id: string;
   name: string;
   description: string;
-  proxies: string[];
+  type?: 'static' | 'dynamic'; // 新增：static为节点ID数组，dynamic为订阅ID数组
+  proxies: string[]; // 可以是节点ID或订阅ID
   rules: any[];
   enabled: boolean;
   createdAt: Date;

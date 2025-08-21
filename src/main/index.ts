@@ -12,6 +12,8 @@ import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
 import { systemMonitor } from './systemMonitor';
 import { dnsService } from './services/dnsService';
+import { dynamicChainManager } from './dynamicChainManager';
+import { AppSettings, ChainConfig } from '../shared/types';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -1529,6 +1531,27 @@ ipcMain.handle('dns:clearDnsCache', () => {
   }
 });
 
+// 启动动态代理链
+ipcMain.handle('proxy:start-dynamic-chain', async (_event, chainConfig: ChainConfig) => {
+  try {
+    await dynamicChainManager.startChain(chainConfig);
+    return { success: true };
+  } catch (error) {
+    console.error('启动动态代理链失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+// 监听DNS服务相关请求
+ipcMain.handle('dns:start-service', async (_event, _settings: AppSettings) => {
+  try {
+    await dnsService.startDnsService();
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to start DNS service:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
 
 // 注册系统监控IPC处理器
 systemMonitor.registerIpcHandlers();
