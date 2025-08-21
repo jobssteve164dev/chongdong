@@ -20,6 +20,16 @@ const api = {
     checkPermission: () => ipcRenderer.invoke('notification:check-permission'),
     updateConfig: (config: any) => ipcRenderer.invoke('notification:update-config', config),
     isSupported: () => ipcRenderer.invoke('notification:is-supported')
+  },
+
+  // DNS 服务 API
+  dns: {
+    startService: () => ipcRenderer.invoke('dns:startService'),
+    stopService: () => ipcRenderer.invoke('dns:stopService'),
+    getSystemDnsServers: () => ipcRenderer.invoke('dns:getSystemDnsServers'),
+    testDnsQuery: (domain: string, dnsServer: string) => ipcRenderer.invoke('dns:testDnsQuery', { domain, dnsServer }),
+    checkDnsLeak: () => ipcRenderer.invoke('dns:checkDnsLeak'),
+    clearDnsCache: () => ipcRenderer.invoke('dns:clearDnsCache'),
   }
 }
 

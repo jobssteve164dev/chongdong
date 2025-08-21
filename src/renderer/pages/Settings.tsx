@@ -33,6 +33,8 @@ import {
   CheckCircleOutlined,
   SecurityScanOutlined,
   DesktopOutlined,
+  ExperimentOutlined,
+  ClearOutlined,
 } from '@ant-design/icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
@@ -312,31 +314,21 @@ const Settings: React.FC = () => {
   const handleTestDns = async () => {
     setDnsTestLoading(true);
     setDnsTestResult('');
-    
     try {
-      // const { dnsManager } = await import('../utils/dnsManager');
-      // const validation = dnsManager.validateDnsConfig(settings);
-      const validation = { valid: true, errors: [] }; // Placeholder
-      if (validation.valid) {
-        message.success('DNS配置有效');
-      } else {
-        message.error(`DNS配置无效: ${validation.errors.join(', ')}`);
+      if (!settings?.dnsServer) {
+        message.error('请先设置主DNS服务器');
+        return;
       }
+      const result = await window.api.dns.testDnsQuery('www.google.com', settings.dnsServer);
 
-      // const testResult = await dnsManager.testDnsQuery('www.google.com', settings);
-      const testResult = { success: true, ip: '8.8.8.8', responseTime: 100 }; // Placeholder
-      
-      if (testResult.success) {
+      if (result.success && result.result.success) {
         setDnsTestResult(
           `DNS查询成功!\n` +
-          `域名: www.google.com\n` +
-          `IP地址: ${testResult.ip}\n` +
-          `DNS服务器: ${testResult.server}\n` +
-          `响应时间: ${testResult.responseTime}ms\n` +
-          `通过代理: ${testResult.throughProxy ? '是' : '否'}`
+          `IP地址: ${result.result.ip}\n` +
+          `响应时间: ${result.result.responseTime}ms`
         );
       } else {
-        setDnsTestResult('DNS查询失败，请检查DNS配置');
+        setDnsTestResult(`DNS查询失败: ${result.result.error || '未知错误'}`);
       }
     } catch (error) {
       setDnsTestResult(`DNS测试失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -349,17 +341,19 @@ const Settings: React.FC = () => {
     setDnsLeakCheckLoading(true);
     setDnsLeakResult('');
     setDnsLeakDetected(false);
-    
     try {
-      // const { dnsManager } = await import('../utils/dnsManager');
-      // const leakResult = await dnsManager.checkDnsLeak(settings);
-      const leakResult = { leaked: false, details: ["检查已禁用"] }; // Placeholder
-      
-      if (leakResult.leaked) {
-        setDnsLeakDetected(true);
-        setDnsLeakResult(`检测到DNS泄露!\n${leakResult.details.join('\n')}`);
+      const result = await window.api.dns.checkDnsLeak();
+
+      if (result.success) {
+        const leakCheckResult = result.result;
+        if (leakCheckResult.leaked) {
+          setDnsLeakDetected(true);
+          setDnsLeakResult(`检测到DNS泄露!\n${leakCheckResult.details.join('\n')}`);
+        } else {
+          setDnsLeakResult(`DNS泄露检查通过!\n${leakCheckResult.details.join('\n')}`);
+        }
       } else {
-        setDnsLeakResult(`DNS泄露检查通过!\n${leakResult.details.join('\n')}`);
+        setDnsLeakResult(`DNS泄露检查失败: ${result.error || '未知错误'}`);
       }
     } catch (error) {
       setDnsLeakResult(`DNS泄露检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -370,8 +364,7 @@ const Settings: React.FC = () => {
 
   const handleClearDnsCache = async () => {
     try {
-      // const { dnsManager } = await import('../utils/dnsManager');
-      // dnsManager.clearDnsCache();
+      await window.api.dns.clearDnsCache();
       message.success('DNS缓存已清除');
     } catch (error) {
       message.error('清除DNS缓存失败');
@@ -940,7 +933,7 @@ const Settings: React.FC = () => {
               {dnsTestResult && (
                 <Alert
                   message="DNS测试结果"
-                  description={dnsTestResult}
+                  description={<pre style={{ margin: 0 }}>{dnsTestResult}</pre>}
                   type="info"
                   showIcon
                   style={{ marginTop: 16 }}
@@ -950,7 +943,7 @@ const Settings: React.FC = () => {
               {dnsLeakResult && (
                 <Alert
                   message="DNS泄露检查结果"
-                  description={dnsLeakResult}
+                  description={<pre style={{ margin: 0 }}>{dnsLeakResult}</pre>}
                   type={dnsLeakDetected ? "error" : "success"}
                   showIcon
                   style={{ marginTop: 16 }}

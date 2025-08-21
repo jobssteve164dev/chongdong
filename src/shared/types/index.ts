@@ -89,6 +89,7 @@ export interface AppSettings {
   fakeIpRange: string;
   enableDns: boolean;
   dnsServer: string;
+  dnsListenPort?: number; // DNS服务监听端口
   enableDoh: boolean;
   dohServer: string;
   // 新增DNS安全性和隐私性配置

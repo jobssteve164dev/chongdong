@@ -13,8 +13,8 @@ declare global {
 
 const { ipcRenderer } = window.electron;
 
-import { ProxyNode, AppSettings } from '../../shared/types';
-// import { dnsManager } from './dnsManager';
+import { ProxyEngine, ProxyEngineType } from '../../shared/types';
+import { AppSettings, ProxyNode, Subscription } from '../../shared/types';
 
 export interface ProxyConfig {
   id: string;
@@ -363,12 +363,6 @@ export class ProxyEngine {
     console.log(`原始配置:`, config);
     console.log(`网络设置:`, networkSettings);
     
-    // 初始化DNS管理器
-    // if (networkSettings) {
-    //   console.log(`初始化DNS管理器...`);
-    //   dnsManager.init(networkSettings);
-    // }
-
     // 基础Sing-box配置结构
     console.log(`构建基础 Sing-box 配置...`);
     const singboxConfig: any = {

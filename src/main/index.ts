@@ -11,6 +11,7 @@ import { coreDownloader } from './coreDownloader';
 import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
 import { systemMonitor } from './systemMonitor';
+import { dnsService } from './services/dnsService';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -459,6 +460,15 @@ app.whenReady().then(() => {
 
   // 启动崩溃监控
   crashMonitor.startMonitoring();
+
+  // 初始化DNS服务
+  try {
+    const settings = settingsManager.getSettings();
+    dnsService.init(settings);
+    console.log('DNS服务已初始化');
+  } catch (error) {
+    console.error('初始化DNS服务失败:', error);
+  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -1453,6 +1463,62 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
     };
   }
 });
+
+// DNS 服务IPC处理程序
+ipcMain.handle('dns:startService', async () => {
+  try {
+    await dnsService.startDnsService();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('dns:stopService', async () => {
+  try {
+    await dnsService.stopDnsService();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('dns:getSystemDnsServers', async () => {
+  try {
+    const servers = await dnsService.getSystemDnsServers();
+    return { success: true, servers };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('dns:testDnsQuery', async (_, { domain, dnsServer }) => {
+  try {
+    const result = await dnsService.testDnsQuery(domain, dnsServer);
+    return { success: true, result };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('dns:checkDnsLeak', async () => {
+  try {
+    const result = await dnsService.checkDnsLeak();
+    return { success: true, result };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('dns:clearDnsCache', () => {
+  try {
+    dnsService.clearDnsCache();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 
 // 注册系统监控IPC处理器
 systemMonitor.registerIpcHandlers();
