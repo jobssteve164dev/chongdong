@@ -87,6 +87,14 @@ export class DynamicChainManager {
                     server: server.host,   // `host` 映射到 `server`
                     port: server.port,
                     subscriptionId: subId,
+                    // 添加关键的认证和配置字段
+                    uuid: server.uuid,
+                    password: server.password,
+                    encryption: server.encryption,
+                    network: server.network,
+                    wsPath: server.wsPath,
+                    wsHost: server.wsHeaders?.['Host'],
+                    alterId: server.alterId,
                     // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
                     // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
                   }));

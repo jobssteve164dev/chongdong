@@ -16375,14 +16375,7 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type;
-var hasRequiredType;
-function requireType() {
-  if (hasRequiredType) return type;
-  hasRequiredType = 1;
-  type = TypeError;
-  return type;
-}
+var type = TypeError;
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -16628,7 +16621,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = requireType();
+  var $TypeError2 = type;
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -16701,7 +16694,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = requireType();
+var $TypeError$1 = type;
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -17032,7 +17025,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = requireType();
+var $TypeError = type;
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -23283,19 +23276,30 @@ class DynamicChainManager {
       for (const subId of chainConfig.proxies) {
         const subscription = allSubscriptions.find((s) => s.id === subId);
         if (subscription && subscription.servers) {
-          const subscriptionNodes = subscription.servers.map((server2) => ({
-            // 直接从 server 对象映射到 ProxyNode 所需的字段
-            id: server2.id,
-            name: server2.name,
-            type: server2.protocol,
-            // `protocol` 映射到 `type`
-            server: server2.host,
-            // `host` 映射到 `server`
-            port: server2.port,
-            subscriptionId: subId
-            // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
-            // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
-          }));
+          const subscriptionNodes = subscription.servers.map((server2) => {
+            var _a2;
+            return {
+              // 直接从 server 对象映射到 ProxyNode 所需的字段
+              id: server2.id,
+              name: server2.name,
+              type: server2.protocol,
+              // `protocol` 映射到 `type`
+              server: server2.host,
+              // `host` 映射到 `server`
+              port: server2.port,
+              subscriptionId: subId,
+              // 添加关键的认证和配置字段
+              uuid: server2.uuid,
+              password: server2.password,
+              encryption: server2.encryption,
+              network: server2.network,
+              wsPath: server2.wsPath,
+              wsHost: (_a2 = server2.wsHeaders) == null ? void 0 : _a2["Host"],
+              alterId: server2.alterId
+              // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
+              // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
+            };
+          });
           nodesToTest.push(...subscriptionNodes);
           subscriptionNodeMap.set(subId, subscriptionNodes);
         }
