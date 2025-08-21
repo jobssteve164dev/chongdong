@@ -71,6 +71,7 @@
     "electron-store": "^8.0.0",
     "electron-updater": "^6.0.0",
     "js-base64": "^3.7.8",
+    "lru-cache": "^11.1.0",
     "node-fetch": "^3.0.0",
     "react": "^18.0.0",
     "react-beautiful-dnd": "^13.1.1",

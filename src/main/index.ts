@@ -1121,6 +1121,16 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
       }
     }
     
+    // 应用DNS设置
+    if (settings.settings) {
+      try {
+        dnsService.init(settings.settings);
+        console.log('DNS服务设置已更新');
+      } catch (error) {
+        console.error('更新DNS服务设置失败:', error);
+      }
+    }
+
     return { success: true };
   } catch (error) {
     console.error('Failed to apply settings:', error);

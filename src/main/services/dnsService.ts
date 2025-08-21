@@ -3,6 +3,20 @@ import os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { AppSettings, DnsRule } from '../../shared/types';
+import axios from 'axios';
+import tls from 'tls';
+import { LRUCache } from 'lru-cache';
+
+// 定义DNS-over-HTTPS JSON响应的接口
+interface DoHResponse {
+  Status: number;
+  Answer?: {
+    name: string;
+    type: number;
+    TTL: number;
+    data: string;
+  }[];
+}
 
 // 定义DNS规则匹配结果的类型
 interface DnsRuleResult {
@@ -14,7 +28,7 @@ class DnsService {
   private dnsServer: any = null;
   private settings: AppSettings | null = null;
   private execAsync = promisify(exec);
-  private dnsCache: Map<string, { ip: string; ttl: number }> = new Map();
+  private dnsCache: LRUCache<string, string> = new LRUCache({ max: 100 });
 
   constructor() {
     console.log('DnsService initialized');
@@ -23,6 +37,8 @@ class DnsService {
   public init(settings: AppSettings): void {
     this.settings = settings;
     console.log('DnsService settings updated.');
+    // 根据新设置初始化LRU缓存
+    this.dnsCache = new LRUCache({ max: this.settings.dnsCacheSize || 100 });
     // 如果开启了DNS服务，则根据新设置重启
     if (this.settings?.enableDns && this.dnsServer) {
       this.stopDnsService().then(() => this.startDnsService());
@@ -73,18 +89,24 @@ class DnsService {
   }
   
   private async handleDnsRequest(request: any, send: (response: any) => void): Promise<void> {
-    console.log('Received DNS Request:', JSON.stringify(request, null, 2)); // 观测点
+    const startTime = Date.now();
     const question = request.questions[0];
     if (!question || !this.settings) {
       return send(request);
     }
     const domain = question.name;
 
+    // DNS查询日志 - 请求开始
+    if (this.settings.enableDnsLogging) {
+      console.log(`[DNS Log] Query received for: ${domain}`);
+    }
+
     if (this.settings.enableDnsCache) {
-      const cached = this.dnsCache.get(domain);
-      if (cached && cached.ttl > Date.now()) {
+      const cachedIp = this.dnsCache.get(domain);
+      if (cachedIp) {
         const cachedResponse = Dns.Packet.createResponseFromRequest(request) as any;
-        cachedResponse.answers.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN, ttl: Math.round((cached.ttl - Date.now()) / 1000), address: cached.ip });
+        // 注意：LRU缓存不存储TTL，因此我们使用一个默认的较短TTL
+        cachedResponse.answers.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN, ttl: 60, address: cachedIp });
         return send(cachedResponse);
       }
     }
@@ -97,34 +119,187 @@ class DnsService {
         blockResponse.header.rcode = 3; // NXDOMAIN
         return send(blockResponse);
       case 'custom':
-        return this.resolveWithUpstream(domain, [ruleResult.server!], request, send);
+        return this.resolveWithUpstream(domain, [ruleResult.server!], request, send, startTime);
       case 'proxy':
       case 'direct':
       default:
         const upstreamServers = this.settings.dnsServers?.length ? this.settings.dnsServers : ['8.8.8.8'];
-        return this.resolveWithUpstream(domain, upstreamServers, request, send);
+        return this.resolveWithUpstream(domain, upstreamServers, request, send, startTime);
     }
   }
 
-  private async resolveWithUpstream(domain: string, servers: string[], request: any, send: (response: any) => void): Promise<void> {
+  private async resolveWithUpstream(domain: string, servers: string[], request: any, send: (response: any) => void, startTime: number): Promise<void> {
     const response = Dns.Packet.createResponseFromRequest(request) as any;
+    let isResolved = false;
+
+    let serversToUse = [...servers];
+    // 实现严格DNS泄露防护模式
+    if (this.settings?.dnsLeakStrict) {
+        serversToUse = serversToUse.filter(s => s.startsWith('https://') || s.startsWith('tls://'));
+        if (serversToUse.length === 0) {
+            console.error('[DNS Strict Mode] No secure (DoH/DoT) DNS servers configured. Blocking query.');
+            response.header.rcode = 3; // NXDOMAIN to block
+            return send(response);
+        }
+    }
+
+    const serversToTry = this.settings?.enableDnsLoadBalance ? this.shuffleArray(serversToUse) : serversToUse;
+
+    for (const server of serversToTry) {
+      try {
+        let resolver: (domain: string, server: string, request: any) => Promise<any>;
+        if (server.startsWith('https://')) {
+          resolver = this.resolveSingleDoH;
+        } else if (server.startsWith('tls://')) {
+          resolver = this.resolveSingleDoT;
+        } else {
+          resolver = this.resolveSingleStandard;
+        }
+        
+        const resultIp = await resolver(domain, server, request);
+
+        if (resultIp) {
+          if (this.settings?.enableDnsCache) {
+            // LRU缓存只存IP，不存TTL
+            this.dnsCache.set(domain, resultIp);
+          }
+          response.answers.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN, ttl: this.settings?.dnsCacheTtl || 300, address: resultIp });
+          isResolved = true;
+          break; 
+        }
+      } catch (error) {
+        console.warn(`DNS resolution failed for ${domain} with server ${server}:`, error);
+        // 继续尝试下一个服务器
+      }
+    }
+
+    // 实现故障转移
+    if (!isResolved && this.settings?.enableDnsFallback && this.settings.dnsFallbackServers?.length) {
+      console.log(`Primary DNS failed for ${domain}, trying fallback servers...`);
+      // 递归调用，但只用fallback服务器且禁用下一次fallback
+      const fallbackSettings = { ...this.settings, enableDnsFallback: false };
+      const tempService = new DnsService();
+      tempService.init(fallbackSettings);
+      await tempService.resolveWithUpstream(domain, this.settings.dnsFallbackServers, request, (fallbackResponse) => {
+        // 将fallback的答案复制到当前响应中
+        if(fallbackResponse.answers.length > 0) {
+            response.answers.push(...fallbackResponse.answers);
+            isResolved = true;
+            // DNS查询日志 - 故障转移成功
+            if (this.settings?.enableDnsLogging) {
+              const answer = fallbackResponse.answers[0];
+              console.log(`[DNS Log] Fallback success for ${domain}: -> ${answer.address} in ${Date.now() - startTime}ms`);
+            }
+        }
+      }, startTime); // 传递startTime
+    }
+
+    if (isResolved) {
+        // DNS查询日志 - 主流程成功
+        if (this.settings?.enableDnsLogging) {
+            const answer = response.answers[0];
+            console.log(`[DNS Log] Resolved ${domain} -> ${answer.address} in ${Date.now() - startTime}ms`);
+        }
+    } else {
+      response.header.rcode = 2; // SERVFAIL
+      // DNS查询日志 - 失败
+      if (this.settings?.enableDnsLogging) {
+        console.log(`[DNS Log] Failed to resolve ${domain} in ${Date.now() - startTime}ms`);
+      }
+    }
+    
+    send(response);
+  }
+
+  // 将解析器重构为返回Promise<string | null>的单一解析函数
+  private async resolveSingleStandard(domain: string, server: string, _request: any): Promise<string | null> {
     try {
       const resolver = new (await import('dns')).promises.Resolver();
-      resolver.setServers(servers);
+      resolver.setServers([server]);
       const addresses = await resolver.resolve4(domain);
-      
-      const ip = addresses[0];
-      if (ip) {
-        if (this.settings?.enableDnsCache) {
-            this.dnsCache.set(domain, { ip, ttl: Date.now() + (this.settings.dnsCacheTtl || 300) * 1000 });
-        }
-        response.answers.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN, ttl: this.settings?.dnsCacheTtl || 300, address: ip });
-      }
+      return addresses[0] || null;
     } catch (error) {
-      console.error(`DNS resolution failed for ${domain} with servers ${servers.join(', ')}:`, error);
-      response.header.rcode = 2; // SERVFAIL
+      console.error(`Standard DNS resolution failed for ${domain} with server ${server}:`, error);
+      throw error;
     }
-    send(response);
+  }
+
+  private async resolveSingleDoH(domain: string, server: string, _request: any): Promise<string | null> {
+    try {
+      const dohResponse = await axios.get<DoHResponse>(server, {
+        params: { name: domain, type: 'A' },
+        headers: { 'accept': 'application/dns-json' },
+        timeout: 3000
+      });
+
+      if (dohResponse.data.Status === 0 && dohResponse.data.Answer) {
+        const answer = dohResponse.data.Answer.find(a => a.type === 1); // A record
+        return answer?.data || null;
+      }
+      return null;
+    } catch (error) {
+      console.error(`DoH resolution failed for ${domain} with server ${server}:`, error);
+      throw error;
+    }
+  }
+  
+  private async resolveSingleDoT(domain: string, server: string, _request: any): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const [host, portStr] = server.replace('tls://', '').split(':');
+      const port = portStr ? parseInt(portStr, 10) : 853;
+
+      const dnsQueryPacket = new Dns.Packet();
+      (dnsQueryPacket as any).questions.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN });
+      const queryBuffer = dnsQueryPacket.toBuffer();
+
+      const lengthBuffer = Buffer.alloc(2);
+      lengthBuffer.writeUInt16BE(queryBuffer.length, 0);
+      const finalQuery = Buffer.concat([lengthBuffer, queryBuffer]);
+
+      const socket = tls.connect({ host, port, servername: host }, () => {
+        socket.write(finalQuery);
+      });
+      socket.setTimeout(3000);
+
+      socket.on('data', (data) => {
+        try {
+          const answerPacket = (Dns.Packet as any).parse(data.slice(2));
+          if (answerPacket.answers.length > 0 && answerPacket.answers[0].address) {
+            resolve(answerPacket.answers[0].address);
+          } else {
+            resolve(null);
+          }
+        } catch(e) {
+          reject(e);
+        } finally {
+          socket.end();
+        }
+      });
+
+      socket.on('error', (err) => {
+        reject(err);
+        socket.end();
+      });
+
+      socket.on('timeout', () => {
+        reject(new Error('DoT resolution timed out'));
+        socket.end();
+      });
+    });
+  }
+
+  // 洗牌算法，用于负载均衡
+  private shuffleArray<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = array[i];
+      const jValue = array[j];
+      if (temp !== undefined && jValue !== undefined) {
+        array[i] = jValue;
+        array[j] = temp;
+      }
+    }
+    return array;
   }
 
   private applyDnsRules(domain: string, settings: AppSettings): DnsRuleResult {

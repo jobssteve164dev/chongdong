@@ -103,6 +103,7 @@ export interface AppSettings {
   enableDnsLogging: boolean;
   enableDnsLeakProtection: boolean;
   dnsLeakProtectionMode: 'strict' | 'relaxed';
+  dnsLeakStrict: boolean; // 新增：严格模式开关
   enableDnsRules: boolean;
   dnsRules: DnsRule[];
   enableDnsFallback: boolean;

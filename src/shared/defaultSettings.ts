@@ -48,6 +48,7 @@ export class DefaultSettings {
       enableDnsLogging: false,
       enableDnsLeakProtection: true,
       dnsLeakProtectionMode: 'strict',
+      dnsLeakStrict: false, // 严格模式默认关闭
       enableDnsRules: true,
       dnsRules: [
         {
