@@ -144,6 +144,21 @@ export class ProxyEngine {
       this.startStatusMonitoring();
       this.notifyStatusChange();
       
+      // 启动监控管理器
+      console.log('代理启动成功，开始启动监控管理器...');
+      try {
+        const { monitorManager } = await import('./monitorManager');
+        console.log('监控管理器对象:', monitorManager);
+        console.log('监控管理器类型:', typeof monitorManager);
+        console.log('监控管理器方法:', Object.getOwnPropertyNames(Object.getPrototypeOf(monitorManager)));
+        console.log('调用 monitorManager.startMonitoring()...');
+        await monitorManager.startMonitoring();
+        console.log('监控管理器启动成功');
+      } catch (error) {
+        console.error('监控管理器启动失败:', error);
+        console.error('错误详情:', error);
+      }
+      
       return true;
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : 'Unknown error';

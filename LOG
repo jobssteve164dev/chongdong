@@ -1,19 +1,19 @@
-[2025-08-21T01:34:20.590Z] [INFO] [default] 日志系统已初始化 Object
-index-DraNARQS.js:587 🔍 geolocationTester.ts: Starting module initialization
-index-DraNARQS.js:587 🔍 geolocationTester.ts: Module initialization complete
-index-DraNARQS.js:591 🔍 Dashboard: 开始导入 geolocationTester
-index-DraNARQS.js:591 🔍 Dashboard: geolocationTester 导入完成: object
-index-DraNARQS.js:456 [2025-08-21T01:34:20.619Z] [INFO] [ErrorRecovery] 注册错误恢复策略: DNS配置恢复 
-index-DraNARQS.js:456 [2025-08-21T01:34:20.625Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 代理服务恢复 
-index-DraNARQS.js:456 [2025-08-21T01:34:20.630Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 配置恢复 
-index-DraNARQS.js:456 [2025-08-21T01:34:20.635Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 存储恢复 
-index-DraNARQS.js:456 [2025-08-21T01:34:20.641Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 进程通信恢复 
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 IP地理位置自动测试 useEffect: 触发
-index-DraNARQS.js:591 🔍 proxyConnected: false
-index-DraNARQS.js:591 🔍 currentGeolocation: Object
-index-DraNARQS.js:591 🔍 isGeolocationValid(): true
+[2025-08-21T01:37:57.881Z] [INFO] [default] 日志系统已初始化 Object
+index-C3glzOcl.js:587 🔍 geolocationTester.ts: Starting module initialization
+index-C3glzOcl.js:587 🔍 geolocationTester.ts: Module initialization complete
+index-C3glzOcl.js:591 🔍 Dashboard: 开始导入 geolocationTester
+index-C3glzOcl.js:591 🔍 Dashboard: geolocationTester 导入完成: object
+index-C3glzOcl.js:456 [2025-08-21T01:37:57.892Z] [INFO] [ErrorRecovery] 注册错误恢复策略: DNS配置恢复 
+index-C3glzOcl.js:456 [2025-08-21T01:37:57.896Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 代理服务恢复 
+index-C3glzOcl.js:456 [2025-08-21T01:37:57.900Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 配置恢复 
+index-C3glzOcl.js:456 [2025-08-21T01:37:57.905Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 存储恢复 
+index-C3glzOcl.js:456 [2025-08-21T01:37:57.909Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 进程通信恢复 
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 IP地理位置自动测试 useEffect: 触发
+index-C3glzOcl.js:591 🔍 proxyConnected: false
+index-C3glzOcl.js:591 🔍 currentGeolocation: Object
+index-C3glzOcl.js:591 🔍 isGeolocationValid(): true
 VM163 renderer_init:2 Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security
   Policy set or a policy with "unsafe-eval" enabled. This exposes users of
   this app to unnecessary security risks.
@@ -23,44 +23,44 @@ https://electronjs.org/docs/tutorial/security.
 This warning will not show up
 once the app is packaged.
 warnAboutInsecureCSP @ VM163 renderer_init:2
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:456 === 开始转换 Sing-box 配置 ===
-index-DraNARQS.js:456 原始配置: Object
-index-DraNARQS.js:456 网络设置: Object
-index-DraNARQS.js:456 初始化DNS管理器...
-index-DraNARQS.js:456 构建基础 Sing-box 配置...
-index-DraNARQS.js:456 === 配置入站连接 ===
-index-DraNARQS.js:456 TUN 功能已禁用
-index-DraNARQS.js:456 添加 SOCKS 入站配置
-index-DraNARQS.js:456 SOCKS 端口: 7896
-index-DraNARQS.js:456 添加 HTTP 入站配置
-index-DraNARQS.js:456 HTTP 端口: 7897
-index-DraNARQS.js:456 入站配置数量: 2
-index-DraNARQS.js:456 添加直连出站配置
-index-DraNARQS.js:456 添加DNS出站配置
-index-DraNARQS.js:456 添加私有IP直连规则
-index-DraNARQS.js:456 添加中国IP直连规则
-index-DraNARQS.js:456 === 处理代理出站配置 ===
-index-DraNARQS.js:456 原始出站配置数量: 1
-index-DraNARQS.js:456 原始出站配置: Array(1)
-index-DraNARQS.js:456 处理第 1 个出站配置: Object
-index-DraNARQS.js:456 修复后的出站配置: Object
-index-DraNARQS.js:456 处理协议类型: trojan
-index-DraNARQS.js:456 配置 Trojan 协议
-index-DraNARQS.js:456 密码: ***
-index-DraNARQS.js:456 启用 TLS，SNI 设置为: bc84a0846.nthnyx.lol
-index-DraNARQS.js:456 最终出站配置: Object
-index-DraNARQS.js:456 === 过滤和验证出站配置 ===
-index-DraNARQS.js:456 有效出站配置数量: 1
-index-DraNARQS.js:456 现有标签: Array(2)
-index-DraNARQS.js:456 添加出站标签: 🇯🇵 Japan 11
-index-DraNARQS.js:456 唯一出站配置数量: 1
-index-DraNARQS.js:456 === 添加用户出站配置 ===
-index-DraNARQS.js:456 添加的出站配置: Array(1)
-index-DraNARQS.js:456 设置最终路由标签: 🇯🇵 Japan 11
-index-DraNARQS.js:456 === Sing-box 配置转换完成 ===
-index-DraNARQS.js:456 最终配置: {
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:456 === 开始转换 Sing-box 配置 ===
+index-C3glzOcl.js:456 原始配置: Object
+index-C3glzOcl.js:456 网络设置: Object
+index-C3glzOcl.js:456 初始化DNS管理器...
+index-C3glzOcl.js:456 构建基础 Sing-box 配置...
+index-C3glzOcl.js:456 === 配置入站连接 ===
+index-C3glzOcl.js:456 TUN 功能已禁用
+index-C3glzOcl.js:456 添加 SOCKS 入站配置
+index-C3glzOcl.js:456 SOCKS 端口: 7896
+index-C3glzOcl.js:456 添加 HTTP 入站配置
+index-C3glzOcl.js:456 HTTP 端口: 7897
+index-C3glzOcl.js:456 入站配置数量: 2
+index-C3glzOcl.js:456 添加直连出站配置
+index-C3glzOcl.js:456 添加DNS出站配置
+index-C3glzOcl.js:456 添加私有IP直连规则
+index-C3glzOcl.js:456 添加中国IP直连规则
+index-C3glzOcl.js:456 === 处理代理出站配置 ===
+index-C3glzOcl.js:456 原始出站配置数量: 1
+index-C3glzOcl.js:456 原始出站配置: Array(1)
+index-C3glzOcl.js:456 处理第 1 个出站配置: Object
+index-C3glzOcl.js:456 修复后的出站配置: Object
+index-C3glzOcl.js:456 处理协议类型: trojan
+index-C3glzOcl.js:456 配置 Trojan 协议
+index-C3glzOcl.js:456 密码: ***
+index-C3glzOcl.js:456 启用 TLS，SNI 设置为: bc84a0846.nthnyx.lol
+index-C3glzOcl.js:456 最终出站配置: Object
+index-C3glzOcl.js:456 === 过滤和验证出站配置 ===
+index-C3glzOcl.js:456 有效出站配置数量: 1
+index-C3glzOcl.js:456 现有标签: Array(2)
+index-C3glzOcl.js:456 添加出站标签: 🇯🇵 Japan 19
+index-C3glzOcl.js:456 唯一出站配置数量: 1
+index-C3glzOcl.js:456 === 添加用户出站配置 ===
+index-C3glzOcl.js:456 添加的出站配置: Array(1)
+index-C3glzOcl.js:456 设置最终路由标签: 🇯🇵 Japan 19
+index-C3glzOcl.js:456 === Sing-box 配置转换完成 ===
+index-C3glzOcl.js:456 最终配置: {
   "log": {
     "level": "info",
     "output": "chongdong.log"
@@ -145,9 +145,9 @@ index-DraNARQS.js:456 最终配置: {
   "outbounds": [
     {
       "type": "trojan",
-      "tag": "🇯🇵 Japan 11",
+      "tag": "🇯🇵 Japan 19",
       "server": "bc84a0846.nthnyx.lol",
-      "server_port": 19616,
+      "server_port": 16735,
       "password": "02fb4aa3-dd40-4108-88e4-0d172140407f",
       "tls": {
         "enabled": true,
@@ -175,68 +175,72 @@ index-DraNARQS.js:456 最终配置: {
         "outbound": "direct"
       }
     ],
-    "final": "🇯🇵 Japan 11"
+    "final": "🇯🇵 Japan 19"
   }
 }
-index-DraNARQS.js:456 配置大小: 1332 字符
-index-DraNARQS.js:456 === 路由规则分析 ===
-index-DraNARQS.js:456 路由规则数量: 2
-index-DraNARQS.js:456 规则 1: Object
-index-DraNARQS.js:456 规则 2: Object
-index-DraNARQS.js:456 最终路由: 🇯🇵 Japan 11
-index-DraNARQS.js:456 出站配置数量: 3
-index-DraNARQS.js:456 出站 1: 🇯🇵 Japan 11 (trojan)
-index-DraNARQS.js:456 出站 2: direct (direct)
-index-DraNARQS.js:456 出站 3: dns (dns)
-index-DraNARQS.js:456 代理引擎状态已设置为运行中: Object
-index-DraNARQS.js:658 当前设置中的端口配置: Object
-index-DraNARQS.js:658 设置系统代理 - SOCKS: 7896, HTTP: 7897
-index-DraNARQS.js:658 系统代理已设置 - HTTP/HTTPS: 127.0.0.1:7897, SOCKS: 127.0.0.1:7896
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 IP地理位置自动测试 useEffect: 触发
-index-DraNARQS.js:591 🔍 proxyConnected: true
-index-DraNARQS.js:591 🔍 currentGeolocation: Object
-index-DraNARQS.js:591 🔍 isGeolocationValid(): true
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
-index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:456 配置大小: 1332 字符
+index-C3glzOcl.js:456 === 路由规则分析 ===
+index-C3glzOcl.js:456 路由规则数量: 2
+index-C3glzOcl.js:456 规则 1: Object
+index-C3glzOcl.js:456 规则 2: Object
+index-C3glzOcl.js:456 最终路由: 🇯🇵 Japan 19
+index-C3glzOcl.js:456 出站配置数量: 3
+index-C3glzOcl.js:456 出站 1: 🇯🇵 Japan 19 (trojan)
+index-C3glzOcl.js:456 出站 2: direct (direct)
+index-C3glzOcl.js:456 出站 3: dns (dns)
+index-C3glzOcl.js:456 代理引擎状态已设置为运行中: Object
+index-C3glzOcl.js:658 当前设置中的端口配置: Object
+index-C3glzOcl.js:658 设置系统代理 - SOCKS: 7896, HTTP: 7897
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.334Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.337Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.340Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.343Z] [INFO] [SubscriptionManager] 订阅管理器初始化完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.361Z] [INFO] [SubscriptionManager] 开始更新订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.364Z] [INFO] [SubscriptionManager] 开始解析订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.367Z] [INFO] [SubscriptionManager] 开始更新订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.370Z] [INFO] [SubscriptionManager] 开始解析订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.374Z] [INFO] [SubscriptionManager] 开始更新订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.376Z] [INFO] [SubscriptionManager] 开始解析订阅 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.395Z] [INFO] [SubscriptionManager] 订阅解析完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.398Z] [INFO] [SubscriptionManager] 订阅更新完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.401Z] [INFO] [SubscriptionManager] 取消订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:07.404Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:658 系统代理已设置 - HTTP/HTTPS: 127.0.0.1:7897, SOCKS: 127.0.0.1:7896
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.071Z] [INFO] [SubscriptionManager] 订阅解析完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.074Z] [INFO] [SubscriptionManager] 订阅更新完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.077Z] [INFO] [SubscriptionManager] 取消订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.079Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.087Z] [INFO] [SubscriptionManager] 订阅解析完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.091Z] [INFO] [SubscriptionManager] 订阅更新完成 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.093Z] [INFO] [SubscriptionManager] 取消订阅更新 Object
+index-C3glzOcl.js:456 [2025-08-21T01:38:08.096Z] [INFO] [SubscriptionManager] 调度订阅更新 Object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 IP地理位置自动测试 useEffect: 触发
+index-C3glzOcl.js:591 🔍 proxyConnected: true
+index-C3glzOcl.js:591 🔍 currentGeolocation: {ip: '23.249.17.80', country: 'Japan', region: 'Tokyo', city: 'Tokyo', isp: 'PRIME-SEC', …}
+index-C3glzOcl.js:591 🔍 isGeolocationValid(): true
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-C3glzOcl.js:591 🔍 Dashboard: 组件开始渲染
+index-C3glzOcl.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
