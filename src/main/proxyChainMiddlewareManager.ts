@@ -41,35 +41,40 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
    */
   public async start(): Promise<void> {
     console.log(`[ProxyChainMiddlewareManager] 启动代理链中间件: ${this.id}`);
-    console.log(`[ProxyChainMiddlewareManager] 节点数量: ${this.config.nodes.length}`);
-    console.log(`[ProxyChainMiddlewareManager] 入口端口: ${this.config.entryPort}`);
+    console.log(`[ProxyChainMiddlewareManager] 配置详情:`);
+    console.log(`  - 入口端口: ${this.config.entryPort}`);
+    console.log(`  - 节点数量: ${this.config.nodes.length}`);
+    console.log(`  - 启用监控: ${this.config.enableMonitoring}`);
+    console.log(`  - 启用防护: ${this.config.enableProtection}`);
+    console.log(`  - 最大重试: ${this.config.maxRetries}`);
+    console.log(`  - 超时时间: ${this.config.timeout}ms`);
     
     try {
       this.status = 'starting';
       this.startTime = new Date();
+      console.log(`[ProxyChainMiddlewareManager] 状态已设置为: starting`);
       
-      // 1. 创建协议适配器
+      console.log(`[ProxyChainMiddlewareManager] 步骤1: 创建协议适配器...`);
       await this.createProtocolAdapters();
+      console.log(`[ProxyChainMiddlewareManager] 协议适配器创建完成，数量: ${this.adapters.length}`);
       
-      // 2. 启动所有协议适配器
+      console.log(`[ProxyChainMiddlewareManager] 步骤2: 启动协议适配器...`);
       await this.startProtocolAdapters();
+      console.log(`[ProxyChainMiddlewareManager] 协议适配器启动完成`);
       
-      // 3. 创建并启动流量路由器
+      console.log(`[ProxyChainMiddlewareManager] 步骤3: 创建并启动流量路由器...`);
       await this.createAndStartTrafficRouter();
+      console.log(`[ProxyChainMiddlewareManager] 流量路由器启动完成`);
       
       this.status = 'running';
-      
+      console.log(`[ProxyChainMiddlewareManager] 状态已设置为: running`);
       console.log(`✅ [ProxyChainMiddlewareManager] 代理链中间件启动成功: ${this.id}`);
-      
     } catch (error) {
       this.status = 'error';
       this.error = error instanceof Error ? error.message : String(error);
-      
       console.error(`❌ [ProxyChainMiddlewareManager] 代理链中间件启动失败: ${this.id}`, error);
-      
-      // 清理资源
+      console.error(`❌ [ProxyChainMiddlewareManager] 错误详情:`, error instanceof Error ? error.stack : error);
       await this.cleanup();
-      
       throw error;
     }
   }

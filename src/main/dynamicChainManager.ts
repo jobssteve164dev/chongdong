@@ -162,10 +162,10 @@ export class DynamicChainManager {
       // 5. 启动最优节点代理链
       if (bestNodes.length > 0) {
         console.log(`[DynamicChainManager] Starting proxy manager with ${bestNodes.length} best nodes.`);
-        // 最终修复：直接传递最优节点对象数组，而不是节点ID数组
-        const result = await proxyManager.startChain({ ...chainConfig, name: `${chainConfig.name}_dynamic` }, { listenPort }, bestNodes);
+        // 使用新的中间件代理链方法
+        await proxyManager.startProxyChain(`${chainConfig.name}_dynamic`, bestNodes, listenPort);
         console.log(`[DynamicChainManager] Proxy manager started successfully for chain: ${chainConfig.name}`);
-        return result;
+        return { port: listenPort };
       } else {
         console.warn('[DynamicChainManager] No nodes found after latency test for dynamic chain', chainConfig.name);
         return { port: 0 }; // Return a default port or throw an error if no nodes are found

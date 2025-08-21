@@ -1461,13 +1461,27 @@ class ProtocolAdapter {
    */
   async start() {
     console.log(`[ProtocolAdapter] 启动协议适配器: ${this.id} (${this.node.name})`);
+    console.log(`[ProtocolAdapter] 节点详情:`);
+    console.log(`  - 节点ID: ${this.node.id}`);
+    console.log(`  - 节点名称: ${this.node.name}`);
+    console.log(`  - 节点类型: ${this.node.type}`);
+    console.log(`  - 服务器: ${this.node.server}:${this.node.port}`);
+    console.log(`  - 本地端口: ${this.port}`);
     try {
       this.status = AdapterStatus.STARTING;
       this.startTime = /* @__PURE__ */ new Date();
+      console.log(`[ProtocolAdapter] 状态已设置为: starting`);
+      console.log(`[ProtocolAdapter] 步骤1: 生成sing-box配置...`);
       await this.generateConfig();
+      console.log(`[ProtocolAdapter] sing-box配置生成完成`);
+      console.log(`[ProtocolAdapter] 步骤2: 启动sing-box进程...`);
       await this.startSingBoxProcess();
+      console.log(`[ProtocolAdapter] sing-box进程启动完成，PID: ${this.processId}`);
+      console.log(`[ProtocolAdapter] 步骤3: 验证端口可用性...`);
       await this.verifyPort();
+      console.log(`[ProtocolAdapter] 端口验证完成，端口 ${this.port} 可用`);
       this.status = AdapterStatus.RUNNING;
+      console.log(`[ProtocolAdapter] 状态已设置为: running`);
       this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
         adapterId: this.id,
         nodeId: this.node.id,
@@ -1477,12 +1491,13 @@ class ProtocolAdapter {
     } catch (error) {
       this.status = AdapterStatus.ERROR;
       this.error = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
+      console.error(`❌ [ProtocolAdapter] 错误详情:`, error instanceof Error ? error.stack : error);
       this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
         adapterId: this.id,
         nodeId: this.node.id,
         error: this.error
       });
-      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
       throw error;
     }
   }
@@ -1629,24 +1644,55 @@ class ProtocolAdapter {
     });
   }
   /**
-   * 验证端口
+   * 检查端口是否可用
    */
-  async verifyPort() {
+  async checkPortReady(host, port, timeout = 5e3) {
     const { createConnection } = require("net");
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`端口验证超时: ${this.port}`));
-      }, 5e3);
-      const client = createConnection(this.port, "127.0.0.1", () => {
-        clearTimeout(timeout);
-        client.end();
-        resolve();
+    return new Promise((resolve) => {
+      const client = createConnection({ host, port });
+      const timer = setTimeout(() => {
+        client.destroy();
+        resolve(false);
+      }, timeout);
+      client.on("connect", () => {
+        clearTimeout(timer);
+        client.destroy();
+        resolve(true);
       });
-      client.on("error", (error) => {
-        clearTimeout(timeout);
-        reject(new Error(`端口验证失败: ${this.port} - ${error.message}`));
+      client.on("error", () => {
+        clearTimeout(timer);
+        client.destroy();
+        resolve(false);
       });
     });
+  }
+  /**
+   * 验证端口是否可用
+   */
+  async verifyPort() {
+    console.log(`[ProtocolAdapter] 验证端口: ${this.port}`);
+    const waitTime = 3e3;
+    console.log(`[ProtocolAdapter] 等待 ${waitTime}ms 让sing-box进程完全启动...`);
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
+    const maxRetries = 5;
+    const retryInterval = 1e3;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[ProtocolAdapter] 第 ${i + 1} 次尝试验证端口 ${this.port}...`);
+        const isReady = await this.checkPortReady("127.0.0.1", this.port, 5e3);
+        if (isReady) {
+          console.log(`[ProtocolAdapter] 端口 ${this.port} 验证成功`);
+          return;
+        }
+      } catch (error) {
+        console.log(`[ProtocolAdapter] 第 ${i + 1} 次端口验证失败:`, error);
+      }
+      if (i < maxRetries - 1) {
+        console.log(`[ProtocolAdapter] 等待 ${retryInterval}ms 后重试...`);
+        await new Promise((resolve) => setTimeout(resolve, retryInterval));
+      }
+    }
+    throw new Error(`端口验证失败: ${this.port} - 经过 ${maxRetries} 次重试后仍然无法连接`);
   }
   /**
    * 解析流量信息
@@ -1697,11 +1743,25 @@ class TrafficRouter {
    */
   async start() {
     console.log(`[TrafficRouter] 启动流量路由器，入口端口: ${this.entryPort}`);
+    console.log(`[TrafficRouter] 适配器详情:`);
+    console.log(`  - 适配器数量: ${this.adapters.length}`);
+    for (let i = 0; i < this.adapters.length; i++) {
+      const adapter = this.adapters[i];
+      if (adapter) {
+        const info = adapter.getInfo();
+        console.log(`  - 适配器${i + 1}: ${info.id} (端口: ${info.port})`);
+      }
+    }
     try {
       this.status = "starting";
+      console.log(`[TrafficRouter] 状态已设置为: starting`);
+      console.log(`[TrafficRouter] 创建TCP服务器...`);
       this.server = require$$0$1.createServer((clientSocket) => {
+        console.log(`[TrafficRouter] 收到新的客户端连接: ${clientSocket.remoteAddress}:${clientSocket.remotePort}`);
         this.handleClientConnection(clientSocket);
       });
+      console.log(`[TrafficRouter] TCP服务器创建完成`);
+      console.log(`[TrafficRouter] 开始监听端口 ${this.entryPort}...`);
       await new Promise((resolve, reject) => {
         this.server.listen(this.entryPort, "127.0.0.1", () => {
           console.log(`✅ [TrafficRouter] 流量路由器启动成功，监听端口: ${this.entryPort}`);
@@ -1713,13 +1773,16 @@ class TrafficRouter {
         });
       });
       this.status = "running";
+      console.log(`[TrafficRouter] 状态已设置为: running`);
       this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
         routerPort: this.entryPort,
         adapterCount: this.adapters.length
       });
+      console.log(`✅ [TrafficRouter] 流量路由器启动完成`);
     } catch (error) {
       this.status = "stopped";
       console.error(`❌ [TrafficRouter] 流量路由器启动失败:`, error);
+      console.error(`❌ [TrafficRouter] 错误详情:`, error instanceof Error ? error.stack : error);
       throw error;
     }
   }
@@ -1985,20 +2048,34 @@ class ProxyChainMiddlewareManager {
    */
   async start() {
     console.log(`[ProxyChainMiddlewareManager] 启动代理链中间件: ${this.id}`);
-    console.log(`[ProxyChainMiddlewareManager] 节点数量: ${this.config.nodes.length}`);
-    console.log(`[ProxyChainMiddlewareManager] 入口端口: ${this.config.entryPort}`);
+    console.log(`[ProxyChainMiddlewareManager] 配置详情:`);
+    console.log(`  - 入口端口: ${this.config.entryPort}`);
+    console.log(`  - 节点数量: ${this.config.nodes.length}`);
+    console.log(`  - 启用监控: ${this.config.enableMonitoring}`);
+    console.log(`  - 启用防护: ${this.config.enableProtection}`);
+    console.log(`  - 最大重试: ${this.config.maxRetries}`);
+    console.log(`  - 超时时间: ${this.config.timeout}ms`);
     try {
       this.status = "starting";
       this.startTime = /* @__PURE__ */ new Date();
+      console.log(`[ProxyChainMiddlewareManager] 状态已设置为: starting`);
+      console.log(`[ProxyChainMiddlewareManager] 步骤1: 创建协议适配器...`);
       await this.createProtocolAdapters();
+      console.log(`[ProxyChainMiddlewareManager] 协议适配器创建完成，数量: ${this.adapters.length}`);
+      console.log(`[ProxyChainMiddlewareManager] 步骤2: 启动协议适配器...`);
       await this.startProtocolAdapters();
+      console.log(`[ProxyChainMiddlewareManager] 协议适配器启动完成`);
+      console.log(`[ProxyChainMiddlewareManager] 步骤3: 创建并启动流量路由器...`);
       await this.createAndStartTrafficRouter();
+      console.log(`[ProxyChainMiddlewareManager] 流量路由器启动完成`);
       this.status = "running";
+      console.log(`[ProxyChainMiddlewareManager] 状态已设置为: running`);
       console.log(`✅ [ProxyChainMiddlewareManager] 代理链中间件启动成功: ${this.id}`);
     } catch (error) {
       this.status = "error";
       this.error = error instanceof Error ? error.message : String(error);
       console.error(`❌ [ProxyChainMiddlewareManager] 代理链中间件启动失败: ${this.id}`, error);
+      console.error(`❌ [ProxyChainMiddlewareManager] 错误详情:`, error instanceof Error ? error.stack : error);
       await this.cleanup();
       throw error;
     }
@@ -3689,10 +3766,17 @@ class ProxyManager {
    */
   async startProxyChainWithMiddleware(chainId, nodes, port) {
     console.log(`[ProxyManager] 使用中间件启动代理链: ${chainId}`);
+    console.log(`[ProxyManager] 中间件配置详情:`);
+    console.log(`  - 入口端口: ${port}`);
+    console.log(`  - 节点数量: ${nodes.length}`);
+    console.log(`  - 节点列表:`, nodes.map((n) => `${n.name} (${n.type})`));
     try {
       if (this.middlewareManager) {
+        console.log(`[ProxyManager] 停止现有中间件...`);
         await this.middlewareManager.stop();
+        console.log(`[ProxyManager] 现有中间件已停止`);
       }
+      console.log(`[ProxyManager] 创建中间件配置...`);
       const config = {
         entryPort: port,
         nodes,
@@ -3701,15 +3785,25 @@ class ProxyManager {
         maxRetries: 3,
         timeout: 1e4
       };
+      console.log(`[ProxyManager] 中间件配置创建完成:`, JSON.stringify(config, null, 2));
+      console.log(`[ProxyManager] 创建中间件管理器...`);
       this.middlewareManager = new ProxyChainMiddlewareManager(config);
+      console.log(`[ProxyManager] 中间件管理器创建成功`);
+      console.log(`[ProxyManager] 添加监控监听器...`);
       this.middlewareManager.addMonitoringListener((event) => {
         console.log(`[ProxyManager] 中间件监控事件: ${event.type}`, event.data);
       });
+      console.log(`[ProxyManager] 监控监听器添加成功`);
+      console.log(`[ProxyManager] 开始启动中间件...`);
       await this.middlewareManager.start();
+      console.log(`[ProxyManager] 中间件启动成功`);
+      console.log(`[ProxyManager] 设置系统代理...`);
       await systemProxyManager.setSystemProxy("127.0.0.1", port, port);
+      console.log(`[ProxyManager] 系统代理设置成功`);
       console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
     } catch (error) {
       console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
+      console.error(`❌ [ProxyManager] 错误详情:`, error instanceof Error ? error.stack : error);
       console.log(`[ProxyManager] 回退到传统sing-box模式`);
       this.useMiddleware = false;
       await this.startProxyChainWithSingBox(chainId, nodes, port);
@@ -24386,9 +24480,9 @@ class DynamicChainManager {
       }
       if (bestNodes.length > 0) {
         console.log(`[DynamicChainManager] Starting proxy manager with ${bestNodes.length} best nodes.`);
-        const result = await proxyManager.startChain({ ...chainConfig, name: `${chainConfig.name}_dynamic` }, { listenPort }, bestNodes);
+        await proxyManager.startProxyChain(`${chainConfig.name}_dynamic`, bestNodes, listenPort);
         console.log(`[DynamicChainManager] Proxy manager started successfully for chain: ${chainConfig.name}`);
-        return result;
+        return { port: listenPort };
       } else {
         console.warn("[DynamicChainManager] No nodes found after latency test for dynamic chain", chainConfig.name);
         return { port: 0 };

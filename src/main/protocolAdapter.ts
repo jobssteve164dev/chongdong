@@ -44,21 +44,33 @@ export class ProtocolAdapter {
    */
   public async start(): Promise<void> {
     console.log(`[ProtocolAdapter] 启动协议适配器: ${this.id} (${this.node.name})`);
+    console.log(`[ProtocolAdapter] 节点详情:`);
+    console.log(`  - 节点ID: ${this.node.id}`);
+    console.log(`  - 节点名称: ${this.node.name}`);
+    console.log(`  - 节点类型: ${this.node.type}`);
+    console.log(`  - 服务器: ${this.node.server}:${this.node.port}`);
+    console.log(`  - 本地端口: ${this.port}`);
     
     try {
       this.status = AdapterStatus.STARTING;
       this.startTime = new Date();
+      console.log(`[ProtocolAdapter] 状态已设置为: starting`);
       
-      // 生成sing-box配置
+      console.log(`[ProtocolAdapter] 步骤1: 生成sing-box配置...`);
       await this.generateConfig();
+      console.log(`[ProtocolAdapter] sing-box配置生成完成`);
       
-      // 启动sing-box进程
+      console.log(`[ProtocolAdapter] 步骤2: 启动sing-box进程...`);
       await this.startSingBoxProcess();
+      console.log(`[ProtocolAdapter] sing-box进程启动完成，PID: ${this.processId}`);
       
-      // 验证端口
+      console.log(`[ProtocolAdapter] 步骤3: 验证端口可用性...`);
       await this.verifyPort();
+      console.log(`[ProtocolAdapter] 端口验证完成，端口 ${this.port} 可用`);
       
       this.status = AdapterStatus.RUNNING;
+      console.log(`[ProtocolAdapter] 状态已设置为: running`);
+      
       this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
         adapterId: this.id,
         nodeId: this.node.id,
@@ -66,10 +78,11 @@ export class ProtocolAdapter {
       });
       
       console.log(`✅ [ProtocolAdapter] 协议适配器启动成功: ${this.id} (端口: ${this.port})`);
-      
     } catch (error) {
       this.status = AdapterStatus.ERROR;
       this.error = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
+      console.error(`❌ [ProtocolAdapter] 错误详情:`, error instanceof Error ? error.stack : error);
       
       this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
         adapterId: this.id,
@@ -77,7 +90,6 @@ export class ProtocolAdapter {
         error: this.error
       });
       
-      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
       throw error;
     }
   }
@@ -265,27 +277,67 @@ export class ProtocolAdapter {
   }
 
   /**
-   * 验证端口
+   * 检查端口是否可用
    */
-  private async verifyPort(): Promise<void> {
+  private async checkPortReady(host: string, port: number, timeout: number = 5000): Promise<boolean> {
     const { createConnection } = require('net');
     
-    return new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`端口验证超时: ${this.port}`));
-      }, 5000);
+    return new Promise((resolve) => {
+      const client = createConnection({ host, port });
       
-      const client = createConnection(this.port, '127.0.0.1', () => {
-        clearTimeout(timeout);
-        client.end();
-        resolve();
+      const timer = setTimeout(() => {
+        client.destroy();
+        resolve(false);
+      }, timeout);
+      
+      client.on('connect', () => {
+        clearTimeout(timer);
+        client.destroy();
+        resolve(true);
       });
       
-      client.on('error', (error: Error) => {
-        clearTimeout(timeout);
-        reject(new Error(`端口验证失败: ${this.port} - ${error.message}`));
+      client.on('error', () => {
+        clearTimeout(timer);
+        client.destroy();
+        resolve(false);
       });
     });
+  }
+
+  /**
+   * 验证端口是否可用
+   */
+  private async verifyPort(): Promise<void> {
+    console.log(`[ProtocolAdapter] 验证端口: ${this.port}`);
+    
+    // 增加等待时间，确保sing-box进程完全启动
+    const waitTime = 3000; // 增加到3秒
+    console.log(`[ProtocolAdapter] 等待 ${waitTime}ms 让sing-box进程完全启动...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    
+    const maxRetries = 5;
+    const retryInterval = 1000;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[ProtocolAdapter] 第 ${i + 1} 次尝试验证端口 ${this.port}...`);
+        const isReady = await this.checkPortReady('127.0.0.1', this.port, 5000);
+        
+        if (isReady) {
+          console.log(`[ProtocolAdapter] 端口 ${this.port} 验证成功`);
+          return;
+        }
+      } catch (error) {
+        console.log(`[ProtocolAdapter] 第 ${i + 1} 次端口验证失败:`, error);
+      }
+      
+      if (i < maxRetries - 1) {
+        console.log(`[ProtocolAdapter] 等待 ${retryInterval}ms 后重试...`);
+        await new Promise(resolve => setTimeout(resolve, retryInterval));
+      }
+    }
+    
+    throw new Error(`端口验证失败: ${this.port} - 经过 ${maxRetries} 次重试后仍然无法连接`);
   }
 
   /**

@@ -1211,14 +1211,21 @@ export class ProxyManager {
    */
   private async startProxyChainWithMiddleware(chainId: string, nodes: ProxyNode[], port: number): Promise<void> {
     console.log(`[ProxyManager] 使用中间件启动代理链: ${chainId}`);
+    console.log(`[ProxyManager] 中间件配置详情:`);
+    console.log(`  - 入口端口: ${port}`);
+    console.log(`  - 节点数量: ${nodes.length}`);
+    console.log(`  - 节点列表:`, nodes.map(n => `${n.name} (${n.type})`));
     
     try {
       // 停止现有的中间件
       if (this.middlewareManager) {
+        console.log(`[ProxyManager] 停止现有中间件...`);
         await this.middlewareManager.stop();
+        console.log(`[ProxyManager] 现有中间件已停止`);
       }
       
       // 创建中间件配置
+      console.log(`[ProxyManager] 创建中间件配置...`);
       const config: ProxyChainMiddlewareConfig = {
         entryPort: port,
         nodes: nodes,
@@ -1227,25 +1234,35 @@ export class ProxyManager {
         maxRetries: 3,
         timeout: 10000
       };
+      console.log(`[ProxyManager] 中间件配置创建完成:`, JSON.stringify(config, null, 2));
       
       // 创建并启动中间件管理器
+      console.log(`[ProxyManager] 创建中间件管理器...`);
       this.middlewareManager = new ProxyChainMiddlewareManager(config);
+      console.log(`[ProxyManager] 中间件管理器创建成功`);
       
       // 添加监控监听器
+      console.log(`[ProxyManager] 添加监控监听器...`);
       this.middlewareManager.addMonitoringListener((event) => {
         console.log(`[ProxyManager] 中间件监控事件: ${event.type}`, event.data);
       });
+      console.log(`[ProxyManager] 监控监听器添加成功`);
       
       // 启动中间件
+      console.log(`[ProxyManager] 开始启动中间件...`);
       await this.middlewareManager.start();
+      console.log(`[ProxyManager] 中间件启动成功`);
       
       // 设置系统代理
+      console.log(`[ProxyManager] 设置系统代理...`);
       await systemProxyManager.setSystemProxy('127.0.0.1', port, port);
+      console.log(`[ProxyManager] 系统代理设置成功`);
       
       console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
       
     } catch (error) {
       console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
+      console.error(`❌ [ProxyManager] 错误详情:`, error instanceof Error ? error.stack : error);
       
       // 如果中间件启动失败，回退到传统模式
       console.log(`[ProxyManager] 回退到传统sing-box模式`);

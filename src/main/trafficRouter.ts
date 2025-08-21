@@ -36,22 +36,33 @@ export class TrafficRouter {
    */
   public async start(): Promise<void> {
     console.log(`[TrafficRouter] 启动流量路由器，入口端口: ${this.entryPort}`);
+    console.log(`[TrafficRouter] 适配器详情:`);
+    console.log(`  - 适配器数量: ${this.adapters.length}`);
+    for (let i = 0; i < this.adapters.length; i++) {
+      const adapter = this.adapters[i];
+      if (adapter) {
+        const info = adapter.getInfo();
+        console.log(`  - 适配器${i + 1}: ${info.id} (端口: ${info.port})`);
+      }
+    }
     
     try {
       this.status = 'starting';
+      console.log(`[TrafficRouter] 状态已设置为: starting`);
       
-      // 创建TCP服务器
+      console.log(`[TrafficRouter] 创建TCP服务器...`);
       this.server = createServer((clientSocket) => {
+        console.log(`[TrafficRouter] 收到新的客户端连接: ${clientSocket.remoteAddress}:${clientSocket.remotePort}`);
         this.handleClientConnection(clientSocket);
       });
+      console.log(`[TrafficRouter] TCP服务器创建完成`);
       
-      // 监听端口
+      console.log(`[TrafficRouter] 开始监听端口 ${this.entryPort}...`);
       await new Promise<void>((resolve, reject) => {
         this.server!.listen(this.entryPort, '127.0.0.1', () => {
           console.log(`✅ [TrafficRouter] 流量路由器启动成功，监听端口: ${this.entryPort}`);
           resolve();
         });
-        
         this.server!.on('error', (error) => {
           console.error(`❌ [TrafficRouter] 流量路由器启动失败:`, error);
           reject(error);
@@ -59,15 +70,18 @@ export class TrafficRouter {
       });
       
       this.status = 'running';
+      console.log(`[TrafficRouter] 状态已设置为: running`);
       
       this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
         routerPort: this.entryPort,
         adapterCount: this.adapters.length
       });
       
+      console.log(`✅ [TrafficRouter] 流量路由器启动完成`);
     } catch (error) {
       this.status = 'stopped';
       console.error(`❌ [TrafficRouter] 流量路由器启动失败:`, error);
+      console.error(`❌ [TrafficRouter] 错误详情:`, error instanceof Error ? error.stack : error);
       throw error;
     }
   }
