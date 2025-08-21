@@ -785,22 +785,31 @@ export class ProxyManager {
         req.end();
       });
       
-      // 并行获取流量和连接信息
-      const [traffic, connectionsData] = await Promise.all([
-        fetchApi('/traffic'),
-        fetchApi('/connections')
-      ]);
-
-      console.log('Sing-box API响应:', { traffic, connectionsData });
+      // 获取连接信息
+      const connectionsData = await fetchApi('/connections');
+      console.log('Sing-box API响应:', { connectionsData });
 
       if (!connectionsData) {
         console.log('Sing-box连接数据为空');
         return null;
       }
       
+      // 从连接数据中计算总流量
+      let totalUpload = 0;
+      let totalDownload = 0;
+      
+      if (connectionsData.connections && Array.isArray(connectionsData.connections)) {
+        connectionsData.connections.forEach((conn: any) => {
+          totalUpload += conn.upload || 0;
+          totalDownload += conn.download || 0;
+        });
+      }
+      
+      console.log('计算的流量统计:', { totalUpload, totalDownload });
+      
       return {
-        uploadTotal: traffic?.up || 0,
-        downloadTotal: traffic?.down || 0,
+        uploadTotal: totalUpload,
+        downloadTotal: totalDownload,
         connections: connectionsData.connections || []
       };
     } catch (error) {
