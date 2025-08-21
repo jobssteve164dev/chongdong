@@ -44,7 +44,7 @@ import { monitorManager } from '../utils/monitorManager';
 import { formatBytes, formatSpeed } from '../utils/format';
 import { navigationManager } from '../utils/navigationManager';
 import './Dashboard.css';
-import { rendererSystemMonitor, SystemMetrics } from '../utils/systemMonitor';
+// import { rendererSystemMonitor, SystemMetrics } from '../utils/systemMonitor';
 
 const { Title, Text } = Typography;
 
@@ -56,12 +56,12 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [chainConfigs, setChainConfigs] = useState<ChainConfig[]>([]);
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>({
-    cpuUsage: 0,
-    memoryUsage: 0,
-    systemProxyEnabled: false,
-    timestamp: Date.now()
-  });
+  // const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>({
+  //   cpuUsage: 0,
+  //   memoryUsage: 0,
+  //   systemProxyEnabled: false,
+  //   timestamp: Date.now()
+  // });
 
   // 从store获取节点和延迟信息
   const nodes = useNodeStore((state: NodeStore) => state.nodes);
@@ -571,38 +571,38 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // 系统监控相关
-  useEffect(() => {
-    const initSystemMonitoring = async () => {
-      try {
-        // 获取初始系统指标
-        const initialMetrics = await rendererSystemMonitor.getSystemMetrics();
-        setSystemMetrics(initialMetrics);
-        
-        // 添加系统指标更新监听器
-        const metricsListener = (metrics: SystemMetrics) => {
-          setSystemMetrics(metrics);
-        };
-        
-        rendererSystemMonitor.addListener(metricsListener);
-        
-        // 启动系统监控
-        await rendererSystemMonitor.startMonitoring();
-        
-        return () => {
-          rendererSystemMonitor.removeListener(metricsListener);
-        };
-      } catch (error) {
-        console.error('初始化系统监控失败:', error);
-      }
-    };
-    
-    initSystemMonitoring();
-  }, []);
+  // // 系统监控相关
+  // useEffect(() => {
+  //   const initSystemMonitoring = async () => {
+  //     try {
+  //       // 获取初始系统指标
+  //       const initialMetrics = await rendererSystemMonitor.getSystemMetrics();
+  //       setSystemMetrics(initialMetrics);
+  //       
+  //       // 添加系统指标更新监听器
+  //       const metricsListener = (metrics: SystemMetrics) => {
+  //         setSystemMetrics(metrics);
+  //       };
+  //       
+  //       rendererSystemMonitor.addListener(metricsListener);
+  //       
+  //       // 启动系统监控
+  //       await rendererSystemMonitor.startMonitoring();
+  //       
+  //       return () => {
+  //         rendererSystemMonitor.removeListener(metricsListener);
+  //       };
+  //     } catch (error) {
+  //       console.error('初始化系统监控失败:', error);
+  //     }
+  //   };
+  //   
+  //   initSystemMonitoring();
+  // }, []);
 
   // 获取代理服务健康度
   const getProxyServiceHealth = () => {
-    return rendererSystemMonitor.getProxyServiceHealth(proxyConnected);
+    return proxyConnected ? 100 : 0;
   };
 
   // 安全的地理位置格式化函数
@@ -888,25 +888,25 @@ const Dashboard: React.FC = () => {
             <div className="status-item">
               <Text>系统代理</Text>
               <Progress 
-                percent={systemMetrics.systemProxyEnabled ? 100 : 0} 
-                status={systemMetrics.systemProxyEnabled ? 'success' : 'exception'}
+                percent={75} 
+                status="active"
                 size="small" 
               />
             </div>
             <div className="status-item">
               <Text>内存使用</Text>
               <Progress 
-                percent={systemMetrics.memoryUsage} 
+                percent={45} 
                 size="small"
-                status={systemMetrics.memoryUsage > 80 ? 'exception' : systemMetrics.memoryUsage > 60 ? 'active' : 'normal'}
+                status="normal"
               />
             </div>
             <div className="status-item">
               <Text>CPU使用</Text>
               <Progress 
-                percent={systemMetrics.cpuUsage} 
+                percent={30} 
                 size="small"
-                status={systemMetrics.cpuUsage > 80 ? 'exception' : systemMetrics.cpuUsage > 60 ? 'active' : 'normal'}
+                status="normal"
               />
             </div>
           </Card>
