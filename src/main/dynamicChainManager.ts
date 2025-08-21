@@ -79,25 +79,28 @@ export class DynamicChainManager {
         const subscription = allSubscriptions.find(s => s.id === subId);
         if (subscription && subscription.servers) {
           // 在 sing-box 中，ProxyNode 结构更简单，需要从 Subscription.servers 转换
-          const subscriptionNodes: ProxyNode[] = subscription.servers.map(server => ({
-                    // 直接从 server 对象映射到 ProxyNode 所需的字段
-                    id: server.id,
-                    name: server.name,
-                    type: server.protocol, // `protocol` 映射到 `type`
-                    server: server.host,   // `host` 映射到 `server`
-                    port: server.port,
-                    subscriptionId: subId,
-                    // 添加关键的认证和配置字段
-                    uuid: server.uuid,
-                    password: server.password,
-                    encryption: server.encryption,
-                    network: server.network,
-                    wsPath: server.wsPath,
-                    wsHost: server.wsHeaders?.['Host'],
-                    alterId: server.alterId,
-                    // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
-                    // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
-                  }));
+          const subscriptionNodes: ProxyNode[] = subscription.servers.map(server => {
+                    // 构建基础配置
+                    const nodeConfig: ProxyNode = {
+                      id: server.id,
+                      name: server.name,
+                      type: server.protocol, // `protocol` 映射到 `type`
+                      server: server.host,   // `host` 映射到 `server`
+                      port: server.port,
+                      subscriptionId: subId,
+                    };
+                    
+                    // 只添加非undefined的可选字段
+                    if (server.uuid) nodeConfig.uuid = server.uuid;
+                    if (server.password) nodeConfig.password = server.password;
+                    if (server.encryption) nodeConfig.encryption = server.encryption;
+                    if (server.network) nodeConfig.network = server.network;
+                    if (server.wsPath) nodeConfig.wsPath = server.wsPath;
+                    if (server.wsHeaders?.['Host']) nodeConfig.wsHost = server.wsHeaders['Host'];
+                    if (server.alterId) nodeConfig.alterId = server.alterId;
+                    
+                    return nodeConfig;
+                  });
           nodesToTest.push(...subscriptionNodes);
           subscriptionNodeMap.set(subId, subscriptionNodes);
         }

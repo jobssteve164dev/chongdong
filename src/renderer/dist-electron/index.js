@@ -1443,7 +1443,7 @@ class ProxyManager {
     return ProxyManager.instance;
   }
   async testNodesLatency(nodes) {
-    const promises = nodes.map((node2) => this.testNodeLatency(node2.id));
+    const promises = nodes.map((node2) => this.testNodeLatency(node2));
     const results = await Promise.allSettled(promises);
     return results.map((result, index) => {
       const node2 = nodes[index];
@@ -1466,18 +1466,61 @@ class ProxyManager {
       }
     });
   }
-  async testNodeLatency(nodeId) {
-    console.log(`[ProxyManager] Mock testing latency for node: ${nodeId}`);
-    return new Promise((resolve) => {
-      const latency = Math.floor(Math.random() * 451) + 50;
-      setTimeout(() => {
-        if (Math.random() > 0.1) {
-          resolve({ success: true, latency, timestamp: Date.now() });
-        } else {
-          resolve({ success: false, latency: 0, timestamp: Date.now(), error: "Mock Test failed" });
-        }
-      }, latency);
-    });
+  async testNodeLatency(node2) {
+    console.log(`[ProxyManager] Testing latency for node: ${node2.name} (${node2.id})`);
+    try {
+      const startTime = Date.now();
+      const https2 = require("https");
+      const http2 = require("http");
+      const testUrl = "http://connectivitycheck.gstatic.com/generate_204";
+      const timeout = 1e4;
+      return new Promise((resolve) => {
+        const url2 = new URL(testUrl);
+        const isHttps2 = url2.protocol === "https:";
+        const client = isHttps2 ? https2 : http2;
+        const req = client.request(url2, {
+          method: "GET",
+          timeout
+        }, () => {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          console.log(`延迟测试成功: ${node2.name}`, { latency });
+          resolve({
+            success: true,
+            latency,
+            timestamp: Date.now()
+          });
+        });
+        req.on("error", (error) => {
+          console.error(`延迟测试失败: ${node2.name}`, error);
+          resolve({
+            success: false,
+            error: error.message,
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        req.on("timeout", () => {
+          console.error(`延迟测试超时: ${node2.name}`);
+          req.destroy();
+          resolve({
+            success: false,
+            error: "Request timeout",
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        req.end();
+      });
+    } catch (error) {
+      console.error(`延迟测试失败: ${node2.name}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        latency: 0,
+        timestamp: Date.now()
+      };
+    }
   }
   /**
    * 更新网络设置
@@ -23278,8 +23321,7 @@ class DynamicChainManager {
         if (subscription && subscription.servers) {
           const subscriptionNodes = subscription.servers.map((server2) => {
             var _a2;
-            return {
-              // 直接从 server 对象映射到 ProxyNode 所需的字段
+            const nodeConfig = {
               id: server2.id,
               name: server2.name,
               type: server2.protocol,
@@ -23287,18 +23329,16 @@ class DynamicChainManager {
               server: server2.host,
               // `host` 映射到 `server`
               port: server2.port,
-              subscriptionId: subId,
-              // 添加关键的认证和配置字段
-              uuid: server2.uuid,
-              password: server2.password,
-              encryption: server2.encryption,
-              network: server2.network,
-              wsPath: server2.wsPath,
-              wsHost: (_a2 = server2.wsHeaders) == null ? void 0 : _a2["Host"],
-              alterId: server2.alterId
-              // 确保 ProxyNode 定义中包含所有需要的字段，这里不再使用 ...server 以避免覆盖
-              // 如果 server 对象还有其他需要传递的属性，应在 ProxyNode 类型中定义并在此处显式映射
+              subscriptionId: subId
             };
+            if (server2.uuid) nodeConfig.uuid = server2.uuid;
+            if (server2.password) nodeConfig.password = server2.password;
+            if (server2.encryption) nodeConfig.encryption = server2.encryption;
+            if (server2.network) nodeConfig.network = server2.network;
+            if (server2.wsPath) nodeConfig.wsPath = server2.wsPath;
+            if ((_a2 = server2.wsHeaders) == null ? void 0 : _a2["Host"]) nodeConfig.wsHost = server2.wsHeaders["Host"];
+            if (server2.alterId) nodeConfig.alterId = server2.alterId;
+            return nodeConfig;
           });
           nodesToTest.push(...subscriptionNodes);
           subscriptionNodeMap.set(subId, subscriptionNodes);

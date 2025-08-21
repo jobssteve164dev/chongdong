@@ -45,7 +45,7 @@ export class ProxyManager {
   }
 
   public async testNodesLatency(nodes: ProxyNode[]): Promise<any[]> {
-    const promises = nodes.map(node => this.testNodeLatency(node.id));
+    const promises = nodes.map(node => this.testNodeLatency(node));
     const results = await Promise.allSettled(promises);
     
     return results.map((result, index) => {
@@ -70,20 +70,76 @@ export class ProxyManager {
     });
   }
 
-  public async testNodeLatency(nodeId: string): Promise<{ success: boolean; latency: number, timestamp: number, error?: string }> {
-    console.log(`[ProxyManager] Mock testing latency for node: ${nodeId}`);
-    // 这是一个模拟的延迟测试实现
-    return new Promise(resolve => {
-      const latency = Math.floor(Math.random() * 451) + 50; // Random latency 50-500ms
-      setTimeout(() => {
-        if (Math.random() > 0.1) { // 90% success rate
-          resolve({ success: true, latency, timestamp: Date.now() });
-        } else {
-          resolve({ success: false, latency: 0, timestamp: Date.now(), error: 'Mock Test failed' });
-        }
-      }, latency);
-    });
+  public async testNodeLatency(node: ProxyNode): Promise<{ success: boolean; latency: number, timestamp: number, error?: string }> {
+    console.log(`[ProxyManager] Testing latency for node: ${node.name} (${node.id})`);
+    
+    try {
+      const startTime = Date.now();
+      
+      // 创建HTTP请求来测试延迟（直接连接测试，不使用代理）
+      const https = require('https');
+      const http = require('http');
+      
+      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
+      const timeout = 10000;
+      
+      return new Promise((resolve) => {
+        const url = new URL(testUrl);
+        const isHttps = url.protocol === 'https:';
+        const client = isHttps ? https : http;
+        
+        const req = client.request(url, {
+          method: 'GET',
+          timeout: timeout,
+        }, () => {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          
+          console.log(`延迟测试成功: ${node.name}`, { latency });
+          
+          resolve({
+            success: true,
+            latency,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.on('error', (error: any) => {
+          console.error(`延迟测试失败: ${node.name}`, error);
+          resolve({
+            success: false,
+            error: error.message,
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.on('timeout', () => {
+          console.error(`延迟测试超时: ${node.name}`);
+          req.destroy();
+          resolve({
+            success: false,
+            error: 'Request timeout',
+            latency: 0,
+            timestamp: Date.now()
+          });
+        });
+        
+        req.end();
+      });
+      
+    } catch (error) {
+      console.error(`延迟测试失败: ${node.name}`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        latency: 0,
+        timestamp: Date.now()
+      };
+    }
   }
+
+
 
   /**
    * 更新网络设置
