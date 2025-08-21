@@ -62,11 +62,17 @@ const Monitor: React.FC = () => {
   const [trafficStats, setTrafficStats] = useState<TrafficStats>(monitorManager.getTrafficStats());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(monitorManager.getConnectionStatus());
   const [performanceMetrics, setPerformanceMetrics] = useState(monitorManager.getPerformanceMetrics(1)[0]);
+  const [performanceSummary, setPerformanceSummary] = useState(monitorManager.getPerformanceSummary());
   const [connectionHistory, setConnectionHistory] = useState<ConnectionHistory[]>([]);
+  const [testingPerformance, setTestingPerformance] = useState(false);
 
   // 启动监控
   useEffect(() => {
-    monitorManager.startMonitoring();
+    const initMonitoring = async () => {
+      await monitorManager.startMonitoring();
+    };
+    
+    initMonitoring();
     
     // 定期更新数据
     const interval = setInterval(() => {
@@ -77,6 +83,7 @@ const Monitor: React.FC = () => {
       if (latestMetrics) {
         setPerformanceMetrics(latestMetrics);
       }
+      setPerformanceSummary(monitorManager.getPerformanceSummary()); // 更新性能摘要
     }, 1000);
 
     return () => {
@@ -100,6 +107,24 @@ const Monitor: React.FC = () => {
       log.error('刷新监控数据失败', error, 'Monitor');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTestPerformance = async () => {
+    setTestingPerformance(true);
+    try {
+      await monitorManager.triggerPerformanceTest();
+      // 更新性能数据
+      const latestMetrics = monitorManager.getPerformanceMetrics(1)[0];
+      if (latestMetrics) {
+        setPerformanceMetrics(latestMetrics);
+      }
+      setPerformanceSummary(monitorManager.getPerformanceSummary());
+      log.info('手动性能测试完成', null, 'Monitor');
+    } catch (error) {
+      log.error('手动性能测试失败', error, 'Monitor');
+    } finally {
+      setTestingPerformance(false);
     }
   };
 
@@ -189,49 +214,112 @@ const Monitor: React.FC = () => {
       {/* 网络性能 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24}>
-          <Card title="网络性能" extra={<LineChartOutlined />}>
+          <Card 
+            title="网络性能" 
+            extra={
+              <Space>
+                <Button 
+                  type="primary" 
+                  size="small" 
+                  icon={<ReloadOutlined />} 
+                  loading={testingPerformance}
+                  onClick={handleTestPerformance}
+                  disabled={!connectionStatus.connected}
+                >
+                  测试性能
+                </Button>
+                <LineChartOutlined />
+              </Space>
+            }
+          >
             <Space direction="vertical" style={{ width: '100%' }}>
+              {/* 当前延迟 */}
               <div>
-                <Text>网络延迟</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text strong>网络延迟</Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    测试次数: {performanceSummary.testCount} | 
+                    最后测试: {performanceSummary.lastTestTime ? new Date(performanceSummary.lastTestTime).toLocaleTimeString() : '未测试'}
+                  </Text>
+                </div>
                 <Progress 
-                  percent={performanceMetrics ? Math.min(performanceMetrics.latency / 2, 100) : 0} 
+                  percent={performanceSummary.currentLatency > 0 ? Math.min(performanceSummary.currentLatency / 2, 100) : 0} 
                   size="small" 
+                  strokeColor={performanceSummary.currentLatency > 100 ? '#ff4d4f' : performanceSummary.currentLatency > 50 ? '#faad14' : '#52c41a'}
                 />
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  {performanceMetrics ? `${performanceMetrics.latency.toFixed(1)} ms` : '0 ms'}
-                </Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: 4 }}>
+                  <Text type="secondary">当前: {performanceSummary.currentLatency.toFixed(1)} ms</Text>
+                  <Text type="secondary">平均: {performanceSummary.averageLatency.toFixed(1)} ms</Text>
+                  <Text type="secondary">范围: {performanceSummary.minLatency.toFixed(1)} - {performanceSummary.maxLatency.toFixed(1)} ms</Text>
+                </div>
               </div>
+
+              {/* 网络吞吐量 */}
               <div>
-                <Text>网络吞吐量</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text strong>网络吞吐量</Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    基于实时流量统计
+                  </Text>
+                </div>
                 <Progress 
-                  percent={performanceMetrics ? Math.min(performanceMetrics.throughput / 10, 100) : 0} 
+                  percent={performanceSummary.currentThroughput > 0 ? Math.min(performanceSummary.currentThroughput / 10, 100) : 0} 
                   size="small" 
+                  strokeColor={performanceSummary.currentThroughput > 100 ? '#52c41a' : performanceSummary.currentThroughput > 50 ? '#faad14' : '#ff4d4f'}
                 />
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  {performanceMetrics ? `${performanceMetrics.throughput.toFixed(1)} Mbps` : '0 Mbps'}
-                </Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: 4 }}>
+                  <Text type="secondary">当前: {performanceSummary.currentThroughput.toFixed(1)} Mbps</Text>
+                  <Text type="secondary">平均: {performanceSummary.averageThroughput.toFixed(1)} Mbps</Text>
+                </div>
               </div>
+
+              {/* 丢包率 */}
               <div>
-                <Text>丢包率</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text strong>丢包率</Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    基于HTTP测试包
+                  </Text>
+                </div>
                 <Progress 
-                  percent={performanceMetrics ? performanceMetrics.packetLoss * 20 : 0} 
+                  percent={performanceSummary.currentPacketLoss * 20} 
                   size="small" 
-                  strokeColor={performanceMetrics && performanceMetrics.packetLoss > 2 ? '#ff4d4f' : undefined}
+                  strokeColor={performanceSummary.currentPacketLoss > 2 ? '#ff4d4f' : performanceSummary.currentPacketLoss > 1 ? '#faad14' : '#52c41a'}
                 />
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  {performanceMetrics ? `${performanceMetrics.packetLoss.toFixed(2)}%` : '0%'}
-                </Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: 4 }}>
+                  <Text type="secondary">当前: {performanceSummary.currentPacketLoss.toFixed(2)}%</Text>
+                  <Text type="secondary">平均: {performanceSummary.averagePacketLoss.toFixed(2)}%</Text>
+                </div>
               </div>
+
+              {/* 抖动 */}
               <div>
-                <Text>抖动</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text strong>抖动</Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    基于延迟变化
+                  </Text>
+                </div>
                 <Progress 
-                  percent={performanceMetrics ? Math.min(performanceMetrics.jitter * 5, 100) : 0} 
+                  percent={performanceSummary.currentJitter > 0 ? Math.min(performanceSummary.currentJitter * 5, 100) : 0} 
                   size="small" 
+                  strokeColor={performanceSummary.currentJitter > 10 ? '#ff4d4f' : performanceSummary.currentJitter > 5 ? '#faad14' : '#52c41a'}
                 />
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  {performanceMetrics ? `${performanceMetrics.jitter.toFixed(1)} ms` : '0 ms'}
-                </Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: 4 }}>
+                  <Text type="secondary">当前: {performanceSummary.currentJitter.toFixed(1)} ms</Text>
+                </div>
               </div>
+
+              {/* 连接状态提示 */}
+              {!connectionStatus.connected && (
+                <Alert
+                  message="代理未连接"
+                  description="请先启动代理服务以进行网络性能测试"
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                />
+              )}
             </Space>
           </Card>
         </Col>

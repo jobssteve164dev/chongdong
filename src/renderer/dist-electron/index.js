@@ -1408,13 +1408,21 @@ class ProxyManager {
     try {
       const http = require("http");
       const fetchApi = (path2) => new Promise((resolve) => {
+        const originalProxy = process.env["http_proxy"];
+        const originalHttpsProxy = process.env["https_proxy"];
+        const originalAllProxy = process.env["all_proxy"];
+        delete process.env["http_proxy"];
+        delete process.env["https_proxy"];
+        delete process.env["all_proxy"];
         const req = http.request({
           hostname: "127.0.0.1",
           port: 9090,
           // Sing-box Clash API 端口
           path: path2,
           method: "GET",
-          timeout: 1e3
+          timeout: 1e3,
+          // 确保直接连接，不使用代理
+          agent: false
         }, (res) => {
           let data = "";
           res.on("data", (chunk) => data += chunk);
@@ -1424,12 +1432,25 @@ class ProxyManager {
             } catch (error) {
               resolve(null);
             }
+            if (originalProxy) process.env["http_proxy"] = originalProxy;
+            if (originalHttpsProxy) process.env["https_proxy"] = originalHttpsProxy;
+            if (originalAllProxy) process.env["all_proxy"] = originalAllProxy;
           });
         });
-        req.on("error", () => resolve(null));
+        req.on("error", (error) => {
+          console.log("Sing-box API请求失败:", error.message);
+          resolve(null);
+          if (originalProxy) process.env["http_proxy"] = originalProxy;
+          if (originalHttpsProxy) process.env["https_proxy"] = originalHttpsProxy;
+          if (originalAllProxy) process.env["all_proxy"] = originalAllProxy;
+        });
         req.on("timeout", () => {
+          console.log("Sing-box API请求超时");
           req.destroy();
           resolve(null);
+          if (originalProxy) process.env["http_proxy"] = originalProxy;
+          if (originalHttpsProxy) process.env["https_proxy"] = originalHttpsProxy;
+          if (originalAllProxy) process.env["all_proxy"] = originalAllProxy;
         });
         req.end();
       });
@@ -1437,13 +1458,18 @@ class ProxyManager {
         fetchApi("/traffic"),
         fetchApi("/connections")
       ]);
-      if (!connectionsData) return null;
+      console.log("Sing-box API响应:", { traffic, connectionsData });
+      if (!connectionsData) {
+        console.log("Sing-box连接数据为空");
+        return null;
+      }
       return {
-        uploadTotal: traffic == null ? void 0 : traffic.up,
-        downloadTotal: traffic == null ? void 0 : traffic.down,
+        uploadTotal: (traffic == null ? void 0 : traffic.up) || 0,
+        downloadTotal: (traffic == null ? void 0 : traffic.down) || 0,
         connections: connectionsData.connections || []
       };
     } catch (error) {
+      console.error("获取Sing-box统计信息失败:", error);
       return null;
     }
   }

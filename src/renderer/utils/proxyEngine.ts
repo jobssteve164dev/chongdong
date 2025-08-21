@@ -258,6 +258,24 @@ export class ProxyEngine {
   }
 
   /**
+   * 强制检查代理状态
+   */
+  public async checkRunningStatus(): Promise<boolean> {
+    try {
+      const stats = await this.getStats();
+      // 如果能获取到统计信息，说明代理正在运行
+      const isRunning = stats && !stats.error;
+      this.status.running = isRunning;
+      console.log('强制检查代理状态:', isRunning, stats);
+      return isRunning;
+    } catch (error) {
+      console.error('检查代理状态失败:', error);
+      this.status.running = false;
+      return false;
+    }
+  }
+
+  /**
    * 获取统计信息
    */
   public async getStats(): Promise<any> {
