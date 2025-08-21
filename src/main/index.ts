@@ -10,6 +10,7 @@ import { systemProxyManager } from './systemProxyManager';
 import { coreDownloader } from './coreDownloader';
 import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
+import { systemMonitor } from './systemMonitor';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -183,7 +184,8 @@ function createTray(): void {
     try {
       // 尝试使用应用图标
       const iconPath = join(__dirname, '../renderer/assets/icon.png');
-      if (require('fs').existsSync(iconPath)) {
+      const fs = require('fs');
+      if (fs.existsSync(iconPath)) {
         icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
         console.log('使用自定义托盘图标');
       } else {
@@ -265,14 +267,16 @@ function createWindow(): void {
     if (process.platform === 'darwin') {
       // macOS 使用 .icns 文件
       const icnsPath = join(__dirname, '../../release/mac/虫洞.app/Contents/Resources/electron.icns');
-      if (require('fs').existsSync(icnsPath)) {
+      const fs = require('fs');
+      if (fs.existsSync(icnsPath)) {
         iconPath = icnsPath;
         console.log('使用 macOS 图标:', iconPath);
       }
     } else {
       // 其他平台使用 PNG 文件
       const pngPath = join(__dirname, '../renderer/assets/icon.png');
-      if (require('fs').existsSync(pngPath)) {
+      const fs = require('fs');
+      if (fs.existsSync(pngPath)) {
         iconPath = pngPath;
         console.log('使用 PNG 图标:', iconPath);
       }
@@ -1449,3 +1453,9 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
     };
   }
 });
+
+// 注册系统监控IPC处理器
+systemMonitor.registerIpcHandlers();
+
+// 启动系统监控
+systemMonitor.startMonitoring();
