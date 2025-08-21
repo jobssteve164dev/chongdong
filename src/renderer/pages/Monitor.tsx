@@ -46,7 +46,6 @@ import {
   GlobalOutlined,
   WifiOutlined,
   SignalFilled,
-  DashboardOutlined,
 } from '@ant-design/icons';
 import { TrafficStats, ConnectionStatus } from '../../shared/types/index';
 import { log } from '../utils/logger';
@@ -62,7 +61,6 @@ const Monitor: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [trafficStats, setTrafficStats] = useState<TrafficStats>(monitorManager.getTrafficStats());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(monitorManager.getConnectionStatus());
-  const [systemMetrics, setSystemMetrics] = useState(monitorManager.getSystemMetrics());
   const [performanceMetrics, setPerformanceMetrics] = useState(monitorManager.getPerformanceMetrics(1)[0]);
   const [connectionHistory, setConnectionHistory] = useState<ConnectionHistory[]>([]);
 
@@ -74,7 +72,6 @@ const Monitor: React.FC = () => {
     const interval = setInterval(() => {
       setTrafficStats(monitorManager.getTrafficStats());
       setConnectionStatus(monitorManager.getConnectionStatus());
-      setSystemMetrics(monitorManager.getSystemMetrics());
       setConnectionHistory(monitorManager.getConnectionHistory()); // 更新连接历史
       const latestMetrics = monitorManager.getPerformanceMetrics(1)[0];
       if (latestMetrics) {
@@ -106,69 +103,9 @@ const Monitor: React.FC = () => {
     }
   };
 
-  const columns = [
-    {
-      title: '指标',
-      dataIndex: 'metric',
-      key: 'metric',
-      render: (text: string) => <Text strong>{text}</Text>,
-    },
-    {
-      title: '当前值',
-      dataIndex: 'value',
-      key: 'value',
-      render: (value: any, record: any) => (
-        <div>
-          <Text>{record.formattedValue}</Text>
-          {record.unit && <Text type="secondary"> {record.unit}</Text>}
-        </div>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const color = status === '正常' ? 'success' : status === '警告' ? 'warning' : 'error';
-        return <Tag color={color}>{status}</Tag>;
-      },
-    },
-  ];
 
-  const systemMetricsData = [
-    {
-      key: '1',
-      metric: 'CPU使用率',
-      value: systemMetrics.cpuUsage,
-      formattedValue: `${systemMetrics.cpuUsage.toFixed(1)}%`,
-      unit: '',
-      status: systemMetrics.cpuUsage < 80 ? '正常' : systemMetrics.cpuUsage < 95 ? '警告' : '异常',
-    },
-    {
-      key: '2',
-      metric: '内存使用率',
-      value: systemMetrics.memoryUsage,
-      formattedValue: `${systemMetrics.memoryUsage.toFixed(1)}%`,
-      unit: '',
-      status: systemMetrics.memoryUsage < 80 ? '正常' : systemMetrics.memoryUsage < 95 ? '警告' : '异常',
-    },
-    {
-      key: '3',
-      metric: '磁盘使用率',
-      value: systemMetrics.diskUsage,
-      formattedValue: `${systemMetrics.diskUsage.toFixed(1)}%`,
-      unit: '',
-      status: systemMetrics.diskUsage < 80 ? '正常' : systemMetrics.diskUsage < 95 ? '警告' : '异常',
-    },
-    {
-      key: '4',
-      metric: '网络使用率',
-      value: systemMetrics.networkUsage,
-      formattedValue: `${systemMetrics.networkUsage.toFixed(1)}%`,
-      unit: '',
-      status: systemMetrics.networkUsage < 80 ? '正常' : systemMetrics.networkUsage < 95 ? '警告' : '异常',
-    },
-  ];
+
+
 
   const connectionColumns = [
     { title: '域名/IP', dataIndex: 'server', key: 'server' },
@@ -249,19 +186,9 @@ const Monitor: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 系统指标和网络性能 */}
+      {/* 网络性能 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} lg={12}>
-          <Card title="系统指标" extra={<DashboardOutlined />}>
-            <Table
-              columns={columns}
-              dataSource={systemMetricsData}
-              pagination={false}
-              size="small"
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
+        <Col xs={24}>
           <Card title="网络性能" extra={<LineChartOutlined />}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <div>

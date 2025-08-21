@@ -2,13 +2,7 @@ import { TrafficStats, ConnectionStatus } from '../../shared/types';
 import { log } from './logger';
 import { proxyEngine } from './proxyEngine'; // 导入 proxyEngine
 
-export interface SystemMetrics {
-  cpuUsage: number;
-  memoryUsage: number;
-  networkUsage: number;
-  diskUsage: number;
-  timestamp: number;
-}
+
 
 export interface ConnectionHistory {
   id: string;
@@ -47,13 +41,7 @@ export class MonitorManager {
     uploadSpeed: 0,
     downloadSpeed: 0
   };
-  private systemMetrics: SystemMetrics = {
-    cpuUsage: 0,
-    memoryUsage: 0,
-    networkUsage: 0,
-    diskUsage: 0,
-    timestamp: Date.now()
-  };
+
   private connectionHistory: ConnectionHistory[] = [];
   private performanceMetrics: PerformanceMetrics[] = [];
   private updateInterval: NodeJS.Timeout | null = null;
@@ -116,12 +104,7 @@ export class MonitorManager {
     return { ...this.connectionStatus };
   }
 
-  /**
-   * 获取系统指标
-   */
-  public getSystemMetrics(): SystemMetrics {
-    return { ...this.systemMetrics };
-  }
+
 
   /**
    * 获取连接历史
@@ -257,7 +240,7 @@ export class MonitorManager {
 
           // 更新连接历史
           if (stats.connections) {
-            this.connectionHistory = stats.connections.map(c => ({
+            this.connectionHistory = stats.connections.map((c: any) => ({
               id: c.id,
               server: `${c.metadata.host}:${c.metadata.destinationPort}`,
               protocol: c.metadata.network,
@@ -278,27 +261,11 @@ export class MonitorManager {
       this.connectionStatus.connected = false;
     }
     
-    // 更新系统指标 (保留模拟数据，或替换为真实API调用)
-    this.updateSystemMetrics();
-    
     // 更新性能指标 (保留模拟数据，或替换为真实API调用)
     this.updatePerformanceMetrics();
   }
 
-  /**
-   * 更新系统指标
-   */
-  private updateSystemMetrics(): void {
-    // 这里应该调用系统API获取真实的系统指标
-    // 目前使用模拟数据
-    this.systemMetrics = {
-      cpuUsage: Math.random() * 100,
-      memoryUsage: Math.random() * 100,
-      networkUsage: Math.random() * 100,
-      diskUsage: Math.random() * 100,
-      timestamp: Date.now()
-    };
-  }
+
 
   /**
    * 更新性能指标
@@ -367,14 +334,12 @@ export class MonitorManager {
     trafficStats: TrafficStats;
     connectionHistory: ConnectionHistory[];
     performanceMetrics: PerformanceMetrics[];
-    systemMetrics: SystemMetrics;
-    summary: ReturnType<typeof this.getStatsSummary>;
+    summary: ReturnType<MonitorManager['getStatsSummary']>;
   } {
     return {
       trafficStats: this.getTrafficStats(),
       connectionHistory: this.getConnectionHistory(),
       performanceMetrics: this.getPerformanceMetrics(),
-      systemMetrics: this.getSystemMetrics(),
       summary: this.getStatsSummary()
     };
   }
