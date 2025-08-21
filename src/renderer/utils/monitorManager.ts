@@ -81,14 +81,21 @@ export class MonitorManager {
    */
   public async startMonitoring(): Promise<void> {
     if (this.isMonitoring) {
+      console.log('监控已在运行中，跳过启动');
       return;
     }
 
+    console.log('开始启动监控...');
     this.isMonitoring = true;
     
     // 强制检查代理状态
     console.log('启动监控时强制检查代理状态...');
-    await proxyEngine.checkRunningStatus();
+    const isRunning = await proxyEngine.checkRunningStatus();
+    console.log('代理运行状态检查结果:', isRunning);
+    
+    // 立即执行一次更新
+    console.log('执行初始数据更新...');
+    await this.updateMetrics();
     
     this.updateInterval = setInterval(() => {
       this.updateMetrics();
@@ -97,6 +104,7 @@ export class MonitorManager {
     // 启动性能测试监控
     this.startPerformanceMonitoring();
 
+    console.log('监控启动完成');
     log.info('开始监控', null, 'MonitorManager');
   }
 
@@ -332,7 +340,9 @@ export class MonitorManager {
   private async updateMetrics(): Promise<void> {
     // 检查代理运行状态
     const isProxyRunning = proxyEngine.isRunning();
+    const proxyStatus = proxyEngine.getStatus();
     console.log('代理运行状态:', isProxyRunning);
+    console.log('代理详细状态:', proxyStatus);
     
     // 只有在代理运行时才更新统计数据
     if (isProxyRunning) {

@@ -1,19 +1,19 @@
-[2025-08-20T12:12:38.707Z] [INFO] [default] 日志系统已初始化 Object
-index-B6NyvIJK.js:587 🔍 geolocationTester.ts: Starting module initialization
-index-B6NyvIJK.js:587 🔍 geolocationTester.ts: Module initialization complete
-index-B6NyvIJK.js:591 🔍 Dashboard: 开始导入 geolocationTester
-index-B6NyvIJK.js:591 🔍 Dashboard: geolocationTester 导入完成: object
-index-B6NyvIJK.js:456 [2025-08-20T12:12:38.717Z] [INFO] [ErrorRecovery] 注册错误恢复策略: DNS配置恢复 
-index-B6NyvIJK.js:456 [2025-08-20T12:12:38.720Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 代理服务恢复 
-index-B6NyvIJK.js:456 [2025-08-20T12:12:38.724Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 配置恢复 
-index-B6NyvIJK.js:456 [2025-08-20T12:12:38.728Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 存储恢复 
-index-B6NyvIJK.js:456 [2025-08-20T12:12:38.735Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 进程通信恢复 
-index-B6NyvIJK.js:591 🔍 Dashboard: 组件开始渲染
-index-B6NyvIJK.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-B6NyvIJK.js:591 🔍 IP地理位置自动测试 useEffect: 触发
-index-B6NyvIJK.js:591 🔍 proxyConnected: false
-index-B6NyvIJK.js:591 🔍 currentGeolocation: Object
-index-B6NyvIJK.js:591 🔍 isGeolocationValid(): false
+[2025-08-21T01:34:20.590Z] [INFO] [default] 日志系统已初始化 Object
+index-DraNARQS.js:587 🔍 geolocationTester.ts: Starting module initialization
+index-DraNARQS.js:587 🔍 geolocationTester.ts: Module initialization complete
+index-DraNARQS.js:591 🔍 Dashboard: 开始导入 geolocationTester
+index-DraNARQS.js:591 🔍 Dashboard: geolocationTester 导入完成: object
+index-DraNARQS.js:456 [2025-08-21T01:34:20.619Z] [INFO] [ErrorRecovery] 注册错误恢复策略: DNS配置恢复 
+index-DraNARQS.js:456 [2025-08-21T01:34:20.625Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 代理服务恢复 
+index-DraNARQS.js:456 [2025-08-21T01:34:20.630Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 配置恢复 
+index-DraNARQS.js:456 [2025-08-21T01:34:20.635Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 存储恢复 
+index-DraNARQS.js:456 [2025-08-21T01:34:20.641Z] [INFO] [ErrorRecovery] 注册错误恢复策略: 进程通信恢复 
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 IP地理位置自动测试 useEffect: 触发
+index-DraNARQS.js:591 🔍 proxyConnected: false
+index-DraNARQS.js:591 🔍 currentGeolocation: Object
+index-DraNARQS.js:591 🔍 isGeolocationValid(): true
 VM163 renderer_init:2 Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security
   Policy set or a policy with "unsafe-eval" enabled. This exposes users of
   this app to unnecessary security risks.
@@ -23,44 +23,44 @@ https://electronjs.org/docs/tutorial/security.
 This warning will not show up
 once the app is packaged.
 warnAboutInsecureCSP @ VM163 renderer_init:2
-index-B6NyvIJK.js:591 🔍 Dashboard: 组件开始渲染
-index-B6NyvIJK.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
-index-B6NyvIJK.js:456 === 开始转换 Sing-box 配置 ===
-index-B6NyvIJK.js:456 原始配置: Object
-index-B6NyvIJK.js:456 网络设置: Object
-index-B6NyvIJK.js:456 初始化DNS管理器...
-index-B6NyvIJK.js:456 构建基础 Sing-box 配置...
-index-B6NyvIJK.js:456 === 配置入站连接 ===
-index-B6NyvIJK.js:456 TUN 功能已禁用
-index-B6NyvIJK.js:456 添加 SOCKS 入站配置
-index-B6NyvIJK.js:456 SOCKS 端口: 7896
-index-B6NyvIJK.js:456 添加 HTTP 入站配置
-index-B6NyvIJK.js:456 HTTP 端口: 7897
-index-B6NyvIJK.js:456 入站配置数量: 2
-index-B6NyvIJK.js:456 添加直连出站配置
-index-B6NyvIJK.js:456 添加DNS出站配置
-index-B6NyvIJK.js:456 添加私有IP直连规则
-index-B6NyvIJK.js:456 添加中国IP直连规则
-index-B6NyvIJK.js:456 === 处理代理出站配置 ===
-index-B6NyvIJK.js:456 原始出站配置数量: 1
-index-B6NyvIJK.js:456 原始出站配置: Array(1)
-index-B6NyvIJK.js:456 处理第 1 个出站配置: Object
-index-B6NyvIJK.js:456 修复后的出站配置: Object
-index-B6NyvIJK.js:456 处理协议类型: trojan
-index-B6NyvIJK.js:456 配置 Trojan 协议
-index-B6NyvIJK.js:456 密码: ***
-index-B6NyvIJK.js:456 启用 TLS，SNI 设置为: bc84a0846.nthnyx.lol
-index-B6NyvIJK.js:456 最终出站配置: Object
-index-B6NyvIJK.js:456 === 过滤和验证出站配置 ===
-index-B6NyvIJK.js:456 有效出站配置数量: 1
-index-B6NyvIJK.js:456 现有标签: Array(2)
-index-B6NyvIJK.js:456 添加出站标签: 🇯🇵 Japan 14
-index-B6NyvIJK.js:456 唯一出站配置数量: 1
-index-B6NyvIJK.js:456 === 添加用户出站配置 ===
-index-B6NyvIJK.js:456 添加的出站配置: Array(1)
-index-B6NyvIJK.js:456 设置最终路由标签: 🇯🇵 Japan 14
-index-B6NyvIJK.js:456 === Sing-box 配置转换完成 ===
-index-B6NyvIJK.js:456 最终配置: {
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:456 === 开始转换 Sing-box 配置 ===
+index-DraNARQS.js:456 原始配置: Object
+index-DraNARQS.js:456 网络设置: Object
+index-DraNARQS.js:456 初始化DNS管理器...
+index-DraNARQS.js:456 构建基础 Sing-box 配置...
+index-DraNARQS.js:456 === 配置入站连接 ===
+index-DraNARQS.js:456 TUN 功能已禁用
+index-DraNARQS.js:456 添加 SOCKS 入站配置
+index-DraNARQS.js:456 SOCKS 端口: 7896
+index-DraNARQS.js:456 添加 HTTP 入站配置
+index-DraNARQS.js:456 HTTP 端口: 7897
+index-DraNARQS.js:456 入站配置数量: 2
+index-DraNARQS.js:456 添加直连出站配置
+index-DraNARQS.js:456 添加DNS出站配置
+index-DraNARQS.js:456 添加私有IP直连规则
+index-DraNARQS.js:456 添加中国IP直连规则
+index-DraNARQS.js:456 === 处理代理出站配置 ===
+index-DraNARQS.js:456 原始出站配置数量: 1
+index-DraNARQS.js:456 原始出站配置: Array(1)
+index-DraNARQS.js:456 处理第 1 个出站配置: Object
+index-DraNARQS.js:456 修复后的出站配置: Object
+index-DraNARQS.js:456 处理协议类型: trojan
+index-DraNARQS.js:456 配置 Trojan 协议
+index-DraNARQS.js:456 密码: ***
+index-DraNARQS.js:456 启用 TLS，SNI 设置为: bc84a0846.nthnyx.lol
+index-DraNARQS.js:456 最终出站配置: Object
+index-DraNARQS.js:456 === 过滤和验证出站配置 ===
+index-DraNARQS.js:456 有效出站配置数量: 1
+index-DraNARQS.js:456 现有标签: Array(2)
+index-DraNARQS.js:456 添加出站标签: 🇯🇵 Japan 11
+index-DraNARQS.js:456 唯一出站配置数量: 1
+index-DraNARQS.js:456 === 添加用户出站配置 ===
+index-DraNARQS.js:456 添加的出站配置: Array(1)
+index-DraNARQS.js:456 设置最终路由标签: 🇯🇵 Japan 11
+index-DraNARQS.js:456 === Sing-box 配置转换完成 ===
+index-DraNARQS.js:456 最终配置: {
   "log": {
     "level": "info",
     "output": "chongdong.log"
@@ -145,13 +145,14 @@ index-B6NyvIJK.js:456 最终配置: {
   "outbounds": [
     {
       "type": "trojan",
-      "tag": "🇯🇵 Japan 14",
+      "tag": "🇯🇵 Japan 11",
       "server": "bc84a0846.nthnyx.lol",
-      "server_port": 17157,
+      "server_port": 19616,
       "password": "02fb4aa3-dd40-4108-88e4-0d172140407f",
       "tls": {
         "enabled": true,
-        "server_name": "bc84a0846.nthnyx.lol"
+        "server_name": "bc84a0846.nthnyx.lol",
+        "insecure": true
       }
     },
     {
@@ -174,19 +175,68 @@ index-B6NyvIJK.js:456 最终配置: {
         "outbound": "direct"
       }
     ],
-    "final": "🇯🇵 Japan 14"
+    "final": "🇯🇵 Japan 11"
   }
 }
-index-B6NyvIJK.js:456 配置大小: 1316 字符
-index-B6NyvIJK.js:456 === 路由规则分析 ===
-index-B6NyvIJK.js:456 路由规则数量: 2
-index-B6NyvIJK.js:456 规则 1: Objectgeoip: "private"outbound: "direct"[[Prototype]]: Object
-index-B6NyvIJK.js:456 规则 2: Objectgeoip: "cn"outbound: "direct"[[Prototype]]: Object
-index-B6NyvIJK.js:456 最终路由: 🇯🇵 Japan 14
-index-B6NyvIJK.js:456 出站配置数量: 3
-index-B6NyvIJK.js:456 出站 1: 🇯🇵 Japan 14 (trojan)
-index-B6NyvIJK.js:456 出站 2: direct (direct)
-index-B6NyvIJK.js:456 出站 3: dns (dns)
-index-B6NyvIJK.js:658 当前设置中的端口配置: ObjectmixedPort: 7895proxyPort: 7897socksPort: 7896[[Prototype]]: Object
-index-B6NyvIJK.js:658 设置系统代理 - SOCKS: 7896, HTTP: 7897
-index-B6NyvIJK.js:658 系统代理已设置 - HTTP/HTTPS: 127.0.0.1:7897, SOCKS: 127.0.0.1:7896
+index-DraNARQS.js:456 配置大小: 1332 字符
+index-DraNARQS.js:456 === 路由规则分析 ===
+index-DraNARQS.js:456 路由规则数量: 2
+index-DraNARQS.js:456 规则 1: Object
+index-DraNARQS.js:456 规则 2: Object
+index-DraNARQS.js:456 最终路由: 🇯🇵 Japan 11
+index-DraNARQS.js:456 出站配置数量: 3
+index-DraNARQS.js:456 出站 1: 🇯🇵 Japan 11 (trojan)
+index-DraNARQS.js:456 出站 2: direct (direct)
+index-DraNARQS.js:456 出站 3: dns (dns)
+index-DraNARQS.js:456 代理引擎状态已设置为运行中: Object
+index-DraNARQS.js:658 当前设置中的端口配置: Object
+index-DraNARQS.js:658 设置系统代理 - SOCKS: 7896, HTTP: 7897
+index-DraNARQS.js:658 系统代理已设置 - HTTP/HTTPS: 127.0.0.1:7897, SOCKS: 127.0.0.1:7896
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 IP地理位置自动测试 useEffect: 触发
+index-DraNARQS.js:591 🔍 proxyConnected: true
+index-DraNARQS.js:591 🔍 currentGeolocation: Object
+index-DraNARQS.js:591 🔍 isGeolocationValid(): true
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object
+index-DraNARQS.js:591 🔍 Dashboard: 组件开始渲染
+index-DraNARQS.js:591 🔍 Dashboard: 导入检查 - geolocationTester: object

@@ -139,6 +139,8 @@ export class ProxyEngine {
       this.status.running = true;
       this.status.uptime = Date.now();
       
+      console.log('代理引擎状态已设置为运行中:', this.status);
+      
       this.startStatusMonitoring();
       this.notifyStatusChange();
       

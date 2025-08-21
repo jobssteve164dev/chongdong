@@ -393,6 +393,20 @@ const Dashboard: React.FC = () => {
         setCurrentProxyNode(selectedNode);
         setCurrentProxyChain(null);
         
+        // 启动监控管理器
+        console.log('代理启动成功，开始启动监控管理器...');
+        console.log('监控管理器对象:', monitorManager);
+        console.log('监控管理器类型:', typeof monitorManager);
+        console.log('监控管理器方法:', Object.getOwnPropertyNames(Object.getPrototypeOf(monitorManager)));
+        try {
+          console.log('调用 monitorManager.startMonitoring()...');
+          await monitorManager.startMonitoring();
+          console.log('监控管理器启动成功');
+        } catch (error) {
+          console.error('监控管理器启动失败:', error);
+          console.error('错误详情:', error);
+        }
+        
         log.info('代理服务已启动', null, 'Dashboard');
       } else {
         // 启动失败的消息已在 proxyEngine 中处理或记录
