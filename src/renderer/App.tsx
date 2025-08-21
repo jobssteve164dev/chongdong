@@ -136,12 +136,7 @@ const AppContent: React.FC = () => {
       <Layout>
         <Content className="app-content">
           <div className="content-wrapper">
-            {currentPage === 'dashboard' && (
-              <div style={{ padding: '20px' }}>
-                <h2>仪表盘</h2>
-                <p>仪表盘功能暂时禁用以排查问题</p>
-              </div>
-            )}
+            {currentPage === 'dashboard' && <Dashboard />}
             {currentPage === 'proxy' && <ProxyManagement />}
             {currentPage === 'subscription' && <SubscriptionManagement />}
             {currentPage === 'rules' && <RuleManagement />}

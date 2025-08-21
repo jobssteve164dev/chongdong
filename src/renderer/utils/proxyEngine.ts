@@ -14,7 +14,7 @@ declare global {
 const { ipcRenderer } = window.electron;
 
 import { ProxyNode, AppSettings } from '../../shared/types';
-import { dnsManager } from './dnsManager';
+// import { dnsManager } from './dnsManager';
 
 export interface ProxyConfig {
   id: string;
@@ -364,10 +364,10 @@ export class ProxyEngine {
     console.log(`网络设置:`, networkSettings);
     
     // 初始化DNS管理器
-    if (networkSettings) {
-      console.log(`初始化DNS管理器...`);
-      dnsManager.init(networkSettings);
-    }
+    // if (networkSettings) {
+    //   console.log(`初始化DNS管理器...`);
+    //   dnsManager.init(networkSettings);
+    // }
 
     // 基础Sing-box配置结构
     console.log(`构建基础 Sing-box 配置...`);
@@ -384,16 +384,42 @@ export class ProxyEngine {
         }
       },
       // 从独立的DNS管理器获取DNS配置
-      dns: dnsManager.getDnsConfig() || {
-        servers: [
-          {
-            tag: 'default',
-            address: '8.8.8.8',
-            detour: 'direct'
+      dns: (() => {
+        console.log(`=== 配置 DNS ===`);
+        const dnsConfig: any = {
+          servers: [
+            {
+              tag: 'default',
+              address: '8.8.8.8',
+              detour: 'direct'
+            }
+          ],
+          final: 'default'
+        };
+
+        if (networkSettings?.enableDns) {
+          console.log(`启用 DNS 代理`);
+          dnsConfig.servers = [
+            {
+              tag: 'default',
+              address: networkSettings.dnsServer || '8.8.8.8',
+              detour: 'direct'
+            }
+          ];
+          if (networkSettings?.enableDoh) {
+            dnsConfig.servers.push({
+              tag: 'doh',
+              address: networkSettings.dohServer || 'https://dns.google/dns-query',
+              detour: 'doh'
+            });
+            console.log(`启用 DoH，使用服务器: ${networkSettings.dohServer || 'https://dns.google/dns-query'}`);
           }
-        ],
-        final: 'default'
-      },
+          console.log(`DNS 服务器数量: ${dnsConfig.servers.length}`);
+        } else {
+          console.log(`DNS 功能已禁用`);
+        }
+        return dnsConfig;
+      })(),
       inbounds: (() => {
         console.log(`=== 配置入站连接 ===`);
         const inbounds = [];
