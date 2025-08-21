@@ -43,6 +43,7 @@ import { DefaultSettings } from '../utils/defaultSettings';
 import { useProxyStore, useNodeStore } from '../utils/stores';
 import { monitorManager } from '../utils/monitorManager';
 import { formatBytes, formatSpeed } from '../utils/format';
+import { navigationManager } from '../utils/navigationManager';
 import './Dashboard.css';
 
 const { Title, Text } = Typography;
@@ -596,6 +597,22 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
+  // 快速操作按钮事件处理函数
+  const handleViewDetailedStats = () => {
+    navigationManager.navigateToMonitor();
+    message.info('正在跳转到监控统计页面...');
+  };
+
+  const handleProxySettings = () => {
+    navigationManager.navigateToProxy();
+    message.info('正在跳转到代理管理页面...');
+  };
+
+  const handleSubscriptionManagement = () => {
+    navigationManager.navigateToSubscription();
+    message.info('正在跳转到订阅管理页面...');
+  };
+
   // 构建下拉菜单
   const buildDropdownMenu = () => {
     const menuItems = [];
@@ -782,13 +799,28 @@ const Dashboard: React.FC = () => {
         <Col xs={24} lg={12}>
           <Card title="快速操作" className="quick-actions-card">
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Button block icon={<BarChartOutlined />} size="large">
+              <Button 
+                block 
+                icon={<BarChartOutlined />} 
+                size="large"
+                onClick={handleViewDetailedStats}
+              >
                 查看详细统计
               </Button>
-              <Button block icon={<SettingOutlined />} size="large">
+              <Button 
+                block 
+                icon={<SettingOutlined />} 
+                size="large"
+                onClick={handleProxySettings}
+              >
                 代理设置
               </Button>
-              <Button block icon={<CloudOutlined />} size="large">
+              <Button 
+                block 
+                icon={<CloudOutlined />} 
+                size="large"
+                onClick={handleSubscriptionManagement}
+              >
                 订阅管理
               </Button>
               <Button 

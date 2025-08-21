@@ -21,6 +21,7 @@ import Monitor from '@/pages/Monitor';
 import Settings from '@/pages/Settings';
 import { proxyEngine } from './utils/proxyEngine';
 import { useNodeStore } from './utils/stores';
+import { useNavigationStore, type PageKey } from './utils/navigationManager';
 import './App.css';
 
 const { Sider, Content } = Layout;
@@ -28,7 +29,10 @@ const { Title } = Typography;
 
 const AppContent: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
-  const [selectedKey, setSelectedKey] = useState('dashboard');
+  
+  // 使用导航管理器
+  const currentPage = useNavigationStore((state) => state.currentPage);
+  const setCurrentPage = useNavigationStore((state) => state.setCurrentPage);
   
   // 获取全局状态更新函数
   const setProxyConnected = useNodeStore((state) => state.setProxyConnected);
@@ -100,6 +104,10 @@ const AppContent: React.FC = () => {
     },
   ];
 
+  const handleMenuClick = ({ key }: { key: string }) => {
+    setCurrentPage(key as PageKey);
+  };
+
   return (
     <Layout className="app-layout">
       <Sider width={200} className="app-sider">
@@ -119,22 +127,22 @@ const AppContent: React.FC = () => {
         </div>
         <Menu
           mode="inline"
-          selectedKeys={[selectedKey]}
+          selectedKeys={[currentPage]}
           style={{ height: '100%', borderRight: 0 }}
           items={menuItems}
-          onClick={({ key }) => setSelectedKey(key)}
+          onClick={handleMenuClick}
         />
       </Sider>
       <Layout>
         <Content className="app-content">
           <div className="content-wrapper">
-            {selectedKey === 'dashboard' && <Dashboard />}
-            {selectedKey === 'proxy' && <ProxyManagement />}
-            {selectedKey === 'subscription' && <SubscriptionManagement />}
-            {selectedKey === 'rules' && <RuleManagement />}
-            {selectedKey === 'nodes' && <NodeManagement />}
-            {selectedKey === 'monitor' && <Monitor />}
-            {selectedKey === 'settings' && <Settings />}
+            {currentPage === 'dashboard' && <Dashboard />}
+            {currentPage === 'proxy' && <ProxyManagement />}
+            {currentPage === 'subscription' && <SubscriptionManagement />}
+            {currentPage === 'rules' && <RuleManagement />}
+            {currentPage === 'nodes' && <NodeManagement />}
+            {currentPage === 'monitor' && <Monitor />}
+            {currentPage === 'settings' && <Settings />}
           </div>
         </Content>
       </Layout>
