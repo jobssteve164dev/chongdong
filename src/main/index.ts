@@ -7,6 +7,7 @@ import { createNotificationManager, NotificationConfig } from './notificationMan
 // 导入管理器
 import { proxyManager } from './proxyManager';
 import { systemProxyManager } from './systemProxyManager';
+import { proxyModeManager } from './proxyModeManager';
 import { coreDownloader } from './coreDownloader';
 import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
@@ -1558,3 +1559,61 @@ systemMonitor.registerIpcHandlers();
 
 // 启动系统监控
 systemMonitor.startMonitoring();
+
+// 代理模式管理IPC处理程序
+ipcMain.handle('proxy:applyMode', async (_, { mode, settings, networkSettings }) => {
+  try {
+    const result = await proxyModeManager.applyProxyMode({
+      mode,
+      settings,
+      networkSettings
+    });
+    return result;
+  } catch (error) {
+    console.error('应用代理模式失败:', error);
+    return {
+      success: false,
+      message: `应用代理模式失败: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+});
+
+ipcMain.handle('proxy:getCurrentMode', async () => {
+  try {
+    const mode = proxyModeManager.getCurrentMode();
+    const vpnName = proxyModeManager.getCurrentVpnName();
+    return { success: true, mode, vpnName };
+  } catch (error) {
+    console.error('获取当前代理模式失败:', error);
+    return {
+      success: false,
+      error: `获取当前代理模式失败: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+});
+
+ipcMain.handle('proxy:checkVpnStatus', async () => {
+  try {
+    const status = await proxyModeManager.checkVpnStatus();
+    return { success: true, ...status };
+  } catch (error) {
+    console.error('检查VPN状态失败:', error);
+    return {
+      success: false,
+      error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+});
+
+ipcMain.handle('proxy:disconnectVpn', async () => {
+  try {
+    await proxyModeManager.disconnectVpn();
+    return { success: true, message: 'VPN连接已断开' };
+  } catch (error) {
+    console.error('断开VPN连接失败:', error);
+    return {
+      success: false,
+      error: `断开VPN连接失败: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+});

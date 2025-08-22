@@ -76,13 +76,12 @@ export interface AppSettings {
   language?: string; // 添加可选的 language 属性
   autoStart: boolean;
   systemProxy: boolean;
-  proxyMode: 'direct' | 'global' | 'rule';
   subscriptions?: Subscription[]; // 添加可选的订阅列表
   proxyPort: number;
   socksPort: number;
   mixedPort: number;
   allowLan: boolean;
-  mode: 'rule' | 'global' | 'direct';
+  mode: 'rule' | 'global' | 'direct' | 'vpn';
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   enableLog: boolean;
   logFile: string;

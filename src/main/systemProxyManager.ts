@@ -556,9 +556,40 @@ export class SystemProxyManager {
    */
   private async createMacOSVPN(config: any): Promise<void> {
     try {
-      // macOS VPN创建需要更复杂的配置
-      // 这里提供简化版本
-      console.log(`macOS VPN creation not fully implemented for ${config.name}`);
+      // macOS VPN创建 - 使用networksetup命令
+      // 首先检查VPN服务是否已存在
+      try {
+        await execAsync(`networksetup -listallnetworkservices | grep "${config.name}"`);
+        console.log(`macOS VPN service ${config.name} already exists`);
+        return;
+      } catch (error) {
+        // VPN服务不存在，需要创建
+      }
+
+      // 根据VPN类型创建不同的配置
+      switch (config.type) {
+        case 'l2tp':
+          // 创建L2TP VPN连接
+          await execAsync(`networksetup -create${config.type}service "${config.name}"`);
+          if (config.server) {
+            await execAsync(`networksetup -setl2tpoveripsecsharedsecret "${config.name}" "${config.password || 'defaultsecret'}"`);
+            await execAsync(`networksetup -setl2tpoveripsecserver "${config.name}" "${config.server}"`);
+          }
+          break;
+        case 'pptp':
+          // 创建PPTP VPN连接
+          await execAsync(`networksetup -createpptpservice "${config.name}"`);
+          if (config.server) {
+            await execAsync(`networksetup -setpptpserver "${config.name}" "${config.server}"`);
+          }
+          break;
+        default:
+          // 默认创建PPPoE服务作为VPN的替代方案
+          await execAsync(`networksetup -createpppoeservice "${config.name}"`);
+          break;
+      }
+      
+      console.log(`macOS VPN service created: ${config.name}`);
     } catch (error) {
       throw new Error(`Failed to create macOS VPN: ${error}`);
     }
@@ -649,6 +680,88 @@ export class SystemProxyManager {
     }
 
     return result;
+  }
+
+  /**
+   * 获取VPN状态
+   */
+  public async getVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
+    try {
+      switch (process.platform) {
+        case 'win32':
+          return await this.getWindowsVPNStatus(name);
+        case 'darwin':
+          return await this.getMacOSVPNStatus(name);
+        case 'linux':
+          return await this.getLinuxVPNStatus(name);
+        default:
+          return { connected: false, error: `Unsupported platform: ${process.platform}` };
+      }
+    } catch (error) {
+      console.error('Failed to get VPN status:', error);
+      return { connected: false, error: `Failed to get VPN status: ${error}` };
+    }
+  }
+
+  /**
+   * Windows VPN状态检查
+   */
+  private async getWindowsVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
+    try {
+      const command = `Get-VpnConnection -Name "${name}" | Select-Object -ExpandProperty ConnectionStatus`;
+      const result = await execAsync(`powershell -Command "${command}"`);
+      const status = result.stdout.trim().toLowerCase();
+      return { connected: status === 'connected' };
+    } catch (error) {
+      return { connected: false, error: `Windows VPN status check failed: ${error}` };
+    }
+  }
+
+  /**
+   * macOS VPN状态检查
+   */
+  private async getMacOSVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
+    try {
+      // 首先检查VPN服务是否存在
+      try {
+        await execAsync(`networksetup -listallnetworkservices | grep "${name}"`);
+      } catch (error) {
+        return { connected: false, error: `VPN service "${name}" does not exist` };
+      }
+
+      // 检查VPN连接状态
+      try {
+        // 尝试使用scutil检查连接状态
+        const result = await execAsync(`scutil --nc show "${name}"`);
+        const isConnected = result.stdout.includes('Connected') || result.stdout.includes('IPSec Status = running');
+        return { connected: isConnected };
+      } catch (scutilError) {
+        // 如果scutil失败，尝试使用networksetup检查
+        try {
+          const result = await execAsync(`networksetup -showpppoestatus "${name}"`);
+          const isConnected = result.stdout.includes('connected') || result.stdout.includes('Connected');
+          return { connected: isConnected };
+        } catch (networksetupError) {
+          // 如果都失败了，假设未连接
+          return { connected: false, error: `Unable to check VPN status: ${scutilError}` };
+        }
+      }
+    } catch (error) {
+      return { connected: false, error: `macOS VPN status check failed: ${error}` };
+    }
+  }
+
+  /**
+   * Linux VPN状态检查
+   */
+  private async getLinuxVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
+    try {
+      const command = `nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active | grep "${name}"`;
+      const result = await execAsync(command);
+      return { connected: result.stdout.includes('activated') };
+    } catch (error) {
+      return { connected: false, error: `Linux VPN status check failed: ${error}` };
+    }
   }
 
   /**

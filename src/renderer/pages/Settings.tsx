@@ -45,6 +45,7 @@ import CoreManager from '../components/CoreManager';
 import { windowManager } from '../utils/windowManager';
 import { DefaultSettings } from '../utils/defaultSettings';
 import ErrorMonitor from '../components/ErrorMonitor';
+import { proxyModeManager } from '../utils/proxyModeManager';
 import './Settings.css';
 
 const { Title, Text } = Typography;
@@ -72,10 +73,78 @@ const Settings: React.FC = () => {
   const [dnsLeakResult, setDnsLeakResult] = useState<string>('');
   const [dnsLeakDetected, setDnsLeakDetected] = useState(false);
 
+  // 代理模式相关状态
+  const [proxyModeLoading, setProxyModeLoading] = useState(false);
+  const [currentProxyMode, setCurrentProxyMode] = useState<string>('rule');
+  const [vpnStatus, setVpnStatus] = useState<{ connected: boolean; error?: string }>({ connected: false });
+
   // 加载已保存的设置
   useEffect(() => {
     loadSavedSettings();
+    loadCurrentProxyMode();
   }, []);
+
+  // 加载当前代理模式
+  const loadCurrentProxyMode = async () => {
+    try {
+      const { mode } = await proxyModeManager.getCurrentMode();
+      setCurrentProxyMode(mode);
+      
+      // 如果是VPN模式，检查VPN状态
+      if (mode === 'vpn') {
+        const status = await proxyModeManager.checkVpnStatus();
+        setVpnStatus(status);
+      }
+    } catch (error) {
+      console.error('加载当前代理模式失败:', error);
+    }
+  };
+
+  // 应用代理模式
+  const handleApplyProxyMode = async (mode: string) => {
+    setProxyModeLoading(true);
+    try {
+      const result = await proxyModeManager.applyProxyMode(
+        mode as 'rule' | 'global' | 'direct' | 'vpn',
+        settings
+      );
+
+      if (result.success) {
+        setCurrentProxyMode(mode);
+        message.success(result.message);
+        
+        // 如果是VPN模式，检查VPN状态
+        if (mode === 'vpn') {
+          const status = await proxyModeManager.checkVpnStatus();
+          setVpnStatus(status);
+        }
+      } else {
+        message.error(result.message);
+      }
+    } catch (error) {
+      console.error('应用代理模式失败:', error);
+      message.error('应用代理模式失败');
+    } finally {
+      setProxyModeLoading(false);
+    }
+  };
+
+  // 断开VPN连接
+  const handleDisconnectVpn = async () => {
+    try {
+      const result = await proxyModeManager.disconnectVpn();
+      if (result.success) {
+        setCurrentProxyMode('rule');
+        setVpnStatus({ connected: false });
+        message.success(result.message);
+      } else {
+        message.error(result.message);
+      }
+    } catch (error) {
+      console.error('断开VPN连接失败:', error);
+      message.error('断开VPN连接失败');
+    }
+  };
 
   const loadSavedSettings = async () => {
     try {
@@ -719,13 +788,101 @@ const Settings: React.FC = () => {
               <Divider />
 
               <Title level={4}>代理模式</Title>
-              <Form.Item name="mode" label="代理模式">
-                <Select>
-                  <Option value="rule">规则模式</Option>
-                  <Option value="global">全局模式</Option>
-                  <Option value="direct">直连模式</Option>
-                </Select>
-              </Form.Item>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="mode" label="代理模式">
+                    <Select
+                      loading={proxyModeLoading}
+                      onChange={handleApplyProxyMode}
+                      value={currentProxyMode}
+                    >
+                      <Option value="rule">
+                        <Space>
+                          <span>{proxyModeManager.getModeIcon('rule')}</span>
+                          <span>规则模式</span>
+                        </Space>
+                      </Option>
+                      <Option value="global">
+                        <Space>
+                          <span>{proxyModeManager.getModeIcon('global')}</span>
+                          <span>全局模式</span>
+                        </Space>
+                      </Option>
+                      <Option value="direct">
+                        <Space>
+                          <span>{proxyModeManager.getModeIcon('direct')}</span>
+                          <span>直连模式</span>
+                        </Space>
+                      </Option>
+                      <Option value="vpn">
+                        <Space>
+                          <span>{proxyModeManager.getModeIcon('vpn')}</span>
+                          <span>VPN模式</span>
+                        </Space>
+                      </Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <div style={{ marginTop: 32 }}>
+                    <Text type="secondary">
+                      {proxyModeManager.getModeDescription(currentProxyMode)}
+                    </Text>
+                  </div>
+                </Col>
+              </Row>
+
+              {/* VPN状态显示 */}
+              {currentProxyMode === 'vpn' && (
+                <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                  <Col span={24}>
+                    <Card size="small" title="VPN状态">
+                      <Row gutter={[16, 16]} align="middle">
+                        <Col>
+                          <Badge 
+                            status={vpnStatus.connected ? 'success' : 'error'} 
+                            text={vpnStatus.connected ? '已连接' : '未连接'} 
+                          />
+                        </Col>
+                        <Col>
+                          {vpnStatus.error && (
+                            <Text type="danger">{vpnStatus.error}</Text>
+                          )}
+                        </Col>
+                        <Col>
+                          <Button 
+                            size="small" 
+                            danger 
+                            onClick={handleDisconnectVpn}
+                            disabled={!vpnStatus.connected}
+                          >
+                            断开VPN
+                          </Button>
+                        </Col>
+                      </Row>
+                      
+                      {/* VPN配置提示 */}
+                      <Alert
+                        message="VPN配置说明"
+                        description={
+                          <div>
+                            <p>当前VPN模式使用系统默认配置。如需自定义VPN服务器，请：</p>
+                            <ul>
+                              <li>在macOS上：打开"系统偏好设置" → "网络" → 查找"ChongdongVPN"连接</li>
+                              <li>在Windows上：打开"设置" → "网络和Internet" → "VPN"</li>
+                              <li>在Linux上：使用NetworkManager或相应的网络管理工具</li>
+                            </ul>
+                            <p>或者您可以切换到其他代理模式以使用应用内置的代理功能。</p>
+                          </div>
+                        }
+                        type="info"
+                        showIcon
+                        style={{ marginTop: 16 }}
+                      />
+                    </Card>
+                  </Col>
+                </Row>
+              )}
 
               <Form.Item name="externalController" label="外部控制器地址">
                 <Input placeholder="127.0.0.1:9090" />
