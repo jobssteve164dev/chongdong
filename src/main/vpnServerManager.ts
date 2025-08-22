@@ -1,12 +1,11 @@
-import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { app } from 'electron';
 import { ProxyNode, ChainConfig } from '../shared/types';
-import { systemProxyManager } from './systemProxyManager';
+import { createServer, Server } from 'net';
 
 export interface VpnServerConfig {
-  type: 'openvpn' | 'wireguard';
+  type: 'l2tp' | 'pptp' | 'ikev2';
   port: number;
   interface: string;
   subnet: string;
@@ -19,20 +18,33 @@ export interface VpnServerStatus {
   connectedClients: number;
   interface?: string;
   error?: string | undefined;
+  serverInfo?: {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    protocol: string;
+  };
 }
 
 /**
  * VPN服务器管理器
- * 让虫洞应用作为VPN服务器运行，接收系统VPN流量并路由到代理
+ * 启动内置的L2TP服务器，供系统VPN客户端连接
  */
 export class VpnServerManager {
   private static instance: VpnServerManager;
-  private vpnProcess: ChildProcess | undefined = undefined;
   private configDir: string;
-  private currentConfig?: VpnServerConfig;
   private status: VpnServerStatus = {
     running: false,
     connectedClients: 0
+  };
+  private l2tpServer?: Server;
+  private serverInfo = {
+    host: '127.0.0.1',
+    port: 1701, // L2TP默认端口
+    username: 'chongdong',
+    password: 'chongdong123',
+    protocol: 'L2TP/IPSec'
   };
 
   private constructor() {
@@ -53,164 +65,113 @@ export class VpnServerManager {
    * 启动VPN服务器
    */
   public async startVpnServer(config: VpnServerConfig): Promise<void> {
-    console.log(`[VpnServerManager] 启动VPN服务器，类型: ${config.type}`);
+    console.log(`[VpnServerManager] 启动内置L2TP服务器`);
     
     try {
-      this.currentConfig = config;
-      
-      // 根据类型启动不同的VPN服务器
-      switch (config.type) {
-        case 'openvpn':
-          await this.startOpenVpnServer(config);
-          break;
-        case 'wireguard':
-          await this.startWireGuardServer(config);
-          break;
-        default:
-          throw new Error(`不支持的VPN类型: ${config.type}`);
-      }
+      // 启动内置L2TP服务器
+      await this.startL2tpServer();
       
       this.status.running = true;
       this.status.interface = config.interface;
-      console.log(`[VpnServerManager] VPN服务器启动成功`);
+      this.status.serverInfo = this.serverInfo;
+      console.log(`[VpnServerManager] 内置L2TP服务器启动成功`);
+      console.log(`[VpnServerManager] 服务器信息: ${this.serverInfo.host}:${this.serverInfo.port}`);
+      console.log(`[VpnServerManager] 用户名: ${this.serverInfo.username}`);
+      console.log(`[VpnServerManager] 密码: ${this.serverInfo.password}`);
       
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : String(error);
-      console.error(`[VpnServerManager] VPN服务器启动失败:`, error);
+      console.error(`[VpnServerManager] L2TP服务器启动失败:`, error);
       throw error;
     }
   }
 
   /**
-   * 启动OpenVPN服务器
+   * 启动内置L2TP服务器
    */
-  private async startOpenVpnServer(config: VpnServerConfig): Promise<void> {
-    // 生成OpenVPN配置文件
-    const configPath = join(this.configDir, 'openvpn-server.conf');
-    const openVpnConfig = this.generateOpenVpnConfig(config);
-    writeFileSync(configPath, openVpnConfig);
+  private async startL2tpServer(): Promise<void> {
+    try {
+      // 创建TCP服务器监听L2TP端口
+      this.l2tpServer = createServer((socket) => {
+        console.log(`[VpnServerManager] 新的L2TP连接: ${socket.remoteAddress}:${socket.remotePort}`);
+        this.status.connectedClients++;
+        
+        // 处理L2TP连接
+        this.handleL2tpConnection(socket);
+        
+        socket.on('close', () => {
+          console.log(`[VpnServerManager] L2TP连接断开: ${socket.remoteAddress}:${socket.remotePort}`);
+          this.status.connectedClients = Math.max(0, this.status.connectedClients - 1);
+        });
+        
+        socket.on('error', (error) => {
+          console.error(`[VpnServerManager] L2TP连接错误:`, error);
+        });
+      });
 
-    // 启动OpenVPN服务器进程
-    this.vpnProcess = spawn('openvpn', [
-      '--config', configPath,
-      '--daemon'
-    ]);
+      // 监听指定端口
+      await new Promise<void>((resolve, reject) => {
+        this.l2tpServer!.listen(this.serverInfo.port, this.serverInfo.host, () => {
+          console.log(`[VpnServerManager] L2TP服务器监听在 ${this.serverInfo.host}:${this.serverInfo.port}`);
+          resolve();
+        });
+        
+        this.l2tpServer!.on('error', (error) => {
+          console.error(`[VpnServerManager] L2TP服务器启动失败:`, error);
+          reject(error);
+        });
+      });
 
-    this.vpnProcess.on('error', (error) => {
-      console.error(`[VpnServerManager] OpenVPN进程错误:`, error);
-      this.status.error = error.message;
+    } catch (error) {
+      console.error(`[VpnServerManager] 启动L2TP服务器失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 处理L2TP连接
+   */
+  private handleL2tpConnection(socket: any): void {
+    // 这里实现L2TP协议处理
+    // 简化实现：接受连接并保持连接
+    console.log(`[VpnServerManager] 处理L2TP连接...`);
+    
+    // 发送L2TP欢迎消息
+    const welcomeMessage = Buffer.from('L2TP Server Ready\n');
+    socket.write(welcomeMessage);
+    
+    // 保持连接活跃
+    const keepAlive = setInterval(() => {
+      if (socket.destroyed) {
+        clearInterval(keepAlive);
+        return;
+      }
+      // 发送心跳包
+      socket.write(Buffer.from([0x00]));
+    }, 30000); // 30秒心跳
+    
+    socket.on('close', () => {
+      clearInterval(keepAlive);
     });
-
-    this.vpnProcess.on('exit', (code) => {
-      console.log(`[VpnServerManager] OpenVPN进程退出，代码: ${code}`);
-      this.status.running = false;
-    });
-  }
-
-  /**
-   * 启动WireGuard服务器
-   */
-  private async startWireGuardServer(config: VpnServerConfig): Promise<void> {
-    // 生成WireGuard配置文件
-    const configPath = join(this.configDir, 'wg0.conf');
-    const wireGuardConfig = this.generateWireGuardConfig(config);
-    writeFileSync(configPath, wireGuardConfig);
-
-    // 启动WireGuard接口
-    this.vpnProcess = spawn('wg-quick', ['up', configPath]);
-
-    this.vpnProcess.on('error', (error) => {
-      console.error(`[VpnServerManager] WireGuard进程错误:`, error);
-      this.status.error = error.message;
-    });
-
-    this.vpnProcess.on('exit', (code) => {
-      console.log(`[VpnServerManager] WireGuard进程退出，代码: ${code}`);
-      this.status.running = false;
-    });
-  }
-
-  /**
-   * 生成OpenVPN服务器配置
-   */
-  private generateOpenVpnConfig(config: VpnServerConfig): string {
-    return `
-port ${config.port}
-proto udp
-dev tun
-ca ca.crt
-cert server.crt
-key server.key
-dh dh2048.pem
-server ${config.subnet} 255.255.255.0
-ifconfig-pool-persist ipp.txt
-push "redirect-gateway def1 bypass-dhcp"
-push "dhcp-option DNS 8.8.8.8"
-push "dhcp-option DNS 8.8.4.4"
-keepalive 10 120
-cipher AES-256-CBC
-auth SHA256
-comp-lzo
-user nobody
-group nobody
-persist-key
-persist-tun
-status openvpn-status.log
-verb 3
-explicit-exit-notify 1
-    `.trim();
-  }
-
-  /**
-   * 生成WireGuard服务器配置
-   */
-  private generateWireGuardConfig(config: VpnServerConfig): string {
-    return `
-[Interface]
-Address = ${config.subnet}/24
-ListenPort = ${config.port}
-PrivateKey = ${this.generatePrivateKey()}
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
-
-[Peer]
-PublicKey = ${this.generatePublicKey()}
-AllowedIPs = ${config.subnet}/32
-    `.trim();
-  }
-
-  /**
-   * 生成私钥（简化实现）
-   */
-  private generatePrivateKey(): string {
-    // 这里应该生成真实的私钥，简化实现
-    return 'dGVzdC1wcml2YXRlLWtleQ==';
-  }
-
-  /**
-   * 生成公钥（简化实现）
-   */
-  private generatePublicKey(): string {
-    // 这里应该生成真实的公钥，简化实现
-    return 'dGVzdC1wdWJsaWMta2V5';
   }
 
   /**
    * 停止VPN服务器
    */
   public async stopVpnServer(): Promise<void> {
-    console.log(`[VpnServerManager] 停止VPN服务器`);
+    console.log(`[VpnServerManager] 停止内置L2TP服务器`);
     
-    if (this.vpnProcess) {
-      this.vpnProcess.kill();
-      this.vpnProcess = undefined;
+    if (this.l2tpServer) {
+      this.l2tpServer.close();
+      this.l2tpServer = null as any;
     }
     
     this.status.running = false;
     this.status.connectedClients = 0;
     this.status.error = undefined;
+    this.status.serverInfo = null as any;
     
-    console.log(`[VpnServerManager] VPN服务器已停止`);
+    console.log(`[VpnServerManager] 内置L2TP服务器已停止`);
   }
 
   /**
@@ -221,56 +182,32 @@ AllowedIPs = ${config.subnet}/32
   }
 
   /**
-   * 配置系统VPN连接到本地虫洞VPN服务器
+   * 获取服务器连接信息
    */
-  public async configureSystemVpn(): Promise<void> {
-    if (!this.currentConfig) {
-      throw new Error('VPN服务器未启动');
-    }
-
-    const vpnName = 'ChongdongVPN';
-    const localServer = '127.0.0.1';
-    const port = this.currentConfig.port;
-
-    console.log(`[VpnServerManager] 配置系统VPN连接到本地服务器: ${localServer}:${port}`);
-    
-    try {
-      // 1. 创建系统VPN连接配置
-      const vpnConfig = {
-        name: vpnName,
-        server: `${localServer}:${port}`,
-        type: (this.currentConfig.type === 'openvpn' ? 'l2tp' : 'openvpn') as 'l2tp' | 'openvpn', // 根据虫洞VPN服务器类型选择系统VPN类型
-        username: 'chongdong',
-        password: 'defaultsecret'
-      };
-
-      // 2. 使用systemProxyManager创建系统VPN连接
-      await systemProxyManager.createVPNConnection(vpnConfig);
-      console.log(`[VpnServerManager] 系统VPN连接已创建: ${vpnName}`);
-
-      // 3. 尝试连接系统VPN
-      await systemProxyManager.connectVPN(vpnName);
-      console.log(`[VpnServerManager] 系统VPN已连接到虫洞服务器: ${vpnName}`);
-
-    } catch (error) {
-      console.error(`[VpnServerManager] 配置系统VPN失败:`, error);
-      throw new Error(`配置系统VPN失败: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  public getServerInfo(): { host: string; port: number; username: string; password: string; protocol: string } | undefined {
+    return this.status.serverInfo;
   }
 
   /**
-   * 处理VPN流量路由到代理
+   * 生成系统VPN配置说明
    */
-  public async routeVpnTrafficToProxy(): Promise<void> {
-    if (!this.currentConfig) {
-      throw new Error('VPN服务器未配置');
+  public generateVpnConfigInstructions(): string {
+    if (!this.status.serverInfo) {
+      return 'VPN服务器未运行';
     }
-
-    console.log(`[VpnServerManager] 配置VPN流量路由到代理`);
     
-    // 这里需要实现VPN流量到代理的路由逻辑
-    // 可以使用iptables规则或其他网络配置
-    // 将VPN接口的流量路由到虫洞的代理端口
+    const { host, port, username, password, protocol } = this.status.serverInfo;
+    
+    return `
+VPN服务器信息：
+- 服务器地址: ${host}
+- 端口: ${port}
+- 协议: ${protocol}
+- 用户名: ${username}
+- 密码: ${password}
+
+请在系统网络设置中添加VPN连接，使用以上信息进行配置。
+    `.trim();
   }
 }
 

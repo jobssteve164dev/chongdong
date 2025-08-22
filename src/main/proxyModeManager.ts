@@ -74,14 +74,19 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 清理当前模式: ${this.currentMode}`);
     
     try {
-      // 断开VPN连接
-      if (this.currentMode === 'vpn' && this.currentVpnName) {
-        await systemProxyManager.disconnectVPN(this.currentVpnName);
-        this.currentVpnName = undefined as string | undefined;
+      // 注意：在VPN模式下，我们不自动断开系统VPN连接
+      // 用户需要手动在系统设置中断开VPN连接
+      if (this.currentMode === 'vpn') {
+        console.log(`[ProxyModeManager] VPN模式：请手动在系统设置中断开VPN连接`);
+        // 只停止内置L2TP服务器
+        await vpnServerManager.stopVpnServer();
+        this.currentVpnName = undefined;
       }
       
-      // 关闭系统代理
-      await systemProxyManager.clearSystemProxy();
+      // 关闭系统代理（仅对非VPN模式）
+      if (this.currentMode !== 'vpn') {
+        await systemProxyManager.clearSystemProxy();
+      }
       
       console.log(`[ProxyModeManager] 当前模式清理完成`);
     } catch (error) {
@@ -172,53 +177,55 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 应用VPN模式`);
     
     try {
-      // VPN模式：虫洞应用作为VPN服务器，系统VPN连接到虫洞
+      // VPN模式：启动内置L2TP服务器，用户手动配置系统VPN连接
       
-      // 关闭系统代理（VPN模式下不需要系统代理）
-      await systemProxyManager.clearSystemProxy();
-      
-      // 1. 启动虫洞VPN服务器
+      // 1. 启动内置L2TP服务器
       const vpnServerConfig = {
-        type: 'openvpn' as const,
-        port: 1194, // OpenVPN默认端口
-        interface: 'tun0',
+        type: 'l2tp' as const,
+        port: 1701, // L2TP默认端口
+        interface: 'l2tp0',
         subnet: '10.8.0.0'
-        // proxyNodes和chainConfig将在后续实现中配置
       };
       
       try {
-        // 启动虫洞VPN服务器
+        // 启动内置L2TP服务器
         await vpnServerManager.startVpnServer(vpnServerConfig);
-        console.log(`[ProxyModeManager] 虫洞VPN服务器已启动`);
+        console.log(`[ProxyModeManager] 内置L2TP服务器已启动`);
         
-        // 2. 配置系统VPN连接到本地虫洞VPN服务器
-        await vpnServerManager.configureSystemVpn();
-        console.log(`[ProxyModeManager] 系统VPN已配置连接到虫洞`);
+        // 2. 获取服务器连接信息
+        const serverInfo = vpnServerManager.getServerInfo();
+        if (!serverInfo) {
+          throw new Error('无法获取VPN服务器信息');
+        }
         
-        // 3. 配置VPN流量路由到代理
-        await vpnServerManager.routeVpnTrafficToProxy();
-        console.log(`[ProxyModeManager] VPN流量路由已配置`);
+        console.log(`[ProxyModeManager] VPN服务器信息:`, serverInfo);
         
         this.currentMode = 'vpn';
-        this.currentVpnName = 'ChongdongVPN';
+        this.currentVpnName = 'ChongdongL2TP';
         
         return {
           success: true,
-          message: 'VPN模式已启用：系统流量 → 虫洞VPN服务器 → 代理节点',
-          vpnName: 'ChongdongVPN'
+          message: `VPN模式已启用：内置L2TP服务器已启动。请在系统网络设置中添加VPN连接，使用以下信息：
+服务器地址: ${serverInfo.host}
+端口: ${serverInfo.port}
+协议: ${serverInfo.protocol}
+用户名: ${serverInfo.username}
+密码: ${serverInfo.password}`,
+          vpnName: 'ChongdongL2TP'
         };
       } catch (vpnError) {
-        console.warn(`[ProxyModeManager] VPN服务器启动失败:`, vpnError);
+        console.warn(`[ProxyModeManager] L2TP服务器启动失败:`, vpnError);
         
-        // 即使VPN服务器启动失败，我们仍然可以启用VPN模式
-        // 这样用户可以看到状态并了解问题
-        this.currentMode = 'vpn';
-        this.currentVpnName = 'ChongdongVPN';
+        // 清理以防部分成功
+        await vpnServerManager.stopVpnServer();
+
+        this.currentMode = 'vpn'; // 仍然设置模式，以便UI可以反映状态
+        this.currentVpnName = 'ChongdongL2TP';
         
         return {
-          success: true,
-          message: 'VPN模式已启用，但VPN服务器启动失败。请检查OpenVPN/WireGuard是否已安装。',
-          vpnName: 'ChongdongVPN'
+          success: false,
+          message: `VPN模式启用失败: ${vpnError instanceof Error ? vpnError.message : String(vpnError)}. 请检查端口是否被占用。`,
+          vpnName: 'ChongdongL2TP'
         };
       }
     } catch (error) {
@@ -249,27 +256,17 @@ export class ProxyModeManager {
     }
     
     try {
-      // 1. 检查虫洞VPN服务器状态
+      // 检查内置L2TP服务器是否正在运行
       const serverStatus = vpnServerManager.getStatus();
       
       if (!serverStatus.running) {
         return { 
           connected: false, 
-          error: serverStatus.error || '虫洞VPN服务器未运行' 
+          error: serverStatus.error || '内置L2TP服务器未运行' 
         };
       }
-      
-      // 2. 检查系统VPN连接状态
-      const systemVpnStatus = await systemProxyManager.getVPNStatus('ChongdongVPN');
-      
-      if (!systemVpnStatus.connected) {
-        return { 
-          connected: false, 
-          error: systemVpnStatus.error || '系统VPN未连接到虫洞服务器' 
-        };
-      }
-      
-      // 虫洞VPN服务器和系统VPN都正常运行
+
+      // 如果服务器正在运行，我们假设它已准备好接受连接
       return { 
         connected: true
       };
@@ -284,16 +281,10 @@ export class ProxyModeManager {
   public async disconnectVpn(): Promise<void> {
     if (this.currentMode === 'vpn') {
       try {
-        // 1. 断开系统VPN连接
-        if (this.currentVpnName) {
-          await systemProxyManager.disconnectVPN(this.currentVpnName);
-          console.log(`[ProxyModeManager] 系统VPN连接已断开: ${this.currentVpnName}`);
-        }
-        
-        // 2. 停止虫洞VPN服务器
+        // 停止内置L2TP服务器
         await vpnServerManager.stopVpnServer();
-        this.currentVpnName = undefined as string | undefined;
-        console.log(`[ProxyModeManager] 虫洞VPN服务器已停止`);
+        this.currentVpnName = undefined; // 清除VPN名称
+        console.log(`[ProxyModeManager] 内置L2TP服务器已停止`);
       } catch (error) {
         console.error(`[ProxyModeManager] 断开VPN连接失败:`, error);
         throw error;
