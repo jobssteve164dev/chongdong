@@ -11,14 +11,10 @@ import { proxyChainConfigGenerator } from './proxyChainConfigGenerator';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { createConnection } from 'net'; // Added for checkPortReady
 
-/**
- * 协议适配器 - 为单个节点创建独立的sing-box实例
- */
-export class ProtocolAdapter implements IAdapter {
+export class UnifiedChainAdapter implements IAdapter {
   private id: string;
-  private node: ProxyNode;
+  private nodes: ProxyNode[];
   private port: number;
   private status: AdapterStatus = AdapterStatus.IDLE;
   private process?: ChildProcess | undefined;
@@ -29,9 +25,9 @@ export class ProtocolAdapter implements IAdapter {
   private configPath?: string;
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
 
-  constructor(id: string, node: ProxyNode, port: number) {
+  constructor(id: string, nodes: ProxyNode[], port: number) {
     this.id = id;
-    this.node = node;
+    this.nodes = nodes;
     this.port = port;
     this.trafficStats = {
       bytesReceived: 0,
@@ -41,54 +37,53 @@ export class ProtocolAdapter implements IAdapter {
     };
   }
 
-  /**
-   * 启动协议适配器
-   */
   public async start(): Promise<void> {
-    console.log(`[ProtocolAdapter] 启动协议适配器: ${this.id} (${this.node.name})`);
-    console.log(`[ProtocolAdapter] 节点详情:`);
-    console.log(`  - 节点ID: ${this.node.id}`);
-    console.log(`  - 节点名称: ${this.node.name}`);
-    console.log(`  - 节点类型: ${this.node.type}`);
-    console.log(`  - 服务器: ${this.node.server}:${this.node.port}`);
+    console.log(`[UnifiedChainAdapter] 启动统一代理链适配器: ${this.id}`);
+    console.log(`[UnifiedChainAdapter] 节点详情:`);
+    console.log(`  - 节点数量: ${this.nodes.length}`);
+    for (let i = 0; i < this.nodes.length; i++) {
+      const node = this.nodes[i];
+      if (node) {
+        console.log(`  - 节点${i + 1}: ${node.name} (${node.type}) - ${node.server}:${node.port}`);
+      }
+    }
     console.log(`  - 本地端口: ${this.port}`);
     
     try {
       this.status = AdapterStatus.STARTING;
       this.startTime = new Date();
-      console.log(`[ProtocolAdapter] 状态已设置为: starting`);
+      console.log(`[UnifiedChainAdapter] 状态已设置为: starting`);
       
-      console.log(`[ProtocolAdapter] 步骤1: 生成sing-box配置...`);
+      console.log(`[UnifiedChainAdapter] 步骤1: 生成统一代理链配置...`);
       await this.generateConfig();
-      console.log(`[ProtocolAdapter] sing-box配置生成完成`);
+      console.log(`[UnifiedChainAdapter] 统一代理链配置生成完成`);
       
-      console.log(`[ProtocolAdapter] 步骤2: 启动sing-box进程...`);
+      console.log(`[UnifiedChainAdapter] 步骤2: 启动sing-box进程...`);
       await this.startSingBoxProcess();
-      console.log(`[ProtocolAdapter] sing-box进程启动完成，PID: ${this.processId}`);
+      console.log(`[UnifiedChainAdapter] sing-box进程启动完成，PID: ${this.processId}`);
       
-      console.log(`[ProtocolAdapter] 步骤3: 验证端口可用性...`);
+      console.log(`[UnifiedChainAdapter] 步骤3: 验证端口可用性...`);
       await this.verifyPort();
-      console.log(`[ProtocolAdapter] 端口验证完成，端口 ${this.port} 可用`);
+      console.log(`[UnifiedChainAdapter] 端口验证完成，端口 ${this.port} 可用`);
       
       this.status = AdapterStatus.RUNNING;
-      console.log(`[ProtocolAdapter] 状态已设置为: running`);
+      console.log(`[UnifiedChainAdapter] 状态已设置为: running`);
       
       this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
         adapterId: this.id,
-        nodeId: this.node.id,
+        nodeCount: this.nodes.length,
         port: this.port
       });
       
-      console.log(`✅ [ProtocolAdapter] 协议适配器启动成功: ${this.id} (端口: ${this.port})`);
+      console.log(`✅ [UnifiedChainAdapter] 统一代理链适配器启动成功: ${this.id} (端口: ${this.port})`);
     } catch (error) {
       this.status = AdapterStatus.ERROR;
       this.error = error instanceof Error ? error.message : String(error);
-      console.error(`❌ [ProtocolAdapter] 协议适配器启动失败: ${this.id}`, error);
-      console.error(`❌ [ProtocolAdapter] 错误详情:`, error instanceof Error ? error.stack : error);
+      console.error(`❌ [UnifiedChainAdapter] 统一代理链适配器启动失败: ${this.id}`, error);
+      console.error(`❌ [UnifiedChainAdapter] 错误详情:`, error instanceof Error ? error.stack : error);
       
       this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
         adapterId: this.id,
-        nodeId: this.node.id,
         error: this.error
       });
       
@@ -96,11 +91,8 @@ export class ProtocolAdapter implements IAdapter {
     }
   }
 
-  /**
-   * 停止协议适配器
-   */
   public async stop(): Promise<void> {
-    console.log(`[ProtocolAdapter] 停止协议适配器: ${this.id}`);
+    console.log(`[UnifiedChainAdapter] 停止统一代理链适配器: ${this.id}`);
     
     try {
       this.status = AdapterStatus.STOPPING;
@@ -108,7 +100,6 @@ export class ProtocolAdapter implements IAdapter {
       if (this.process) {
         this.process.kill('SIGTERM');
         
-        // 等待进程结束
         await new Promise<void>((resolve) => {
           const timeout = setTimeout(() => {
             if (this.process) {
@@ -124,7 +115,6 @@ export class ProtocolAdapter implements IAdapter {
         });
       }
       
-      // 清理配置文件
       if (this.configPath && fs.existsSync(this.configPath)) {
         fs.unlinkSync(this.configPath);
       }
@@ -133,21 +123,18 @@ export class ProtocolAdapter implements IAdapter {
       this.process = undefined;
       this.processId = undefined;
       
-      console.log(`✅ [ProtocolAdapter] 协议适配器停止成功: ${this.id}`);
+      console.log(`✅ [UnifiedChainAdapter] 统一代理链适配器停止成功: ${this.id}`);
       
     } catch (error) {
-      console.error(`❌ [ProtocolAdapter] 协议适配器停止失败: ${this.id}`, error);
+      console.error(`❌ [UnifiedChainAdapter] 统一代理链适配器停止失败: ${this.id}`, error);
       throw error;
     }
   }
 
-  /**
-   * 获取适配器信息
-   */
   public getInfo(): ProtocolAdapterInfo {
     return {
       id: this.id,
-      node: this.node,
+      node: this.nodes[0] || {} as ProxyNode, // 使用第一个节点作为代表
       status: this.status,
       port: this.port,
       processId: this.processId,
@@ -157,16 +144,10 @@ export class ProtocolAdapter implements IAdapter {
     };
   }
 
-  /**
-   * 添加监控监听器
-   */
   public addMonitoringListener(callback: (event: MonitoringEvent) => void): void {
     this.monitoringListeners.push(callback);
   }
 
-  /**
-   * 移除监控监听器
-   */
   public removeMonitoringListener(callback: (event: MonitoringEvent) => void): void {
     const index = this.monitoringListeners.indexOf(callback);
     if (index > -1) {
@@ -174,29 +155,22 @@ export class ProtocolAdapter implements IAdapter {
     }
   }
 
-  /**
-   * 生成sing-box配置
-   */
   private async generateConfig(): Promise<any> {
-    // 为单个节点生成配置
-    const config = proxyChainConfigGenerator.generateChainConfig([this.node], this.port);
+    // 生成统一的代理链配置，确保IP隐藏
+    const config = proxyChainConfigGenerator.generateChainConfig(this.nodes, this.port);
     
-    // 保存配置文件
     const configDir = path.join(process.env['HOME'] || '', 'Library/Application Support/chongdong/proxy-configs');
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
     
-    this.configPath = path.join(configDir, `adapter_${this.id}.json`);
+    this.configPath = path.join(configDir, `unified_chain_${this.id}.json`);
     fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
     
-    console.log(`[ProtocolAdapter] 配置文件已生成: ${this.configPath}`);
+    console.log(`[UnifiedChainAdapter] 统一代理链配置文件已生成: ${this.configPath}`);
     return config;
   }
 
-  /**
-   * 启动sing-box进程
-   */
   private async startSingBoxProcess(): Promise<void> {
     const singBoxPath = path.join(process.env['HOME'] || '', 'Library/Application Support/chongdong/bin/sing-box');
     
@@ -210,7 +184,7 @@ export class ProtocolAdapter implements IAdapter {
       stdio: ['pipe', 'pipe', 'pipe'] as ('pipe' | 'ignore' | 'inherit')[]
     };
     
-    console.log(`[ProtocolAdapter] 启动sing-box进程: ${singBoxPath} ${args.join(' ')}`);
+    console.log(`[UnifiedChainAdapter] 启动sing-box进程: ${singBoxPath} ${args.join(' ')}`);
     
     this.process = spawn(singBoxPath, args, options);
     if (this.process && this.process.pid) {
@@ -221,32 +195,26 @@ export class ProtocolAdapter implements IAdapter {
       throw new Error('Failed to spawn sing-box process');
     }
     
-    // 监听标准输出
     this.process.stdout?.on('data', (data) => {
       const output = data.toString();
-      console.log(`[ProtocolAdapter ${this.id}] stdout: ${output.trim()}`);
-      
-      // 解析流量信息
+      console.log(`[UnifiedChainAdapter ${this.id}] stdout: ${output.trim()}`);
       this.parseTrafficInfo(output);
     });
     
-    // 监听标准错误
     this.process.stderr?.on('data', (data) => {
       const errorMessage = data.toString();
-      console.error(`[ProtocolAdapter ${this.id}] stderr: ${errorMessage.trim()}`);
+      console.error(`[UnifiedChainAdapter ${this.id}] stderr: ${errorMessage.trim()}`);
       
       if (errorMessage.includes('error') || errorMessage.includes('failed')) {
         this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
           adapterId: this.id,
-          nodeId: this.node.id,
           error: errorMessage.trim()
         });
       }
     });
     
-    // 监听进程退出
     this.process.on('exit', (code, signal) => {
-      console.log(`[ProtocolAdapter ${this.id}] 进程退出: code=${code}, signal=${signal}`);
+      console.log(`[UnifiedChainAdapter ${this.id}] 进程退出: code=${code}, signal=${signal}`);
       
       if (code !== 0) {
         this.status = AdapterStatus.ERROR;
@@ -254,13 +222,11 @@ export class ProtocolAdapter implements IAdapter {
         
         this.emitMonitoringEvent(MonitoringEventType.NODE_FAILURE, {
           adapterId: this.id,
-          nodeId: this.node.id,
           error: this.error
         });
       }
     });
     
-    // 等待进程启动
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Sing-box进程启动超时'));
@@ -278,10 +244,40 @@ export class ProtocolAdapter implements IAdapter {
     });
   }
 
-  /**
-   * 检查端口是否可用
-   */
-  private async checkPortReady(host: string, port: number, timeout: number = 5000): Promise<boolean> {
+  private async verifyPort(): Promise<void> {
+    console.log(`[UnifiedChainAdapter] 验证端口: ${this.port}`);
+    
+    const waitTime = 3000;
+    console.log(`[UnifiedChainAdapter] 等待 ${waitTime}ms 让sing-box进程完全启动...`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    
+    const maxRetries = 5;
+    const retryInterval = 1000;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[UnifiedChainAdapter] 第 ${i + 1} 次尝试验证端口 ${this.port}...`);
+        const isReady = await this.checkPortReady('127.0.0.1', this.port, 5000);
+        
+        if (isReady) {
+          console.log(`[UnifiedChainAdapter] 端口 ${this.port} 验证成功`);
+          return;
+        }
+      } catch (error) {
+        console.log(`[UnifiedChainAdapter] 第 ${i + 1} 次端口验证失败:`, error);
+      }
+      
+      if (i < maxRetries - 1) {
+        console.log(`[UnifiedChainAdapter] 等待 ${retryInterval}ms 后重试...`);
+        await new Promise(resolve => setTimeout(resolve, retryInterval));
+      }
+    }
+    
+    throw new Error(`端口验证失败: ${this.port} - 经过 ${maxRetries} 次重试后仍然无法连接`);
+  }
+
+  private checkPortReady(host: string, port: number, timeout: number = 5000): Promise<boolean> {
+    const { createConnection } = require('net');
     
     return new Promise((resolve) => {
       const client = createConnection({ host, port });
@@ -305,72 +301,27 @@ export class ProtocolAdapter implements IAdapter {
     });
   }
 
-  /**
-   * 验证端口是否可用
-   */
-  private async verifyPort(): Promise<void> {
-    console.log(`[ProtocolAdapter] 验证端口: ${this.port}`);
-    
-    // 增加等待时间，确保sing-box进程完全启动
-    const waitTime = 3000; // 增加到3秒
-    console.log(`[ProtocolAdapter] 等待 ${waitTime}ms 让sing-box进程完全启动...`);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
-    
-    const maxRetries = 5;
-    const retryInterval = 1000;
-    
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`[ProtocolAdapter] 第 ${i + 1} 次尝试验证端口 ${this.port}...`);
-        const isReady = await this.checkPortReady('127.0.0.1', this.port, 5000);
-        
-        if (isReady) {
-          console.log(`[ProtocolAdapter] 端口 ${this.port} 验证成功`);
-          return;
-        }
-      } catch (error) {
-        console.log(`[ProtocolAdapter] 第 ${i + 1} 次端口验证失败:`, error);
-      }
-      
-      if (i < maxRetries - 1) {
-        console.log(`[ProtocolAdapter] 等待 ${retryInterval}ms 后重试...`);
-        await new Promise(resolve => setTimeout(resolve, retryInterval));
-      }
-    }
-    
-    throw new Error(`端口验证失败: ${this.port} - 经过 ${maxRetries} 次重试后仍然无法连接`);
-  }
-
-  /**
-   * 解析流量信息
-   */
   private parseTrafficInfo(output: string): void {
-    // 这里可以解析sing-box的输出，提取流量统计信息
-    // 例如：连接数、流量大小等
-    if (output.includes('connection')) {
-      this.trafficStats.connections++;
+    // 解析流量信息的逻辑
+    if (output.includes('inbound') || output.includes('outbound')) {
       this.trafficStats.lastActivity = new Date();
     }
   }
 
-  /**
-   * 发送监控事件
-   */
   private emitMonitoringEvent(type: MonitoringEventType, data?: any): void {
     const event: MonitoringEvent = {
       type,
       timestamp: new Date(),
       adapterId: this.id,
-      nodeId: this.node.id,
       data
     };
     
-    this.monitoringListeners.forEach(callback => {
+    for (const listener of this.monitoringListeners) {
       try {
-        callback(event);
+        listener(event);
       } catch (error) {
-        console.error(`[ProtocolAdapter] 监控监听器错误:`, error);
+        console.error(`[UnifiedChainAdapter] 监控监听器错误:`, error);
       }
-    });
+    }
   }
 }

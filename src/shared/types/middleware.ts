@@ -13,6 +13,17 @@ export enum AdapterStatus {
 }
 
 /**
+ * 通用适配器接口
+ */
+export interface IAdapter {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  getInfo(): ProtocolAdapterInfo;
+  addMonitoringListener(callback: (event: MonitoringEvent) => void): void;
+  removeMonitoringListener(callback: (event: MonitoringEvent) => void): void;
+}
+
+/**
  * 协议适配器信息
  */
 export interface ProtocolAdapterInfo {

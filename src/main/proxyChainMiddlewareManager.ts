@@ -4,10 +4,11 @@ import {
   IProxyChainMiddleware,
   MonitoringEvent,
   ProtectionRule,
-  TrafficStats
+  TrafficStats,
+  IAdapter
 } from '../shared/types/middleware';
-import { ProtocolAdapter } from './protocolAdapter';
 import { TrafficRouter } from './trafficRouter';
+import { UnifiedChainAdapter } from './unifiedChainAdapter';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -17,7 +18,7 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
   private id: string;
   private config: ProxyChainMiddlewareConfig;
   private status: 'idle' | 'starting' | 'running' | 'error' | 'stopping' | 'stopped' = 'idle';
-  private adapters: ProtocolAdapter[] = [];
+  private adapters: IAdapter[] = [];
   private router?: TrafficRouter | undefined;
   private error?: string | undefined;
   private startTime?: Date | undefined;
@@ -229,23 +230,18 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     
     this.adapters = [];
     
-    for (let i = 0; i < this.config.nodes.length; i++) {
-      const node = this.config.nodes[i];
-      if (!node) {
-        console.warn(`[ProxyChainMiddlewareManager] 跳过无效节点: index ${i}`);
-        continue;
-      }
-      
-      const adapterPort = this.config.entryPort + 1 + i; // 7896, 7897, 7898...
-      const adapterId = `adapter_${node.id}_${i}`;
-      
-      console.log(`[ProxyChainMiddlewareManager] 创建适配器: ${adapterId} (端口: ${adapterPort})`);
-      
-      const adapter = new ProtocolAdapter(adapterId, node, adapterPort);
-      this.adapters.push(adapter);
-    }
+    // 不再为每个节点创建独立的适配器
+    // 而是创建一个统一的代理链配置，确保IP隐藏
+    const unifiedPort = this.config.entryPort + 1; // 7896
+    const unifiedAdapterId = `unified_chain_${this.id}`;
     
-    console.log(`[ProxyChainMiddlewareManager] 创建了 ${this.adapters.length} 个协议适配器`);
+    console.log(`[ProxyChainMiddlewareManager] 创建统一代理链适配器: ${unifiedAdapterId} (端口: ${unifiedPort})`);
+    
+    // 创建一个统一的适配器，包含所有节点
+    const unifiedAdapter = new UnifiedChainAdapter(unifiedAdapterId, this.config.nodes, unifiedPort);
+    this.adapters.push(unifiedAdapter);
+    
+    console.log(`[ProxyChainMiddlewareManager] 创建了 1 个统一代理链适配器`);
   }
 
   /**

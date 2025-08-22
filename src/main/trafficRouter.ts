@@ -1,10 +1,10 @@
 import { createServer, Server, Socket } from 'net';
-import { ProtocolAdapter } from './protocolAdapter';
 import { 
   TrafficStats, 
   MonitoringEvent, 
   MonitoringEventType,
-  ProtectionRule 
+  ProtectionRule,
+  IAdapter
 } from '../shared/types/middleware';
 
 /**
@@ -13,14 +13,14 @@ import {
 export class TrafficRouter {
   private server?: Server;
   private entryPort: number;
-  private adapters: ProtocolAdapter[];
+  private adapters: IAdapter[];
   private status: 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' = 'idle';
   private trafficStats: TrafficStats;
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
   private protectionRules: ProtectionRule[] = [];
   private activeConnections: Map<string, Socket> = new Map();
 
-  constructor(entryPort: number, adapters: ProtocolAdapter[]) {
+  constructor(entryPort: number, adapters: IAdapter[]) {
     this.entryPort = entryPort;
     this.adapters = adapters;
     this.trafficStats = {

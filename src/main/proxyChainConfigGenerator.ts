@@ -123,6 +123,9 @@ export class ProxyChainConfigGenerator {
       // 关键修复：使用 'detour' 字段来指定下一个出站，这是旧版本sing-box的链接方式
       if (nextOutboundTag) {
         nodeOutbound.detour = nextOutboundTag;
+      } else {
+        // 最后一个节点连接到互联网
+        nodeOutbound.detour = 'direct';
       }
 
       outbounds.unshift(nodeOutbound); // 在数组开头添加，以保持原始节点顺序
@@ -149,7 +152,7 @@ export class ProxyChainConfigGenerator {
     const baseConfig = {
       tag: `proxy-${node.id}`,
       server: node.server,
-      server_port: node.port,
+      server_port: node.port
     };
 
     switch (node.type) {
@@ -160,6 +163,9 @@ export class ProxyChainConfigGenerator {
           uuid: node.uuid,
           security: node.encryption || 'auto',
           alter_id: node.alterId ?? 0,
+          tls: {
+            enabled: false  // VMess通常不需要TLS
+          }
         };
         
         if (node.network === 'ws') {
@@ -180,6 +186,9 @@ export class ProxyChainConfigGenerator {
           type: 'vless',
           ...baseConfig,
           uuid: node.uuid,
+          tls: {
+            enabled: false  // VLESS可以不使用TLS
+          }
         };
       case ProxyProtocol.SHADOWSOCKS:
         return {
@@ -187,12 +196,19 @@ export class ProxyChainConfigGenerator {
           ...baseConfig,
           method: node.encryption,
           password: node.password,
+          tls: {
+            enabled: false  // Shadowsocks通常不需要TLS
+          }
         };
       case ProxyProtocol.TROJAN:
         return {
           type: 'trojan',
           ...baseConfig,
           password: node.password,
+          tls: {
+            enabled: true,
+            insecure: true  // 允许不安全的证书
+          }
         };
       case ProxyProtocol.HTTP:
       case ProxyProtocol.SOCKS5:
@@ -201,6 +217,9 @@ export class ProxyChainConfigGenerator {
           ...baseConfig,
           username: node.username,
           password: node.password,
+          tls: {
+            enabled: false  // HTTP/SOCKS5通常不需要TLS
+          }
         }
       default:
         console.warn(`Unsupported proxy type for outbound generation: ${node.type}`);
