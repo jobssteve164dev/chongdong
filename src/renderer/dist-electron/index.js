@@ -4437,6 +4437,8 @@ class VpnServerManager {
    */
   handleL2tpMessage(msg, rinfo) {
     console.log(`[VpnServerManager] 处理L2TP消息...`);
+    console.log(`[VpnServerManager] Message length: ${msg.length} bytes`);
+    console.log(`[VpnServerManager] Message hex: ${msg.toString("hex")}`);
     try {
       if (msg.length < 6) {
         console.warn(`[VpnServerManager] L2TP消息太短: ${msg.length} bytes`);
@@ -4447,6 +4449,7 @@ class VpnServerManager {
       const hasLength = (flags & 16384) !== 0;
       const isControl = (flags & 32768) !== 0;
       console.log(`[VpnServerManager] L2TP版本: ${version}, 标志: 0x${flags.toString(16)}, 控制消息: ${isControl}`);
+      console.log(`[VpnServerManager] Has length bit: ${hasLength}, Is control message: ${isControl}`);
       if (version !== 2) {
         console.warn(`[VpnServerManager] 不支持的L2TP版本: ${version}`);
         return;
@@ -4461,6 +4464,7 @@ class VpnServerManager {
       const sessionId = msg.readUInt16BE(offset + 2);
       offset += 4;
       console.log(`[VpnServerManager] 隧道ID: ${tunnelId}, 会话ID: ${sessionId}`);
+      console.log(`[VpnServerManager] Offset after header: ${offset}`);
       if (isControl) {
         this.handleL2tpControlMessage(msg, rinfo, tunnelId, sessionId, offset);
       } else {
@@ -4484,39 +4488,35 @@ class VpnServerManager {
       offset += 4;
       console.log(`[VpnServerManager] 控制消息: Ns=${ns}, Nr=${nr}`);
       console.log(`[VpnServerManager] 原始消息: ${msg.toString("hex")}`);
-      if (tunnelId === 0) {
-        console.log(`[VpnServerManager] 检测到SCCRQ请求，分配隧道ID: ${this.nextTunnelId}`);
-        this.handleSccrq(rinfo, tunnelId, ns, nr);
+      const avps = this.parseAvps(msg, offset);
+      const messageTypeAvp = avps.find((avp) => avp.vendorId === 0 && avp.type === 0);
+      if (!messageTypeAvp) {
+        console.warn(`[VpnServerManager] 未找到消息类型AVP`);
         return;
       }
-      let avpOffset = offset;
-      let messageType = 0;
-      while (avpOffset < msg.length - 5) {
-        if (avpOffset + 6 > msg.length) break;
-        const avpFlags = msg.readUInt16BE(avpOffset);
-        const avpLength = msg.readUInt16BE(avpOffset + 2);
-        const avpType = msg.readUInt16BE(avpOffset + 4);
-        console.log(`[VpnServerManager] AVP: 偏移=${avpOffset}, 类型=${avpType}, 长度=${avpLength}, 标志=0x${avpFlags.toString(16)}`);
-        if (avpType === 1 && avpLength >= 8) {
-          messageType = msg.readUInt16BE(avpOffset + 6);
-          console.log(`[VpnServerManager] 找到消息类型: ${messageType}`);
-          break;
-        }
-        if (avpLength <= 0 || avpLength > msg.length - avpOffset) {
-          console.warn(`[VpnServerManager] AVP长度无效: ${avpLength}`);
-          break;
-        }
-        avpOffset += avpLength;
+      if (messageTypeAvp.value.length < 2) {
+        console.warn(`[VpnServerManager] Control message without valid Message Type AVP received.`);
+        return;
       }
+      const messageType = messageTypeAvp.value.readUInt16BE(0);
+      console.log(`[VpnServerManager] 找到消息类型: ${messageType}`);
+      console.log(`[VpnServerManager] 客户端消息的所有AVPs:`, avps.map((avp) => ({
+        type: avp.type,
+        vendorId: avp.vendorId,
+        value: avp.value.toString("hex")
+      })));
       switch (messageType) {
         case 1:
           this.handleSccrq(rinfo, tunnelId, ns, nr);
           break;
         case 2:
-          this.handleSccrp(rinfo, tunnelId, ns, nr);
+          this.handleSccrp(rinfo, tunnelId, ns, nr, avps);
           break;
         case 3:
-          this.handleScccn(rinfo, tunnelId, ns, nr);
+          this.handleScccn(rinfo, tunnelId, ns, nr, avps);
+          break;
+        case 6:
+          this.handleStopccn(rinfo, tunnelId, ns, nr);
           break;
         case 14:
           this.handleIcrq(rinfo, tunnelId, sessionId, ns, nr);
@@ -4534,6 +4534,37 @@ class VpnServerManager {
       console.error(`[VpnServerManager] 处理控制消息失败:`, error);
     }
   }
+  parseAvps(msg, offset) {
+    const avps = [];
+    let avpOffset = offset;
+    console.log(`[VpnServerManager] 开始解析AVPs，起始偏移: ${offset}, 消息总长度: ${msg.length}`);
+    while (avpOffset < msg.length) {
+      if (avpOffset + 6 > msg.length) {
+        console.warn(`[VpnServerManager] AVP数据太短，无法解析头部。偏移: ${avpOffset}, 剩余长度: ${msg.length - avpOffset}`);
+        break;
+      }
+      const avpHeader = msg.readUInt16BE(avpOffset);
+      const isMandatory = (avpHeader & 32768) !== 0;
+      const avpLength = avpHeader & 1023;
+      const vendorId = msg.readUInt16BE(avpOffset + 2);
+      const avpType = msg.readUInt16BE(avpOffset + 4);
+      console.log(`[VpnServerManager] AVP解析: 偏移=${avpOffset}, 类型=${avpType}, 厂商ID=${vendorId}, 长度=${avpLength}, 标志=0x${avpHeader.toString(16)}, 强制=${isMandatory}`);
+      if (avpLength < 6 || avpOffset + avpLength > msg.length) {
+        console.warn(`[VpnServerManager] AVP长度无效: ${avpLength}, 偏移: ${avpOffset}, 消息长度: ${msg.length}`);
+        break;
+      }
+      const value = msg.slice(avpOffset + 6, avpOffset + avpLength);
+      console.log(`[VpnServerManager] AVP值: ${value.toString("hex")}`);
+      avps.push({ type: avpType, vendorId, value });
+      avpOffset += avpLength;
+      if (avpLength === 0) {
+        console.warn(`[VpnServerManager] AVP长度为0，停止解析`);
+        break;
+      }
+    }
+    console.log(`[VpnServerManager] AVP解析完成，共找到 ${avps.length} 个AVP`);
+    return avps;
+  }
   /**
    * 处理L2TP数据消息
    */
@@ -4546,22 +4577,50 @@ class VpnServerManager {
   handleSccrq(rinfo, tunnelId, ns, nr) {
     console.log(`[VpnServerManager] 处理SCCRQ: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
     const assignedTunnelId = this.nextTunnelId++;
-    this.activeTunnels.set(assignedTunnelId, { clientAddress: rinfo.address, clientPort: rinfo.port });
+    const serverChallenge = require$$8.randomBytes(16);
+    this.activeTunnels.set(assignedTunnelId, {
+      clientAddress: rinfo.address,
+      clientPort: rinfo.port,
+      serverChallenge
+    });
     this.sendSccrp(rinfo, assignedTunnelId, ns, nr);
   }
   /**
    * 处理SCCRP (Start-Control-Connection-Reply)
    */
-  handleSccrp(rinfo, tunnelId, ns, nr) {
+  handleSccrp(_rinfo, tunnelId, ns, nr, _avps) {
     console.log(`[VpnServerManager] 处理SCCRP: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    this.sendScccn(rinfo, tunnelId, ns, nr);
   }
   /**
    * 处理SCCCN (Start-Control-Connection-Connected)
    */
-  handleScccn(_rinfo, tunnelId, ns, nr) {
+  handleScccn(_rinfo, tunnelId, ns, nr, avps) {
     console.log(`[VpnServerManager] 处理SCCCN: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    console.log(`[VpnServerManager] 控制连接已建立: 隧道=${tunnelId}`);
+    const tunnel = this.activeTunnels.get(tunnelId);
+    if (!tunnel) {
+      console.error(`[VpnServerManager] SCCCN for unknown tunnel ${tunnelId}`);
+      return;
+    }
+    const challengeResponseAvp = avps.find((avp) => avp.vendorId === 0 && avp.type === 8);
+    if (!challengeResponseAvp) {
+      console.error(`[VpnServerManager] SCCCN missing Challenge Response AVP. Disconnecting.`);
+      return;
+    }
+    const id = Buffer.from([2]);
+    const expectedResponse = require$$8.createHash("md5").update(id).update(this.serverInfo.sharedSecret).update(tunnel.serverChallenge).digest();
+    if (!expectedResponse.equals(challengeResponseAvp.value)) {
+      console.error(`[VpnServerManager] Invalid Challenge Response. Disconnecting.`);
+      console.error(`[VpnServerManager] Expected: ${expectedResponse.toString("hex")}`);
+      console.error(`[VpnServerManager] Received: ${challengeResponseAvp.value.toString("hex")}`);
+      return;
+    }
+    console.log(`[VpnServerManager] Challenge Response validated. Control connection established: Tunnel=${tunnelId}`);
+  }
+  handleStopccn(rinfo, tunnelId, ns, _nr) {
+    console.log(`[VpnServerManager] 处理StopCCN，隧道ID: ${tunnelId}`);
+    console.log(`[VpnServerManager] StopCCN详情: tunnelId=${tunnelId}, ns=${ns}, _nr=${_nr}`);
+    console.log(`[VpnServerManager] 客户端地址: ${rinfo.address}:${rinfo.port}`);
+    this.sendStopccn(rinfo, tunnelId, 0, ns + 1);
   }
   /**
    * 处理ICRQ (Incoming-Call-Request)
@@ -4591,12 +4650,19 @@ class VpnServerManager {
     console.log(`[VpnServerManager] 会话已建立: 隧道=${tunnelId}, 会话=${sessionId}`);
     this.status.connectedClients++;
   }
-  /**
-   * 发送SCCCN (Start-Control-Connection-Connected)
-   */
-  sendScccn(rinfo, tunnelId, ns, nr) {
-    const response = this.createL2tpControlMessage(tunnelId, 0, ns, nr, 3);
-    this.sendL2tpMessage(rinfo, response);
+  createAvp(attributeType, value, vendorId = 0, isMandatory = true) {
+    const headerLength = 6;
+    const totalLength = headerLength + value.length;
+    const buffer = Buffer.alloc(totalLength);
+    let flags = totalLength & 1023;
+    if (isMandatory) {
+      flags |= 32768;
+    }
+    buffer.writeUInt16BE(flags, 0);
+    buffer.writeUInt16BE(vendorId, 2);
+    buffer.writeUInt16BE(attributeType, 4);
+    value.copy(buffer, 6);
+    return buffer;
   }
   /**
    * 发送ICRP (Incoming-Call-Reply)
@@ -4615,41 +4681,85 @@ class VpnServerManager {
   /**
    * 创建L2TP控制消息
    */
-  createL2tpControlMessage(tunnelId, _sessionId, ns, nr, messageType) {
-    const header = Buffer.alloc(6);
-    header.writeUInt16BE(49154, 0);
-    header.writeUInt16BE(0, 2);
+  createL2tpControlMessage(tunnelId, sessionId, ns, nr, messageType, avps = []) {
+    const messageTypeAvp = Buffer.alloc(8);
+    messageTypeAvp.writeUInt16BE(32776, 0);
+    messageTypeAvp.writeUInt16BE(0, 2);
+    messageTypeAvp.writeUInt16BE(0, 4);
+    messageTypeAvp.writeUInt16BE(messageType, 6);
+    const allAvps = Buffer.concat([messageTypeAvp, ...avps]);
+    const header = Buffer.alloc(12);
+    const totalLength = header.length + allAvps.length;
+    header.writeUInt16BE(51202, 0);
+    header.writeUInt16BE(totalLength, 2);
     header.writeUInt16BE(tunnelId, 4);
-    const controlHeader = Buffer.alloc(4);
-    controlHeader.writeUInt16BE(ns, 0);
-    controlHeader.writeUInt16BE(nr, 2);
-    const messageTypeAvp = Buffer.alloc(6);
-    messageTypeAvp.writeUInt16BE(0, 0);
-    messageTypeAvp.writeUInt16BE(6, 2);
-    messageTypeAvp.writeUInt16BE(1, 4);
-    const messageTypeValue = Buffer.alloc(2);
-    messageTypeValue.writeUInt16BE(messageType, 0);
-    const message = Buffer.concat([header, controlHeader, messageTypeAvp, messageTypeValue]);
-    message.writeUInt16BE(message.length, 2);
-    return message;
+    header.writeUInt16BE(sessionId, 6);
+    header.writeUInt16BE(ns, 8);
+    header.writeUInt16BE(nr, 10);
+    return Buffer.concat([header, allAvps]);
   }
   /**
    * 发送SCCRP (Start-Control-Connection-Reply)
    */
   sendSccrp(rinfo, tunnelId, ns, nr) {
     console.log(`[VpnServerManager] 发送SCCRP: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    const response = Buffer.alloc(20);
-    response.writeUInt16BE(51202, 0);
-    response.writeUInt16BE(20, 2);
-    response.writeUInt16BE(tunnelId, 4);
-    response.writeUInt16BE(0, 6);
-    response.writeUInt16BE(1, 8);
-    response.writeUInt16BE(1, 10);
-    response.writeUInt16BE(32776, 12);
-    response.writeUInt16BE(0, 14);
-    response.writeUInt16BE(0, 16);
-    response.writeUInt16BE(2, 18);
+    const tunnel = this.activeTunnels.get(tunnelId);
+    if (!tunnel) {
+      console.error(`[VpnServerManager] sendSccrp failed: Tunnel ${tunnelId} not found.`);
+      return;
+    }
+    const messageTypeValue = Buffer.alloc(2);
+    messageTypeValue.writeUInt16BE(2, 0);
+    const messageTypeAvp = this.createAvp(0, messageTypeValue);
+    const protocolVersionValue = Buffer.alloc(2);
+    protocolVersionValue.writeUInt16BE(256, 0);
+    const protocolVersionAvp = this.createAvp(2, protocolVersionValue);
+    const framingCapabilitiesValue = Buffer.alloc(4);
+    framingCapabilitiesValue.writeUInt32BE(3, 0);
+    const framingCapabilitiesAvp = this.createAvp(3, framingCapabilitiesValue);
+    const hostNameValue = Buffer.from("ChongDongVPN");
+    const hostNameAvp = this.createAvp(7, hostNameValue);
+    const challengeAvp = this.createAvp(6, tunnel.serverChallenge);
+    const allAvps = Buffer.concat([
+      messageTypeAvp,
+      protocolVersionAvp,
+      framingCapabilitiesAvp,
+      hostNameAvp,
+      challengeAvp
+    ]);
+    const header = Buffer.alloc(12);
+    const totalLength = header.length + allAvps.length;
+    header.writeUInt16BE(51202, 0);
+    header.writeUInt16BE(totalLength, 2);
+    header.writeUInt16BE(tunnelId, 4);
+    header.writeUInt16BE(0, 6);
+    header.writeUInt16BE(0, 8);
+    header.writeUInt16BE(ns + 1, 10);
+    const response = Buffer.concat([header, allAvps]);
     console.log(`[VpnServerManager] SCCRP响应: ${response.toString("hex")}`);
+    this.sendL2tpMessage(rinfo, response);
+  }
+  /**
+   * 发送StopCCN (Stop-Control-Connection-Notification)
+   */
+  sendStopccn(rinfo, tunnelId, ns, nr) {
+    const response = this.createL2tpControlMessage(tunnelId, 0, ns, nr, 6);
+    console.log(`[VpnServerManager] 发送StopCCN响应到 ${rinfo.address}:${rinfo.port}`);
+    console.log(`[VpnServerManager] StopCCN响应十六进制: ${response.toString("hex")}`);
+    console.log(`[VpnServerManager] StopCCN响应长度: ${response.length} 字节`);
+    console.log(`[VpnServerManager] StopCCN响应详情:`);
+    console.log(`  - 标志: 0x${response.readUInt16BE(0).toString(16)}`);
+    console.log(`  - 长度: ${response.readUInt16BE(2)}`);
+    console.log(`  - 隧道ID: ${response.readUInt16BE(4)}`);
+    console.log(`  - 会话ID: ${response.readUInt16BE(6)}`);
+    console.log(`  - Ns: ${response.readUInt16BE(8)}`);
+    console.log(`  - Nr: ${response.readUInt16BE(10)}`);
+    const ourAvps = this.parseAvps(response, 12);
+    console.log(`[VpnServerManager] 我们发送的AVPs:`, ourAvps.map((avp) => ({
+      type: avp.type,
+      vendorId: avp.vendorId,
+      value: avp.value.toString("hex")
+    })));
     this.sendL2tpMessage(rinfo, response);
   }
   /**
@@ -18535,7 +18645,14 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type = TypeError;
+var type;
+var hasRequiredType;
+function requireType() {
+  if (hasRequiredType) return type;
+  hasRequiredType = 1;
+  type = TypeError;
+  return type;
+}
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -18781,7 +18898,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = type;
+  var $TypeError2 = requireType();
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -18854,7 +18971,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = type;
+var $TypeError$1 = requireType();
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -19185,7 +19302,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = type;
+var $TypeError = requireType();
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
