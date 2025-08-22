@@ -28,11 +28,25 @@ export class ProtocolAdapter implements IAdapter {
   private trafficStats: TrafficStats;
   private configPath?: string;
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
+  private nextHopHost: string | undefined; // [修改] 明确类型为 string | undefined
+  private nextHopPort: number | undefined; // [修改] 明确类型为 number | undefined
+  private inboundOverride: any | undefined; // [新增] 用于覆盖默认入站配置
 
-  constructor(id: string, node: ProxyNode, port: number) {
+
+  constructor(
+    id: string, 
+    node: ProxyNode, 
+    port: number, 
+    nextHopHost?: string, 
+    nextHopPort?: number,
+    inboundOverride?: any
+  ) {
     this.id = id;
     this.node = node;
     this.port = port;
+    this.nextHopHost = nextHopHost;
+    this.nextHopPort = nextHopPort;
+    this.inboundOverride = inboundOverride;
     this.trafficStats = {
       bytesReceived: 0,
       bytesSent: 0,
@@ -178,8 +192,14 @@ export class ProtocolAdapter implements IAdapter {
    * 生成sing-box配置
    */
   private async generateConfig(): Promise<any> {
-    // 为单个节点生成配置
-    const config = proxyChainConfigGenerator.generateChainConfig([this.node], this.port);
+    // [修改] 使用新的 generateSingleNodeConfig 方法生成配置
+    const config = proxyChainConfigGenerator.generateSingleNodeConfig(
+      this.node,
+      this.port,
+      this.nextHopHost,
+      this.nextHopPort,
+      this.inboundOverride // [新增] 传递 inboudOverride
+    );
     
     // 保存配置文件
     const configDir = path.join(process.env['HOME'] || '', 'Library/Application Support/chongdong/proxy-configs');

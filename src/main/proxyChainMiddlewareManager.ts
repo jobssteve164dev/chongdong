@@ -7,9 +7,13 @@ import {
   TrafficStats,
   IAdapter
 } from '../shared/types/middleware';
+import { ProxyNode } from '../shared/types'; // [新增] 导入 ProxyNode 类型
 import { TrafficRouter } from './trafficRouter';
-import { UnifiedChainAdapter } from './unifiedChainAdapter';
+// 废弃 UnifiedChainAdapter，因为它基于错误的单实例代理链假设
+// import { UnifiedChainAdapter } from './unifiedChainAdapter'; 
+import { ProtocolAdapter } from './protocolAdapter'; // [新增] 引入正确的单节点适配器
 import { v4 as uuidv4 } from 'uuid';
+import { PortManager } from './portManager'; // [修改] 从新的 portManager 文件导入
 
 /**
  * 代理链中间件管理器 - 协调多个协议适配器和流量路由器
@@ -55,6 +59,9 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
       this.startTime = new Date();
       console.log(`[ProxyChainMiddlewareManager] 状态已设置为: starting`);
       
+      // [重要] 启动前清理端口管理器，确保状态干净
+      PortManager.getInstance().cleanup();
+
       console.log(`[ProxyChainMiddlewareManager] 步骤1: 创建协议适配器...`);
       await this.createProtocolAdapters();
       console.log(`[ProxyChainMiddlewareManager] 协议适配器创建完成，数量: ${this.adapters.length}`);
@@ -226,22 +233,107 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
    * 创建协议适配器
    */
   private async createProtocolAdapters(): Promise<void> {
-    console.log(`[ProxyChainMiddlewareManager] 创建协议适配器...`);
+    console.log(`[ProxyChainMiddlewareManager] [重构] 采用多实例模式创建协议适配器...`);
     
     this.adapters = [];
+    const nodes = this.config.nodes;
+    if (nodes.length === 0) {
+      console.warn('[ProxyChainMiddlewareManager] 警告: 代理链中没有节点。');
+      return;
+    }
+
+    const portManager = PortManager.getInstance();
+
+    // 为链中的每个节点分配一个本地监听端口
+    const localPorts: (number | null)[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const port = await portManager.getAvailablePort();
+      if (port === null) {
+        // 添加安全检查以修复TS2532
+        const nodeForError = nodes[i];
+        if (nodeForError) {
+          throw new Error(`无法为节点 ${nodeForError.name} 分配可用端口`);
+        } else {
+          throw new Error(`无法分配可用端口，并且在索引 ${i} 处找不到节点定义。`);
+        }
+      }
+      localPorts.push(port);
+    }
+
+    // 依次创建每个节点的适配器实例
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      const listenPort = localPorts[i];
+      
+      if (!node || listenPort == null) {
+        console.warn(`[ProxyChainMiddlewareManager] 发现一个空的节点或无法分配端口在索引 ${i}，已跳过。`);
+        continue;
+      }
+      
+      // [核心逻辑] 为非首个节点创建特殊的 "inbound override" 配置
+      let inboundOverride;
+      if (i > 0) {
+        const previousNode = nodes[i - 1];
+        if (previousNode) {
+          inboundOverride = this.createInboundOverride(listenPort, previousNode);
+        }
+      }
+
+      // 决定下一跳的地址和端口
+      const nextHopHost = '127.0.0.1';
+      const nextHopPort = (i < nodes.length - 1) ? (localPorts[i+1] ?? undefined) : undefined;
+
+      const adapterId = `adapter_${node.id}_${i}`;
+      console.log(`[ProxyChainMiddlewareManager] 创建适配器: ${adapterId} for node ${node.name} (监听端口: ${listenPort}, 下一跳端口: ${nextHopPort || 'N/A (直连)'})`);
+      
+      const adapter = new ProtocolAdapter(adapterId, node, listenPort, nextHopHost, nextHopPort, inboundOverride);
+      this.adapters.push(adapter);
+    }
     
-    // 不再为每个节点创建独立的适配器
-    // 而是创建一个统一的代理链配置，确保IP隐藏
-    const unifiedPort = this.config.entryPort + 1; // 7896
-    const unifiedAdapterId = `unified_chain_${this.id}`;
-    
-    console.log(`[ProxyChainMiddlewareManager] 创建统一代理链适配器: ${unifiedAdapterId} (端口: ${unifiedPort})`);
-    
-    // 创建一个统一的适配器，包含所有节点
-    const unifiedAdapter = new UnifiedChainAdapter(unifiedAdapterId, this.config.nodes, unifiedPort);
-    this.adapters.push(unifiedAdapter);
-    
-    console.log(`[ProxyChainMiddlewareManager] 创建了 1 个统一代理链适配器`);
+    console.log(`[ProxyChainMiddlewareManager] 创建了 ${this.adapters.length} 个独立的协议适配器`);
+  }
+
+  /**
+   * [新增] 根据前一个节点的出站协议，为当前节点创建对应的入站配置
+   */
+  private createInboundOverride(listenPort: number, previousNode: ProxyNode): any {
+    const baseInbound = {
+      listen: '127.0.0.1',
+      listen_port: listenPort,
+      tag: `${previousNode.type}-in`,
+    };
+
+    switch (previousNode.type) {
+      case 'vmess':
+        return {
+          ...baseInbound,
+          type: 'vmess',
+          users: [{ uuid: previousNode.uuid }], // [修复] vmess入站配置不包含 alter_id
+        };
+      case 'trojan':
+         return {
+          ...baseInbound,
+          type: 'trojan',
+          users: [{ password: previousNode.password }],
+        };
+      case 'shadowsocks':
+        return {
+          ...baseInbound,
+          type: 'shadowsocks',
+          method: previousNode.encryption,
+          password: previousNode.password,
+        };
+      // 为其他支持的协议添加case
+      default:
+        // 如果前一个节点是不支持链式连接的协议（如socks, http），则返回一个标准的mixed入站
+        // 这在逻辑上可能需要更复杂的处理，但作为默认值是合理的
+        return {
+          ...baseInbound,
+          type: 'mixed',
+          tag: 'mixed-in',
+          users: []
+        };
+    }
   }
 
   /**
@@ -288,6 +380,12 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
   private async createAndStartTrafficRouter(): Promise<void> {
     console.log(`[ProxyChainMiddlewareManager] 创建并启动流量路由器...`);
     
+    // 如果没有任何适配器（例如，没有节点），则不启动路由器
+    if (this.adapters.length === 0) {
+      console.warn('[ProxyChainMiddlewareManager] 没有可用的适配器，流量路由器将不会启动。');
+      return;
+    }
+
     // 创建流量路由器
     this.router = new TrafficRouter(this.config.entryPort, this.adapters);
     
@@ -310,5 +408,8 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     this.router = undefined;
     this.error = undefined;
     this.startTime = undefined;
+    // [重要] 中间件停止时，清理所有已分配的端口
+    // PortManager 是一个单例，应该总是存在，直接调用即可
+    PortManager.getInstance().cleanup();
   }
 }

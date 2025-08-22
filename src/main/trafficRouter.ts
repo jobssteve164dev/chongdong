@@ -4,7 +4,8 @@ import {
   MonitoringEvent, 
   MonitoringEventType,
   ProtectionRule,
-  IAdapter
+  IAdapter,
+  AdapterStatus
 } from '../shared/types/middleware';
 
 /**
@@ -143,15 +144,17 @@ export class TrafficRouter {
       // 创建到第一个适配器的连接
       const firstAdapter = this.adapters[0];
       if (!firstAdapter) {
-        throw new Error('没有可用的协议适配器');
+        // [修改] 修正错误信息，因为现在可能有0个适配器
+        throw new Error('没有可用的协议适配器。请检查代理链配置。');
       }
       
       const adapterInfo = firstAdapter.getInfo();
-      if (adapterInfo.status !== 'running') {
-        throw new Error(`协议适配器未运行: ${adapterInfo.id}`);
+      // [修改] 状态检查应该检查是否为 'running'
+      if (adapterInfo.status !== AdapterStatus.RUNNING) {
+        throw new Error(`代理链的第一个适配器 (${adapterInfo.id}) 未在运行状态。当前状态: ${adapterInfo.status}`);
       }
       
-      console.log(`[TrafficRouter] 连接到第一个适配器: ${adapterInfo.id} (端口: ${adapterInfo.port})`);
+      console.log(`[TrafficRouter] 连接到代理链的第一个适配器: ${adapterInfo.id} (端口: ${adapterInfo.port})`);
       
       // 创建到适配器的连接
       const { createConnection } = require('net');
@@ -186,6 +189,10 @@ export class TrafficRouter {
       
       adapterSocket.on('error', (error: Error) => {
         console.error(`[TrafficRouter] 适配器连接错误: ${connectionId}`, error);
+        // [新增] 当连接被拒绝时，提供更明确的错误日志，帮助调试
+        if ((error as any).code === 'ECONNREFUSED') {
+            console.error(`[TrafficRouter] [调试信息] 连接到适配器 ${adapterInfo.id} (端口: ${adapterInfo.port}) 被拒绝。请确认该适配器实例已成功启动并正在监听该端口。`);
+        }
         this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
           connectionId,
           error: error.message

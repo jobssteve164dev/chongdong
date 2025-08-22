@@ -69,7 +69,7 @@ export class ProxyChainConfigGenerator {
     const inbounds = this.generateInbounds(listenPort);
 
     // 生成出站配置
-    const outbounds = this.generateOutbounds(validNodes);
+    const outbounds = this.generateOutboundsForChain(validNodes);
 
     // 生成路由配置
     const route = this.generateRoute(validNodes);
@@ -90,6 +90,39 @@ export class ProxyChainConfigGenerator {
   }
 
   /**
+   * [新增] 为中间件链中的单个节点生成配置
+   * @param node 当前节点
+   * @param listenPort 此sing-box实例的监听端口
+   * @param nextHopHost 下一跳的主机地址 (通常是 '127.0.0.1')
+   * @param nextHopPort 下一跳的端口 (如果是最后一个节点，则为 undefined)
+   * @param inboundOverride [新增] 用于覆盖默认 "mixed" 入站的配置，以实现链式连接
+   */
+  public generateSingleNodeConfig(
+    node: ProxyNode, 
+    listenPort: number, 
+    nextHopHost?: string, 
+    nextHopPort?: number,
+    inboundOverride?: any 
+  ): ProxyChainConfig {
+    const inbounds = inboundOverride ? [inboundOverride] : this.generateInbounds(listenPort);
+    const outbounds = this.generateOutbounds(node, nextHopHost, nextHopPort);
+    const route = this.generateSingleNodeRoute(node, !nextHopHost || !nextHopPort, inbounds[0].tag);
+    const logConfig = this.generateLogConfig();
+
+    const config: ProxyChainConfig = {
+      inbounds,
+      outbounds,
+      route,
+      log: logConfig
+    };
+
+    const nodeType = (!nextHopHost || !nextHopPort) ? 'FINAL' : 'INTERMEDIATE';
+    console.log(`[ProxyChainConfigGenerator] Generated ${nodeType} node config for ${node.name} on port ${listenPort}:`, JSON.stringify(config, null, 2));
+    
+    return config;
+  }
+
+  /**
    * 生成入站配置
    */
   private generateInbounds(port: number): any[] {
@@ -105,9 +138,9 @@ export class ProxyChainConfigGenerator {
   }
 
   /**
-   * 生成出站配置
+   * 生成出站配置 (旧，保留给传统模式)
    */
-  private generateOutbounds(nodes: ProxyNode[]): any[] {
+  private generateOutboundsForChain(nodes: ProxyNode[]): any[] {
     const outbounds: any[] = [];
     let nextOutboundTag: string | null = null;
 
@@ -124,7 +157,7 @@ export class ProxyChainConfigGenerator {
       if (nextOutboundTag) {
         nodeOutbound.detour = nextOutboundTag;
       } else {
-        // 最后一个节点连接到互联网
+        // 如果是最后一个节点，则直接连接互联网
         nodeOutbound.detour = 'direct';
       }
 
@@ -143,6 +176,36 @@ export class ProxyChainConfigGenerator {
     });
 
     return outbounds;
+  }
+
+  /**
+   * [新] 为中间件模式生成出站配置
+   */
+  private generateOutbounds(node: ProxyNode, nextHopHost?: string, nextHopPort?: number): any[] {
+    const isFinalNode = !nextHopHost || !nextHopPort;
+    const nodeOutbound = this.generateNodeOutbound(node);
+
+    if (isFinalNode) {
+      // 最后一个节点：其协议出站是主要出站，并直接连接到互联网。
+      nodeOutbound.tag = `proxy-${node.id}`;
+      nodeOutbound.detour = 'direct';
+      return [nodeOutbound, this.createDirectOutbound(), this.createBlockOutbound()];
+    } else {
+      // 中间节点: 其出站配置应使用其自身的协议，但服务器地址指向链中的下一个本地节点。
+      nodeOutbound.tag = 'main-out'; // 这是路由规则将使用的主要出站tag
+      nodeOutbound.server = nextHopHost;
+      nodeOutbound.server_port = nextHopPort;
+
+      // 连接到本地的下一个适配器时，强制禁用TLS
+      if (nodeOutbound.tls) {
+        nodeOutbound.tls.enabled = false;
+      }
+      
+      // 中间节点的detour应该总是direct，因为它不负责选择下一跳的协议
+      nodeOutbound.detour = 'direct';
+
+      return [nodeOutbound, this.createDirectOutbound(), this.createBlockOutbound()];
+    }
   }
 
   /**
@@ -229,7 +292,7 @@ export class ProxyChainConfigGenerator {
   }
 
   /**
-   * 生成路由配置
+   * 生成路由配置 (用于传统模式)
    */
   private generateRoute(nodes: ProxyNode[]): any {
     // 如果没有有效节点，则只返回默认规则
@@ -255,6 +318,22 @@ export class ProxyChainConfigGenerator {
   }
 
   /**
+   * [新增] 为中间件模式下的单个节点生成路由配置
+   */
+  private generateSingleNodeRoute(node: ProxyNode, isFinalNode: boolean, inboundTag: string): any {
+    const outboundTag = isFinalNode ? `proxy-${node.id}` : 'main-out';
+    return {
+      rules: [
+        {
+          inbound: [inboundTag],
+          outbound: outboundTag,
+        },
+      ],
+      final: 'direct',
+    };
+  }
+
+  /**
    * 生成日志配置
    */
   private generateLogConfig(): any {
@@ -262,6 +341,14 @@ export class ProxyChainConfigGenerator {
       level: 'info',
       timestamp: true
     };
+  }
+  
+  private createDirectOutbound(): any {
+    return { type: 'direct', tag: 'direct' };
+  }
+
+  private createBlockOutbound(): any {
+    return { type: 'block', tag: 'block' };
   }
 
   /**
