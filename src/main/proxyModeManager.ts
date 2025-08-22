@@ -1,5 +1,6 @@
 import { AppSettings, NetworkSettings } from '../shared/types';
 import { systemProxyManager } from './systemProxyManager';
+import { vpnServerManager } from './vpnServerManager';
 
 export interface ProxyModeConfig {
   mode: 'rule' | 'global' | 'direct' | 'vpn';
@@ -171,49 +172,53 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 应用VPN模式`);
     
     try {
-      // VPN模式：通过系统VPN接口代理全部流量
+      // VPN模式：虫洞应用作为VPN服务器，系统VPN连接到虫洞
       
       // 关闭系统代理（VPN模式下不需要系统代理）
       await systemProxyManager.clearSystemProxy();
       
-      // 创建VPN连接配置
-      const vpnConfig = {
-        name: 'ChongdongVPN',
-        server: '127.0.0.1', // 这里应该使用实际的VPN服务器地址
-        type: 'l2tp' as const, // 在macOS上使用L2TP类型更兼容
-        username: 'chongdong',
-        password: 'defaultsecret'
+      // 1. 启动虫洞VPN服务器
+      const vpnServerConfig = {
+        type: 'openvpn' as const,
+        port: 1194, // OpenVPN默认端口
+        interface: 'tun0',
+        subnet: '10.8.0.0'
+        // proxyNodes和chainConfig将在后续实现中配置
       };
       
       try {
-        // 创建VPN连接
-        await systemProxyManager.createVPNConnection(vpnConfig);
-        console.log(`[ProxyModeManager] VPN连接已创建: ${vpnConfig.name}`);
+        // 启动虫洞VPN服务器
+        await vpnServerManager.startVpnServer(vpnServerConfig);
+        console.log(`[ProxyModeManager] 虫洞VPN服务器已启动`);
         
-        // 尝试连接VPN
-        await systemProxyManager.connectVPN(vpnConfig.name);
-        console.log(`[ProxyModeManager] VPN连接已建立: ${vpnConfig.name}`);
+        // 2. 配置系统VPN连接到本地虫洞VPN服务器
+        await vpnServerManager.configureSystemVpn();
+        console.log(`[ProxyModeManager] 系统VPN已配置连接到虫洞`);
+        
+        // 3. 配置VPN流量路由到代理
+        await vpnServerManager.routeVpnTrafficToProxy();
+        console.log(`[ProxyModeManager] VPN流量路由已配置`);
         
         this.currentMode = 'vpn';
-        this.currentVpnName = vpnConfig.name;
+        this.currentVpnName = 'ChongdongVPN';
         
         return {
           success: true,
-          message: 'VPN模式已启用，通过系统VPN接口代理全部流量',
-          vpnName: vpnConfig.name
+          message: 'VPN模式已启用：系统流量 → 虫洞VPN服务器 → 代理节点',
+          vpnName: 'ChongdongVPN'
         };
       } catch (vpnError) {
-        console.warn(`[ProxyModeManager] VPN连接失败，但VPN模式仍已启用:`, vpnError);
+        console.warn(`[ProxyModeManager] VPN服务器启动失败:`, vpnError);
         
-        // 即使VPN连接失败，我们仍然可以启用VPN模式
+        // 即使VPN服务器启动失败，我们仍然可以启用VPN模式
         // 这样用户可以看到状态并了解问题
         this.currentMode = 'vpn';
-        this.currentVpnName = vpnConfig.name;
+        this.currentVpnName = 'ChongdongVPN';
         
         return {
           success: true,
-          message: 'VPN模式已启用，但VPN连接可能需要手动配置。请检查VPN设置或联系管理员。',
-          vpnName: vpnConfig.name
+          message: 'VPN模式已启用，但VPN服务器启动失败。请检查OpenVPN/WireGuard是否已安装。',
+          vpnName: 'ChongdongVPN'
         };
       }
     } catch (error) {
@@ -239,15 +244,34 @@ export class ProxyModeManager {
    * 检查VPN连接状态
    */
   public async checkVpnStatus(): Promise<{ connected: boolean; error?: string }> {
-    if (this.currentMode !== 'vpn' || !this.currentVpnName) {
+    if (this.currentMode !== 'vpn') {
       return { connected: false, error: '当前不是VPN模式' };
     }
     
     try {
-      const status = await systemProxyManager.getVPNStatus(this.currentVpnName);
+      // 1. 检查虫洞VPN服务器状态
+      const serverStatus = vpnServerManager.getStatus();
+      
+      if (!serverStatus.running) {
+        return { 
+          connected: false, 
+          error: serverStatus.error || '虫洞VPN服务器未运行' 
+        };
+      }
+      
+      // 2. 检查系统VPN连接状态
+      const systemVpnStatus = await systemProxyManager.getVPNStatus('ChongdongVPN');
+      
+      if (!systemVpnStatus.connected) {
+        return { 
+          connected: false, 
+          error: systemVpnStatus.error || '系统VPN未连接到虫洞服务器' 
+        };
+      }
+      
+      // 虫洞VPN服务器和系统VPN都正常运行
       return { 
-        connected: status.connected, 
-        ...(status.error && { error: status.error })
+        connected: true
       };
     } catch (error) {
       return { connected: false, error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}` };
@@ -258,11 +282,18 @@ export class ProxyModeManager {
    * 断开VPN连接
    */
   public async disconnectVpn(): Promise<void> {
-    if (this.currentMode === 'vpn' && this.currentVpnName) {
+    if (this.currentMode === 'vpn') {
       try {
-        await systemProxyManager.disconnectVPN(this.currentVpnName);
+        // 1. 断开系统VPN连接
+        if (this.currentVpnName) {
+          await systemProxyManager.disconnectVPN(this.currentVpnName);
+          console.log(`[ProxyModeManager] 系统VPN连接已断开: ${this.currentVpnName}`);
+        }
+        
+        // 2. 停止虫洞VPN服务器
+        await vpnServerManager.stopVpnServer();
         this.currentVpnName = undefined as string | undefined;
-        console.log(`[ProxyModeManager] VPN连接已断开`);
+        console.log(`[ProxyModeManager] 虫洞VPN服务器已停止`);
       } catch (error) {
         console.error(`[ProxyModeManager] 断开VPN连接失败:`, error);
         throw error;

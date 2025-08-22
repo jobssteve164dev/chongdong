@@ -76,11 +76,14 @@
     "lodash": "^4.17.21",
     "lru-cache": "^11.1.0",
     "node-fetch": "^3.0.0",
+    "openvpn-client": "^0.0.2",
     "react": "^18.0.0",
     "react-beautiful-dnd": "^13.1.1",
     "react-dom": "^18.0.0",
     "socks": "^2.8.7",
+    "utun": "^2.1.0",
     "uuid": "^11.1.0",
+    "wireguard-tools": "^0.1.0",
     "yaml": "^2.8.1",
     "zustand": "^5.0.7"
   },
@@ -96,8 +99,7 @@
       "package.json"
     ],
     "mac": {
-      "category": "public.app-category.utilities",
-      "icon": "src/renderer/assets/icon.png"
+      "category": "public.app-category.utilities"
     },
     "win": {
       "target": [
@@ -107,8 +109,7 @@
             "x64"
           ]
         }
-      ],
-      "icon": "src/renderer/assets/icon.png"
+      ]
     },
     "linux": {
       "target": [
@@ -118,8 +119,7 @@
             "x64"
           ]
         }
-      ],
-      "icon": "src/renderer/assets/icon.png"
+      ]
     }
   }
 }
