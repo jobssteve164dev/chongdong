@@ -457,7 +457,7 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.chongdong.app');
 
@@ -471,6 +471,25 @@ app.whenReady().then(() => {
     console.log('DNS服务已初始化');
   } catch (error) {
     console.error('初始化DNS服务失败:', error);
+  }
+
+  // 应用启动时自动应用默认代理模式
+  try {
+    const settings = settingsManager.getSettings();
+    console.log(`[应用启动] 应用默认代理模式: ${settings.mode}`);
+    
+    // 应用默认代理模式
+    await proxyModeManager.applyProxyMode({
+      mode: settings.mode,
+      settings: settings,
+      networkSettings: {
+        listenPort: settings.proxyPort
+      }
+    });
+    
+    console.log(`[应用启动] 默认代理模式应用完成: ${settings.mode}`);
+  } catch (error) {
+    console.error('[应用启动] 应用默认代理模式失败:', error);
   }
 
   // Default open or close DevTools by F12 in development

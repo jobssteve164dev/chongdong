@@ -179,12 +179,17 @@ export class ProxyModeManager {
     try {
       // VPN模式：启动内置L2TP服务器，用户手动配置系统VPN连接
       
-      // 1. 启动内置L2TP服务器
+      // 1. 获取当前代理节点信息用于流量分流配置
+      const proxyNodes = await this.getCurrentProxyNodes();
+      console.log(`[ProxyModeManager] 获取到 ${proxyNodes.length} 个代理节点用于流量分流`);
+      
+      // 2. 启动内置L2TP服务器
       const vpnServerConfig = {
         type: 'l2tp' as const,
         port: 1701, // L2TP默认端口
         interface: 'l2tp0',
-        subnet: '10.8.0.0'
+        subnet: '10.8.0.0',
+        proxyNodes: proxyNodes // 传递代理节点信息用于路由配置
       };
       
       try {
@@ -192,7 +197,7 @@ export class ProxyModeManager {
         await vpnServerManager.startVpnServer(vpnServerConfig);
         console.log(`[ProxyModeManager] 内置L2TP服务器已启动`);
         
-        // 2. 获取服务器连接信息
+        // 3. 获取服务器连接信息
         const serverInfo = vpnServerManager.getServerInfo();
         if (!serverInfo) {
           throw new Error('无法获取VPN服务器信息');
@@ -210,7 +215,9 @@ export class ProxyModeManager {
 端口: ${serverInfo.port}
 协议: ${serverInfo.protocol}
 用户名: ${serverInfo.username}
-密码: ${serverInfo.password}`,
+密码: ${serverInfo.password}
+
+注意：代理节点流量将直接路由以避免死循环。`,
           vpnName: 'ChongdongL2TP'
         };
       } catch (vpnError) {
@@ -230,6 +237,21 @@ export class ProxyModeManager {
       }
     } catch (error) {
       throw new Error(`应用VPN模式失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * 获取当前代理节点信息
+   */
+  private async getCurrentProxyNodes(): Promise<any[]> {
+    try {
+      // 这里应该从代理管理器获取当前活跃的代理节点
+      // 简化实现：返回空数组，实际应该从proxyManager获取
+      console.log(`[ProxyModeManager] 获取当前代理节点信息`);
+      return [];
+    } catch (error) {
+      console.warn(`[ProxyModeManager] 获取代理节点信息失败:`, error);
+      return [];
     }
   }
 

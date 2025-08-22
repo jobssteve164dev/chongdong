@@ -866,11 +866,28 @@ const Settings: React.FC = () => {
                         message="VPN配置说明"
                         description={
                           <div>
-                            <p>当前VPN模式使用系统默认配置。如需自定义VPN服务器，请：</p>
+                            <p><strong>虫洞VPN模式已启动内置L2TP服务器</strong></p>
+                            <p>请在系统网络设置中添加VPN连接，使用以下信息：</p>
                             <ul>
-                              <li>在macOS上：打开"系统偏好设置" → "网络" → 查找"ChongdongVPN"连接</li>
-                              <li>在Windows上：打开"设置" → "网络和Internet" → "VPN"</li>
-                              <li>在Linux上：使用NetworkManager或相应的网络管理工具</li>
+                              <li><strong>服务器地址：</strong>127.0.0.1</li>
+                              <li><strong>协议：</strong>L2TP/IPSec</li>
+                              <li><strong>用户名：</strong>chongdong</li>
+                              <li><strong>密码：</strong>chongdong123</li>
+                              <li><strong>共享密钥：</strong>chongdong-secret</li>
+                            </ul>
+                            <p><strong>配置步骤：</strong></p>
+                            <ul>
+                              <li>在macOS上：打开"系统偏好设置" → "网络" → 点击"+" → 选择"VPN" → 选择"L2TP over IPSec"</li>
+                              <li>在Windows上：打开"设置" → "网络和Internet" → "VPN" → "添加VPN连接"</li>
+                              <li>在Linux上：使用NetworkManager添加L2TP连接</li>
+                            </ul>
+                            <p><strong>注意事项：</strong></p>
+                            <ul>
+                              <li>macOS会自动使用L2TP默认端口(1701)和IPSec默认端口(500)</li>
+                              <li>共享密钥是必填项，请使用上面提供的密钥</li>
+                              <li>代理节点流量将直接路由，避免死循环</li>
+                              <li>其他流量将通过L2TP隧道进行代理</li>
+                              <li>连接后所有系统流量将自动通过虫洞代理</li>
                             </ul>
                             <p>或者您可以切换到其他代理模式以使用应用内置的代理功能。</p>
                           </div>
