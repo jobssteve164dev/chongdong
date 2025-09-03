@@ -887,6 +887,30 @@ export class ProxyManager {
    */
   public async getStats(): Promise<any> {
     try {
+      // 优先：如果中间件代理链在运行，则直接汇总其统计
+      if (this.middlewareManager) {
+        try {
+          const chainStats: any = this.middlewareManager.getTrafficStats();
+          const history = (this.middlewareManager as any).getConnectionHistory?.() || [];
+          // 异步刷新一次连接元数据（远端域名/端口）
+          try { await (this.middlewareManager as any).refreshConnectionMetadata?.(); } catch {}
+          // middleware 返回的是 bytes 级别统计，这里统一映射为渲染端使用的字段
+          // 约定：上传=客户端->适配器(trafficRouter.bytesReceived)，下载=适配器->客户端(bytesSent)
+          return {
+            totalUpload: chainStats.bytesReceived || 0,
+            totalDownload: chainStats.bytesSent || 0,
+            // 速度由前端根据时间差计算；此处保留为0以避免误导
+            uploadSpeed: 0,
+            downloadSpeed: 0,
+            activeConnections: chainStats.connections || 0,
+            connections: history,
+            totalConnections: 1
+          };
+        } catch (e) {
+          console.warn('[ProxyManager] 获取中间件统计失败，回退到进程统计:', e);
+        }
+      }
+
       // 获取所有运行中的进程统计
       let totalUpload = 0;
       let totalDownload = 0;

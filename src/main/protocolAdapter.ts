@@ -31,6 +31,7 @@ export class ProtocolAdapter implements IAdapter {
   private nextHopHost: string | undefined; // [修改] 明确类型为 string | undefined
   private nextHopPort: number | undefined; // [修改] 明确类型为 number | undefined
   private inboundOverride: any | undefined; // [新增] 用于覆盖默认入站配置
+  private apiPort?: number | undefined; // [新增] 启用 sing-box clash_api 的端口
 
 
   constructor(
@@ -39,7 +40,8 @@ export class ProtocolAdapter implements IAdapter {
     port: number, 
     nextHopHost?: string, 
     nextHopPort?: number,
-    inboundOverride?: any
+    inboundOverride?: any,
+    apiPort?: number
   ) {
     this.id = id;
     this.node = node;
@@ -47,6 +49,7 @@ export class ProtocolAdapter implements IAdapter {
     this.nextHopHost = nextHopHost;
     this.nextHopPort = nextHopPort;
     this.inboundOverride = inboundOverride;
+    this.apiPort = apiPort;
     this.trafficStats = {
       bytesReceived: 0,
       bytesSent: 0,
@@ -200,6 +203,15 @@ export class ProtocolAdapter implements IAdapter {
       this.nextHopPort,
       this.inboundOverride // [新增] 传递 inboudOverride
     );
+    // [新增] 启用 clash_api 以便查询连接明细
+    if (this.apiPort) {
+      (config as any).experimental = (config as any).experimental || {};
+      (config as any).experimental.clash_api = {
+        external_controller: `127.0.0.1:${this.apiPort}`,
+        external_ui: '',
+        secret: ''
+      };
+    }
     
     // 保存配置文件
     const configDir = path.join(process.env['HOME'] || '', 'Library/Application Support/chongdong/proxy-configs');
@@ -296,6 +308,30 @@ export class ProtocolAdapter implements IAdapter {
         reject(error);
       });
     });
+  }
+
+  /**
+   * [新增] 查询 sing-box connections（用于丰富连接历史中的远端域名/端口）
+   */
+  public async getRecentConnections(): Promise<any[] | null> {
+    if (!this.apiPort) return null;
+    try {
+      const http = require('http');
+      return await new Promise((resolve) => {
+        const req = http.request({ hostname: '127.0.0.1', port: this.apiPort, path: '/connections', method: 'GET', timeout: 800 }, (res: any) => {
+          let data = '';
+          res.on('data', (c: any) => (data += c));
+          res.on('end', () => {
+            try { const json = JSON.parse(data); resolve(json?.connections || []); } catch { resolve([]); }
+          });
+        });
+        req.on('error', () => resolve([]));
+        req.on('timeout', () => { try { req.destroy(); } catch {}; resolve([]); });
+        req.end();
+      });
+    } catch {
+      return null;
+    }
   }
 
   /**

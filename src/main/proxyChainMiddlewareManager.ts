@@ -3,6 +3,7 @@ import {
   ProxyChainMiddlewareStatus,
   IProxyChainMiddleware,
   MonitoringEvent,
+  MonitoringEventType,
   ProtectionRule,
   TrafficStats,
   IAdapter
@@ -29,6 +30,9 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
   private trafficStats: TrafficStats;
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
   private protectionRules: ProtectionRule[] = [];
+  // 新增：连接历史缓存（供渲染端展示）
+  private connectionHistory: any[] = [];
+  private connectionIndex: Map<string, number> = new Map();
 
   constructor(config: ProxyChainMiddlewareConfig) {
     this.id = uuidv4();
@@ -163,6 +167,28 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     return totalStats;
   }
 
+  // [新增] 从各适配器的 clash_api 拉取最新连接并融合主机信息
+  public async refreshConnectionMetadata(): Promise<void> {
+    try {
+      for (const adapter of this.adapters) {
+        const conns = await (adapter as any).getRecentConnections?.();
+        if (Array.isArray(conns)) {
+          conns.forEach((c: any) => {
+            const id = c.id || c.metadata?.sniffHost || '';
+            if (!id) return;
+            const found = this.connectionHistory.find((r) => r.id === id);
+            if (found) {
+              found.metadata = c.metadata || found.metadata;
+              if (!found.chains || found.chains.length === 0) found.chains = c.chains || found.chains;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      // 忽略刷新错误
+    }
+  }
+
   /**
    * 添加监控监听器
    */
@@ -171,12 +197,18 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     
     // 为所有适配器添加监听器
     for (const adapter of this.adapters) {
-      adapter.addMonitoringListener(callback);
+      adapter.addMonitoringListener((event) => {
+        this.handleMonitoringEvent(event);
+        callback(event);
+      });
     }
     
     // 为路由器添加监听器
     if (this.router) {
-      this.router.addMonitoringListener(callback);
+      this.router.addMonitoringListener((event) => {
+        this.handleMonitoringEvent(event);
+        callback(event);
+      });
     }
   }
 
@@ -342,8 +374,15 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
   private async startProtocolAdapters(): Promise<void> {
     console.log(`[ProxyChainMiddlewareManager] 启动协议适配器...`);
     
-    for (const adapter of this.adapters) {
+    for (let i = 0; i < this.adapters.length; i++) {
+      const adapter = this.adapters[i];
+      if (!adapter) {
+        console.warn(`[ProxyChainMiddlewareManager] 跳过索引 ${i} 的空适配器`);
+        continue;
+      }
       try {
+        // 为首个适配器开启一个轻量API端口用于读取 connections（9001 + i）
+        try { (adapter as any).apiPort = 9001 + i; } catch {}
         await adapter.start();
         console.log(`✅ [ProxyChainMiddlewareManager] 适配器启动成功: ${adapter.getInfo().id}`);
       } catch (error) {
@@ -388,6 +427,8 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
 
     // 创建流量路由器
     this.router = new TrafficRouter(this.config.entryPort, this.adapters);
+    // 聚合监控事件
+    this.router.addMonitoringListener((event) => this.handleMonitoringEvent(event));
     
     // 添加防护规则
     for (const rule of this.protectionRules) {
@@ -398,6 +439,98 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     await this.router.start();
     
     console.log(`✅ [ProxyChainMiddlewareManager] 流量路由器启动成功`);
+  }
+
+  // 新增：聚合并维护连接历史
+  private handleMonitoringEvent(event: MonitoringEvent): void {
+    try {
+      if (event.type === MonitoringEventType.CONNECTION_START && event.data) {
+        const id = event.data.connectionId || `conn_${Date.now()}`;
+        const rec = {
+          id,
+          metadata: {
+            host: event.data.clientAddress || 'unknown',
+            destinationPort: 0,
+            network: 'tcp'
+          },
+          start: new Date().toISOString(),
+          upload: 0,
+          download: 0,
+          rule: 'chain',
+          chains: Array.isArray(event.data.chains) ? event.data.chains : []
+        } as any;
+        this.connectionHistory.unshift(rec);
+        this.connectionIndex.set(id, 0);
+        if (this.connectionHistory.length > 200) this.connectionHistory = this.connectionHistory.slice(0, 200);
+      }
+
+      if (event.type === MonitoringEventType.TRAFFIC_FLOW && event.data) {
+        const id = event.data.connectionId;
+        if (id) {
+          let idx = this.connectionIndex.get(id);
+          if (idx === undefined) {
+            // 若尚无记录，按开始记录插入
+            const rec = {
+              id,
+              metadata: { host: 'unknown', destinationPort: 0, network: 'tcp' },
+              start: new Date().toISOString(),
+              upload: 0,
+              download: 0,
+              rule: 'chain',
+              chains: []
+            } as any;
+            this.connectionHistory.unshift(rec);
+            idx = 0;
+            this.connectionIndex.set(id, 0);
+          }
+          const rec = this.connectionHistory[idx];
+          if (rec) {
+            if (event.data.direction === 'client_to_adapter') rec.upload += event.data.bytes || 0;
+            else rec.download += event.data.bytes || 0;
+          }
+        }
+      }
+
+      if (event.type === MonitoringEventType.CONNECTION_END && event.data) {
+        // 采用与 sing-box /connections 相似的结构，便于前端统一解析
+        const rec = {
+          id: event.data.connectionId || `conn_${Date.now()}`,
+          metadata: {
+            host: event.data.metadata?.host || event.data.clientAddress || 'unknown',
+            destinationPort: event.data.metadata?.destinationPort || 0,
+            network: event.data.metadata?.network || 'tcp'
+          },
+          start: event.data.start || new Date().toISOString(),
+          upload: event.data.upload || 0,
+          download: event.data.download || 0,
+          rule: event.data.rule || 'chain',
+          chains: Array.isArray(event.data.chains) ? event.data.chains : []
+        } as any;
+        // 如果已有该连接的实时记录，则更新其终值
+        const knownIdx = this.connectionIndex.get(rec.id);
+        if (knownIdx !== undefined) {
+          const existing = this.connectionHistory[knownIdx];
+          if (existing) {
+            existing.upload = rec.upload || existing.upload;
+            existing.download = rec.download || existing.download;
+            existing.metadata = rec.metadata || existing.metadata;
+            existing.chains = rec.chains || existing.chains;
+            existing.rule = rec.rule || existing.rule;
+          }
+          this.connectionIndex.delete(rec.id);
+        } else {
+          this.connectionHistory.unshift(rec as any);
+        }
+        if (this.connectionHistory.length > 200) this.connectionHistory = this.connectionHistory.slice(0, 200);
+      }
+    } catch (e) {
+      console.warn('[ProxyChainMiddlewareManager] handleMonitoringEvent error:', e);
+    }
+  }
+
+  // 暴露连接历史，供 ProxyManager/IPC 返回
+  public getConnectionHistory(): any[] {
+    return [...this.connectionHistory];
   }
 
   /**

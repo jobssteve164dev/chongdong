@@ -20,6 +20,8 @@ export class TrafficRouter {
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
   private protectionRules: ProtectionRule[] = [];
   private activeConnections: Map<string, Socket> = new Map();
+  // 新增：按连接统计上传/下载与起始时间，并尽力解析远端主机/端口
+  private connectionStats: Map<string, { upload: number; download: number; start: number; chains: string[]; clientAddress: string; host?: string; port?: number; parsed?: boolean } > = new Map();
 
   constructor(entryPort: number, adapters: IAdapter[]) {
     this.entryPort = entryPort;
@@ -139,6 +141,15 @@ export class TrafficRouter {
     this.activeConnections.set(connectionId, clientSocket);
     this.trafficStats.connections++;
     this.trafficStats.lastActivity = new Date();
+    // 初始化连接统计
+    this.connectionStats.set(connectionId, {
+      upload: 0,
+      download: 0,
+      start: Date.now(),
+      chains: this.adapters.map(a => a.getInfo().id),
+      clientAddress,
+      parsed: false
+    });
     
     try {
       // 创建到第一个适配器的连接
@@ -160,6 +171,13 @@ export class TrafficRouter {
       const { createConnection } = require('net');
       const adapterSocket = createConnection(adapterInfo.port, '127.0.0.1');
       
+      // 连接开始事件（用于历史记录）
+      this.emitMonitoringEvent(MonitoringEventType.CONNECTION_START, {
+        connectionId,
+        clientAddress,
+        chains: this.adapters.map(a => a.getInfo().id)
+      });
+
       // 设置双向数据转发
       this.setupDataForwarding(clientSocket, adapterSocket, connectionId);
       
@@ -169,6 +187,20 @@ export class TrafficRouter {
         this.activeConnections.delete(connectionId);
         this.trafficStats.connections--;
         adapterSocket.destroy();
+        // 结束事件
+        const st = this.connectionStats.get(connectionId);
+        if (st) {
+          this.emitMonitoringEvent(MonitoringEventType.CONNECTION_END, {
+            connectionId,
+            upload: st.upload,
+            download: st.download,
+            start: new Date(st.start).toISOString(),
+            metadata: { host: st.host || st.clientAddress, destinationPort: st.port || 0, network: 'tcp' },
+            rule: 'chain',
+            chains: st.chains
+          });
+          this.connectionStats.delete(connectionId);
+        }
       });
       
       adapterSocket.on('close', () => {
@@ -176,6 +208,20 @@ export class TrafficRouter {
         this.activeConnections.delete(connectionId);
         this.trafficStats.connections--;
         clientSocket.destroy();
+        // 结束事件（若前面未触发）
+        const st = this.connectionStats.get(connectionId);
+        if (st) {
+          this.emitMonitoringEvent(MonitoringEventType.CONNECTION_END, {
+            connectionId,
+            upload: st.upload,
+            download: st.download,
+            start: new Date(st.start).toISOString(),
+            metadata: { host: st.host || st.clientAddress, destinationPort: st.port || 0, network: 'tcp' },
+            rule: 'chain',
+            chains: st.chains
+          });
+          this.connectionStats.delete(connectionId);
+        }
       });
       
       // 处理错误
@@ -219,6 +265,18 @@ export class TrafficRouter {
     clientSocket.on('data', (data) => {
       this.trafficStats.bytesReceived += data.length;
       this.trafficStats.lastActivity = new Date();
+      const st = this.connectionStats.get(connectionId);
+      if (st) {
+        st.upload += data.length;
+        if (!st.parsed) {
+          const parsed = this.parseHostnameFromFirstPacket(data);
+          if (parsed) {
+            if (parsed.host) st.host = parsed.host;
+            if (parsed.port !== undefined) st.port = parsed.port;
+          }
+          st.parsed = true;
+        }
+      }
       
       if (!adapterSocket.destroyed) {
         adapterSocket.write(data);
@@ -235,6 +293,8 @@ export class TrafficRouter {
     adapterSocket.on('data', (data) => {
       this.trafficStats.bytesSent += data.length;
       this.trafficStats.lastActivity = new Date();
+      const st = this.connectionStats.get(connectionId);
+      if (st) st.download += data.length;
       
       if (!clientSocket.destroyed) {
         clientSocket.write(data);
@@ -246,6 +306,27 @@ export class TrafficRouter {
         bytes: data.length
       });
     });
+  }
+
+  // 解析 HTTP 请求首包中的 Host 头，或解析 TLS SNI（简单推断）
+  private parseHostnameFromFirstPacket(buf: Buffer): { host?: string; port?: number } | null {
+    try {
+      const str = buf.toString('utf8');
+      // HTTP/1.1 GET/POST ...\r\nHost: example.com[:port]\r\n
+      const hostHeader = str.match(/\r\nHost:\s*([^\r\n]+)/i);
+      if (hostHeader && hostHeader[1]) {
+        const hostPort = hostHeader[1].trim();
+        const [h, p] = hostPort.split(':');
+        const result: { host?: string; port?: number } = {};
+        if (h) result.host = h;
+        if (p) result.port = parseInt(p, 10);
+        return result;
+      }
+      // 简易 TLS ClientHello 检测（SNI 提取较复杂，此处不深挖，返回空）
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /**
