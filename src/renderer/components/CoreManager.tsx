@@ -16,7 +16,8 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
     xray: false, 
     clash: false,
     geoip: false,
-    geosite: false
+    geosite: false,
+    tun2socks: false
   });
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -122,7 +123,8 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
   const cores = [
     { key: 'singbox', name: 'Sing-box', color: 'blue' },
     { key: 'xray', name: 'Xray', color: 'green' },
-    { key: 'clash', name: 'Clash', color: 'orange' }
+    { key: 'clash', name: 'Clash', color: 'orange' },
+    { key: 'tun2socks', name: 'Tun2socks', color: 'geekblue' }
   ];
 
   const databases = [

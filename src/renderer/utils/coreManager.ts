@@ -19,6 +19,7 @@ export interface CoreStatus {
   clash: boolean;
   geoip: boolean;
   geosite: boolean;
+  tun2socks?: boolean;
 }
 
 export interface DownloadProgress {
@@ -99,6 +100,7 @@ export class CoreManager {
       singbox: 'Sing-box',
       xray: 'Xray',
       clash: 'Clash',
+      tun2socks: 'Tun2socks',
       geoip: 'GeoIP 数据库',
       geosite: 'GeoSite 数据库'
     };
@@ -123,7 +125,8 @@ export class CoreManager {
     const descriptions: { [key: string]: string } = {
       singbox: '现代化的通用代理平台，支持多种协议',
       xray: '高性能的网络代理工具，基于 XTLS 协议',
-      clash: '基于规则的跨平台代理工具'
+      clash: '基于规则的跨平台代理工具',
+      tun2socks: '将系统 TUN 流量桥接到 SOCKS5 的内核（TUN 数据面）'
     };
     return descriptions[coreName] || '';
   }

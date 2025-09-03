@@ -123,6 +123,10 @@ export interface AppSettings {
   latencyTestConcurrency: number;
   latencyTestUrls: string;
   latencyTestValidityPeriod: number;
+  // 兼容性代理
+  enableCompatProxy?: boolean;
+  compatHttpPort?: number; // 默认 1080 可用于 HTTP 兼容
+  compatSocksPort?: number; // 默认 1080 可用于 SOCKS 兼容
 }
 
 export interface NetworkSettings {

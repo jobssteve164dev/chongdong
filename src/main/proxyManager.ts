@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { coreDownloader } from './coreDownloader';
 import { createConnection } from 'net';
 import { ProxyNode, ChainConfig, NetworkSettings } from '../shared/types';
@@ -14,7 +14,9 @@ import { systemProxyManager } from './systemProxyManager';
 interface ProxyProcess {
   id: string;
   type: 'singbox' | 'xray' | 'clash';
-  process: ChildProcess;
+  process: ChildProcess | null;
+  pid?: number | undefined;
+  elevated?: boolean;
   config: any;
   port: number;
   networkSettings?: any;
@@ -28,6 +30,7 @@ export class ProxyManager {
   private processes: Map<string, ProxyProcess> = new Map();
   private middlewareManager?: ProxyChainMiddlewareManager | undefined;
   private useMiddleware: boolean = true; // 默认使用中间件模式
+  private suppressSystemProxyForTun: boolean = false; // VPN(TUN) 模式下禁止改写系统代理
   private configDir: string;
   private binDir: string;
   private currentNetworkSettings?: NetworkSettings;
@@ -58,6 +61,44 @@ export class ProxyManager {
   public updateNetworkSettings(settings: NetworkSettings): void {
     this.currentNetworkSettings = settings;
     console.log('网络设置已更新:', settings);
+  }
+
+  /**
+   * 获取最近一次应用到 sing-box 的最终配置（只读快照）
+   */
+  public getCurrentSingboxConfig(): any | undefined {
+    return (this as any)._lastFinalConfig;
+  }
+
+  /**
+   * 是否存在任意全局 sing-box 进程（非中间件适配器）
+   */
+  public hasGlobalProcess(): boolean {
+    return Array.from(this.processes.values()).some(p => p.type === 'singbox');
+  }
+
+  /**
+   * 在 TUN 模式下屏蔽系统代理设置
+   */
+  public setSuppressSystemProxyForTun(suppress: boolean): void {
+    this.suppressSystemProxyForTun = suppress;
+    console.log(`[ProxyManager] suppressSystemProxyForTun = ${suppress}`);
+  }
+
+  /**
+   * 停止并清理中间件（如果存在）
+   */
+  public async stopMiddleware(): Promise<void> {
+    if (this.middlewareManager) {
+      try {
+        console.log('[ProxyManager] 停止中间件...');
+        await this.middlewareManager.stop();
+        this.middlewareManager = undefined;
+        console.log('[ProxyManager] 中间件已停止');
+      } catch (e) {
+        console.warn('[ProxyManager] 停止中间件出现非致命错误:', e);
+      }
+    }
   }
 
   /**
@@ -294,7 +335,16 @@ export class ProxyManager {
     const process = this.processes.get(processId);
     if (process) {
       try {
-        process.process.kill();
+        if (process.process) {
+          process.process.kill();
+        } else if (process.pid) {
+          try {
+            // 使用全局 process 对象发送信号
+            global.process.kill(process.pid, 'SIGTERM');
+          } catch (e) {
+            // ignore
+          }
+        }
         this.processes.delete(processId);
         console.log(`进程 ${processId} 已停止`);
       } catch (error) {
@@ -333,48 +383,92 @@ export class ProxyManager {
     const singboxPath = await this.getSingboxPath();
     console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
     
+    const isDarwin = process.platform === 'darwin';
+    const needElevate = !!(isDarwin && networkSettings?.enableTun);
+
     return new Promise<void>((resolve, reject) => {
       console.log(`=== 启动 Sing-box 子进程 ===`);
       console.log(`可执行文件: ${singboxPath}`);
       console.log(`配置文件: ${configPath}`);
       console.log(`工作目录: ${this.binDir}`);
       console.log(`启动参数: ['run', '-c', '${configPath}']`);
-      
-      // 启动进程，设置工作目录为 bin 目录，这样 Sing-box 能找到数据库文件
-      const childProcess = spawn(singboxPath, ['run', '-c', configPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        detached: false,
-        cwd: this.binDir  // 设置工作目录为 bin 目录
-      });
-      
-      console.log(`子进程已启动，PID: ${childProcess.pid}`);
 
-      // 监听进程事件
-      childProcess.on('error', (error) => {
-        console.error(`=== Sing-box 进程错误 ===`);
-        console.error(`错误详情:`, error);
-        console.error(`错误消息: ${error.message}`);
-        console.error(`错误堆栈: ${error.stack}`);
-        if (!resolved) {
-          resolved = true;
-          reject(error);
-        }
-      });
+      let childProcess: ChildProcess | null = null;
+      let elevatedPid: number | undefined = undefined;
+      const pidFile = join(this.binDir, `${processId}.pid`);
+      const logFile = join(this.binDir, `${processId}.log`);
 
-      childProcess.on('exit', (code, signal) => {
-        console.log(`=== Sing-box 进程退出 ===`);
-        console.log(`退出代码: ${code}`);
-        console.log(`退出信号: ${signal}`);
-        console.log(`进程ID: ${processId}`);
-        this.processes.delete(processId);
-        if (code !== 0 && !resolved) {
-          resolved = true;
-          reject(new Error(`Sing-box process failed with exit code: ${code}`));
-        }
-      });
+      if (needElevate) {
+        // 使用 AppleScript 提权在后台启动，并将 PID 写入 pid 文件
+        const shell = `sh -c 'cd "${this.binDir}"; nohup "${singboxPath}" run -c "${configPath}" > "${logFile}" 2>&1 & echo $! > "${pidFile}"'`;
+        const appleScript = `do shell script "${shell.replace(/"/g, '\\"')}" with administrator privileges`;
+        console.log(`以管理员权限启动 sing-box (macOS TUN)...`);
+        const osa = spawn('/usr/bin/osascript', ['-e', appleScript], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+        let osaError = '';
+        osa.stderr.on('data', d => (osaError += d.toString()));
+        osa.on('exit', (code) => {
+          if (code !== 0) {
+            console.error(`osascript 启动失败: ${osaError}`);
+            // 将错误传递给渲染进程显示
+            try {
+              const { BrowserWindow } = require('electron');
+              const win = BrowserWindow.getAllWindows()?.[0];
+              win?.webContents.send('tun:elevate-error', osaError || 'osascript exit with non-zero code');
+            } catch {}
+            reject(new Error(`Failed to elevate sing-box: ${osaError}`));
+            return;
+          }
+          try {
+            if (existsSync(pidFile)) {
+              const pidStr = readFileSync(pidFile, 'utf8').trim();
+              elevatedPid = parseInt(pidStr, 10);
+              console.log(`Elevated sing-box PID: ${elevatedPid}`);
+            } else {
+              console.warn(`未找到PID文件: ${pidFile}`);
+            }
+          } catch (e) {
+            console.warn(`读取PID文件失败:`, e);
+          }
+        });
+      } else {
+        // 普通方式启动
+        childProcess = spawn(singboxPath, ['run', '-c', configPath], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          detached: false,
+          cwd: this.binDir
+        });
+        console.log(`子进程已启动，PID: ${childProcess.pid}`);
+      }
+
+      if (childProcess) {
+        // 监听进程事件（非提权）
+        childProcess.on('error', (error) => {
+          console.error(`=== Sing-box 进程错误 ===`);
+          console.error(`错误详情:`, error);
+          console.error(`错误消息: ${error.message}`);
+          console.error(`错误堆栈: ${error.stack}`);
+          if (!resolved) {
+            resolved = true;
+            reject(error);
+          }
+        });
+
+        childProcess.on('exit', (code, signal) => {
+          console.log(`=== Sing-box 进程退出 ===`);
+          console.log(`退出代码: ${code}`);
+          console.log(`退出信号: ${signal}`);
+          console.log(`进程ID: ${processId}`);
+          this.processes.delete(processId);
+          if (code !== 0 && !resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box process failed with exit code: ${code}`));
+          }
+        });
+      }
 
       // 监听标准输出
-      childProcess.stdout.on('data', (data) => {
+      if (childProcess && childProcess.stdout) childProcess.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`=== Sing-box 标准输出 ===`);
         console.log(`输出内容: ${output}`);
@@ -395,7 +489,7 @@ export class ProxyManager {
       });
 
       // 监听标准错误
-      childProcess.stderr.on('data', (data) => {
+      if (childProcess && childProcess.stderr) childProcess.stderr.on('data', (data) => {
         const errorMessage = data.toString();
         console.error(`=== Sing-box 标准错误 ===`);
         console.error(`错误内容: ${errorMessage}`);
@@ -460,10 +554,29 @@ export class ProxyManager {
         id: processId,
         type: 'singbox',
         process: childProcess,
+        pid: elevatedPid as number | undefined,
+        elevated: needElevate,
         config: finalConfig,
         port: finalConfig.inbounds?.[0]?.listen_port || 1080,
         networkSettings
       });
+
+      // 强校验：TUN 模式时必须包含 tun 入站
+      if (needElevate) {
+        const hasTunInbound = Array.isArray(finalConfig.inbounds) && finalConfig.inbounds.some((i: any) => i?.type === 'tun');
+        if (!hasTunInbound) {
+          console.error('[TUN 校验] 未检测到 type=tun 的入站配置，终止启动');
+          try { childProcess?.kill(); } catch {}
+          try { if (elevatedPid) process.kill(elevatedPid, 'SIGTERM'); } catch {}
+          try { if (existsSync(pidFile)) unlinkSync(pidFile); } catch {}
+          try {
+            const { BrowserWindow } = require('electron');
+            const win = BrowserWindow.getAllWindows()?.[0];
+            win?.webContents.send('tun:missing-inbound');
+          } catch {}
+          return reject(new Error('TUN 模式缺少 tun 入站配置'));
+        }
+      }
 
       console.log(`Started Sing-box process: ${processId}`);
       
@@ -478,8 +591,12 @@ export class ProxyManager {
       setTimeout(async () => {
         console.log(`=== 开始端口验证 ===`);
         console.log(`当前时间: ${new Date().toISOString()}`);
-        console.log(`进程状态: ${childProcess.killed ? '已终止' : '运行中'}`);
-        console.log(`进程PID: ${childProcess.pid}`);
+        if (childProcess) {
+          console.log(`进程状态: ${childProcess.killed ? '已终止' : '运行中'}`);
+          console.log(`进程PID: ${childProcess.pid}`);
+        } else {
+          console.log(`提权模式：PID=${elevatedPid}`);
+        }
         
         if (!resolved) {
           try {
@@ -489,6 +606,14 @@ export class ProxyManager {
             console.log(`端口检查结果: ${isPortReady ? '成功' : '失败'}`);
             
             if (isPortReady) {
+              // 额外等待：在 TUN 模式下，等待 utun 路由就绪，避免首次请求“空响应”
+              if (needElevate) {
+                try {
+                  await this.waitForTunReady((networkSettings as any)?.tunDevice || 'utun0', 6000);
+                } catch (e) {
+                  console.warn('[TUN] 等待 utun 路由就绪超时（继续启动）:', (e as any)?.message || e);
+                }
+              }
               console.log(`=== Sing-box 启动成功 ===`);
               console.log(`端口 ${port} 验证成功`);
               console.log(`进程ID: ${processId}`);
@@ -506,8 +631,13 @@ export class ProxyManager {
             } else {
               console.error(`=== Sing-box 启动失败 ===`);
               console.error(`端口 ${port} 验证失败`);
-              console.error(`终止进程 PID: ${childProcess.pid}`);
-              childProcess.kill();
+              if (childProcess) {
+                console.error(`终止进程 PID: ${childProcess.pid}`);
+                childProcess.kill();
+              } else if (elevatedPid) {
+                try { process.kill(elevatedPid, 'SIGTERM'); } catch (e) {}
+                try { if (existsSync(pidFile)) unlinkSync(pidFile); } catch (e) {}
+              }
               resolved = true;
               reject(new Error(`Sing-box 启动失败: 端口 ${port} 不可用`));
             }
@@ -515,8 +645,13 @@ export class ProxyManager {
             console.error(`=== Sing-box 端口验证异常 ===`);
             console.error(`异常详情:`, error);
             console.error(`异常消息: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            console.error(`终止进程 PID: ${childProcess.pid}`);
-            childProcess.kill();
+            if (childProcess) {
+              console.error(`终止进程 PID: ${childProcess.pid}`);
+              childProcess.kill();
+            } else if (elevatedPid) {
+              try { process.kill(elevatedPid, 'SIGTERM'); } catch (e) {}
+              try { if (existsSync(pidFile)) unlinkSync(pidFile); } catch (e) {}
+            }
             resolved = true;
             reject(new Error(`Sing-box 启动失败: 端口验证异常`));
           }
@@ -734,7 +869,11 @@ export class ProxyManager {
   public async stopAll(): Promise<void> {
     for (const [id, proxyProcess] of this.processes) {
       try {
-        proxyProcess.process.kill('SIGTERM');
+        if (proxyProcess.process) {
+          proxyProcess.process.kill('SIGTERM');
+        } else if (proxyProcess.pid) {
+          try { global.process.kill(proxyProcess.pid, 'SIGTERM'); } catch (_) {}
+        }
         console.log(`Stopped ${proxyProcess.type} process: ${id}`);
       } catch (error) {
         console.error(`Failed to stop ${proxyProcess.type} process: ${id}`, error);
@@ -910,6 +1049,29 @@ export class ProxyManager {
   }
 
   /**
+   * 等待 utun 设备与路由就绪
+   */
+  private async waitForTunReady(interfaceName: string, timeoutMs: number = 6000): Promise<void> {
+    const start = Date.now();
+    const { exec } = require('child_process');
+    const execAsync = (cmd: string) => new Promise<string>((resolve, reject) => {
+      exec(cmd, (err: any, stdout: string, stderr: string) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      });
+    });
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const ifconfig = await execAsync(`/sbin/ifconfig ${interfaceName}`);
+        const hasAddr = /inet\s+\d+\.\d+\.\d+\.\d+/.test(ifconfig);
+        if (hasAddr) return;
+      } catch {}
+      await new Promise(r => setTimeout(r, 300));
+    }
+    throw new Error('TUN interface not ready in time');
+  }
+
+  /**
    * 获取Xray可执行文件路径
    */
   private async getXrayPath(): Promise<string> {
@@ -1037,25 +1199,43 @@ export class ProxyManager {
       }
     }
 
-    // 应用TUN设置
-    if (finalConfig.inbounds) {
-      const tunInbound = finalConfig.inbounds.find((inbound: any) => inbound.type === 'tun');
-      if (tunInbound) {
-        if (networkSettings.enableTun) {
-          tunInbound.disabled = false;
-          tunInbound.interface_name = networkSettings.tunDevice || 'utun0';
-          if (networkSettings.enableFakeIp) {
-            tunInbound.inet4_address = [networkSettings.fakeIpRange || '198.18.0.1/16'];
-          }
-          if (networkSettings.enableIpv6) {
-            tunInbound.inet6_address = ['fdfe:dcba:9876::1/126'];
-          }
-        } else {
-          tunInbound.disabled = true;
-        }
-      }
+    // 应用/注入 TUN 入站
+    if (!finalConfig.inbounds) {
+      finalConfig.inbounds = [];
     }
 
+    const existingTun = finalConfig.inbounds.find((inbound: any) => inbound.type === 'tun');
+    if (networkSettings.enableTun) {
+      const tunConfig = existingTun || {
+        type: 'tun',
+        tag: 'tun-in',
+        interface_name: networkSettings.tunDevice || 'utun0',
+        mtu: 9000,
+        stack: 'system',
+        auto_route: true,
+      };
+
+      tunConfig.disabled = false;
+      tunConfig.interface_name = networkSettings.tunDevice || 'utun0';
+      tunConfig.mtu = 9000;
+      tunConfig.stack = 'system';
+      tunConfig.auto_route = true;
+      tunConfig.inet4_address = networkSettings.enableFakeIp
+        ? [networkSettings.fakeIpRange || '198.18.0.1/16']
+        : ['172.19.0.1/28'];
+      if (networkSettings.enableIpv6) {
+        tunConfig.inet6_address = ['fdfe:dcba:9876::1/126'];
+      }
+
+      if (!existingTun) {
+        finalConfig.inbounds.unshift(tunConfig);
+      }
+    } else if (existingTun) {
+      existingTun.disabled = true;
+    }
+
+    // 暴露最后一次的最终配置供状态查询
+    try { (this as any)._lastFinalConfig = finalConfig; } catch {}
     return finalConfig;
   }
 
@@ -1066,7 +1246,11 @@ export class ProxyManager {
     const existingProcesses = Array.from(this.processes.values()).filter(p => p.type === type);
     for (const process of existingProcesses) {
       try {
-        process.process.kill('SIGTERM');
+        if (process.process) {
+          process.process.kill('SIGTERM');
+        } else if (process.pid) {
+          try { global.process.kill(process.pid, 'SIGTERM'); } catch (_) {}
+        }
         console.log(`清理旧 ${type} 进程: ${process.id}`);
       } catch (error) {
         console.error(`清理旧 ${type} 进程失败: ${process.id}`, error);
@@ -1253,10 +1437,14 @@ export class ProxyManager {
       await this.middlewareManager.start();
       console.log(`[ProxyManager] 中间件启动成功`);
       
-      // 设置系统代理
-      console.log(`[ProxyManager] 设置系统代理...`);
-      await systemProxyManager.setSystemProxy('127.0.0.1', port, port);
-      console.log(`[ProxyManager] 系统代理设置成功`);
+      // 设置系统代理（若未被 TUN 模式屏蔽）
+      if (!this.suppressSystemProxyForTun) {
+        console.log(`[ProxyManager] 设置系统代理...`);
+        await systemProxyManager.setSystemProxy('127.0.0.1', port, port);
+        console.log(`[ProxyManager] 系统代理设置成功`);
+      } else {
+        console.log(`[ProxyManager] 已屏蔽系统代理设置（TUN 模式）`);
+      }
       
       console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
       
@@ -1437,6 +1625,20 @@ export class ProxyManager {
         };
       }
     });
+  }
+
+  public getMiddlewareEntryPort(): number | undefined {
+    if (this.middlewareManager) {
+      const st = this.middlewareManager.getStatus();
+      return st.entryPort;
+    }
+    return undefined;
+  }
+
+  public hasMiddlewareRunning(): boolean {
+    if (!this.middlewareManager) return false;
+    const st = this.middlewareManager.getStatus();
+    return st.status === 'running';
   }
 }
 

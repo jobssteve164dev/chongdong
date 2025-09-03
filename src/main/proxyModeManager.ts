@@ -1,6 +1,9 @@
 import { AppSettings, NetworkSettings } from '../shared/types';
+// import { proxyChainConfigGenerator } from './proxyChainConfigGenerator';
 import { systemProxyManager } from './systemProxyManager';
-import { vpnServerManager } from './vpnServerManager';
+import { proxyManager } from './proxyManager';
+import { TunController } from './tunController';
+import { CompatPortForwarder } from './compatPortForwarder';
 
 export interface ProxyModeConfig {
   mode: 'rule' | 'global' | 'direct' | 'vpn';
@@ -74,19 +77,16 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 清理当前模式: ${this.currentMode}`);
     
     try {
-      // 注意：在VPN模式下，我们不自动断开系统VPN连接
-      // 用户需要手动在系统设置中断开VPN连接
+      // 新：VPN模式为 TUN，切换时禁用 TUN 并重启引擎
       if (this.currentMode === 'vpn') {
-        console.log(`[ProxyModeManager] VPN模式：请手动在系统设置中断开VPN连接`);
-        // 只停止内置L2TP服务器
-        await vpnServerManager.stopVpnServer();
+        console.log(`[ProxyModeManager] 关闭 TUN 设置并重启引擎`);
+        proxyManager.updateNetworkSettings({ enableTun: false } as any);
+        await proxyManager.restartAllProcesses();
         this.currentVpnName = undefined;
       }
       
-      // 关闭系统代理（仅对非VPN模式）
-      if (this.currentMode !== 'vpn') {
-        await systemProxyManager.clearSystemProxy();
-      }
+      // 统一清理系统代理
+      await systemProxyManager.clearSystemProxy();
       
       console.log(`[ProxyModeManager] 当前模式清理完成`);
     } catch (error) {
@@ -171,89 +171,87 @@ export class ProxyModeManager {
   }
 
   /**
-   * 应用VPN模式
+   * 应用VPN模式（TUN）
    */
-  private async applyVpnMode(_settings: AppSettings, _networkSettings?: NetworkSettings): Promise<ProxyModeResult> {
-    console.log(`[ProxyModeManager] 应用VPN模式`);
+  private async applyVpnMode(settings: AppSettings, networkSettings?: NetworkSettings): Promise<ProxyModeResult> {
+    console.log(`[ProxyModeManager] 应用VPN模式（TUN）`);
     
     try {
-      // VPN模式：启动内置L2TP服务器，用户手动配置系统VPN连接
-      
-      // 1. 获取当前代理节点信息用于流量分流配置
-      const proxyNodes = await this.getCurrentProxyNodes();
-      console.log(`[ProxyModeManager] 获取到 ${proxyNodes.length} 个代理节点用于流量分流`);
-      
-      // 2. 启动内置L2TP服务器
-      const vpnServerConfig = {
-        type: 'l2tp' as const,
-        port: 1701, // L2TP默认端口
-        interface: 'l2tp0',
-        subnet: '10.8.0.0',
-        proxyNodes: proxyNodes // 传递代理节点信息用于路由配置
-      };
-      
-      try {
-        // 启动内置L2TP服务器
-        await vpnServerManager.startVpnServer(vpnServerConfig);
-        console.log(`[ProxyModeManager] 内置L2TP服务器已启动`);
-        
-        // 3. 获取服务器连接信息
-        const serverInfo = vpnServerManager.getServerInfo();
-        if (!serverInfo) {
-          throw new Error('无法获取VPN服务器信息');
-        }
-        
-        console.log(`[ProxyModeManager] VPN服务器信息:`, serverInfo);
-        
-        this.currentMode = 'vpn';
-        this.currentVpnName = 'ChongdongL2TP';
-        
-        return {
-          success: true,
-          message: `VPN模式已启用：内置L2TP服务器已启动。请在系统网络设置中添加VPN连接，使用以下信息：
-服务器地址: ${serverInfo.host}
-端口: ${serverInfo.port}
-协议: ${serverInfo.protocol}
-用户名: ${serverInfo.username}
-密码: ${serverInfo.password}
+      // 新 VPN 模式：自研 TUN（tun2socks）桥接到本地 SOCKS 入口（由中间件或全局代理提供）
+      const tunName = networkSettings?.tunDevice || settings.tunDevice || 'utun0';
+      const enableUdp = networkSettings?.enableUdp ?? settings.enableUdp ?? true;
+      const enableIpv6 = networkSettings?.enableIpv6 ?? settings.enableIpv6 ?? false;
+      const dnsServer = networkSettings?.dnsServer || settings.dnsServer; // 可选
 
-注意：代理节点流量将直接路由以避免死循环。`,
-          vpnName: 'ChongdongL2TP'
-        };
-      } catch (vpnError) {
-        console.warn(`[ProxyModeManager] L2TP服务器启动失败:`, vpnError);
-        
-        // 清理以防部分成功
-        await vpnServerManager.stopVpnServer();
-
-        this.currentMode = 'vpn'; // 仍然设置模式，以便UI可以反映状态
-        this.currentVpnName = 'ChongdongL2TP';
-        
-        return {
-          success: false,
-          message: `VPN模式启用失败: ${vpnError instanceof Error ? vpnError.message : String(vpnError)}. 请检查端口是否被占用。`,
-          vpnName: 'ChongdongL2TP'
-        };
+      // 优先使用中间件入口端口，其次回退到 settings.socksPort
+      const socksPort = (proxyManager as any).getMiddlewareEntryPort?.() || settings.socksPort;
+      if (!socksPort || socksPort <= 0) {
+        throw new Error('无效的 SOCKS 入口端口，无法启动 TUN 模式');
       }
+
+      // 确保现有代理进程可用（不停止中间件），仅更新网络设置用于其他组件感知
+      const mergedNetwork: Partial<NetworkSettings> = {
+        enableTun: false,
+        tunDevice: tunName,
+        enableUdp,
+        enableIpv6,
+        enableDns: networkSettings?.enableDns ?? settings.enableDns ?? true,
+        dnsServer,
+      } as any;
+      proxyManager.updateNetworkSettings(mergedNetwork as any);
+
+      // 在 TUN 模式下屏蔽后续链路自动设置系统代理
+      try { (proxyManager as any).setSuppressSystemProxyForTun?.(true); } catch {}
+
+      // 启动/重启 TUN 控制器
+      await TunController.start({
+        tunName,
+        socksHost: '127.0.0.1',
+        socksPort,
+        enableUdp,
+        enableIpv6,
+        dnsServer,
+      });
+
+      // 兼容性代理：在 TUN 模式下可选启用 1080 等端口转发（后续实现）
+      // 这里仅保留设置占位，实际监听与转发将在 ProxyManager 或专用组件中实现
+
+      this.currentMode = 'vpn';
+      this.currentVpnName = 'ChongdongTUN';
+
+      // 清理系统代理，避免与 TUN 冲突
+      await systemProxyManager.clearSystemProxy();
+
+      // 兼容端口（例如 1080）→ 转发到中间件入口或 settings 端口
+      try {
+        if (settings.enableCompatProxy) {
+          const httpPort = settings.compatHttpPort || 1080;
+          const socksPort = settings.compatSocksPort || 1080;
+          const entry = (proxyManager as any).getMiddlewareEntryPort?.() || settings.socksPort;
+          if (entry) {
+            await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
+            if (socksPort !== httpPort) {
+              await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
+            }
+          }
+        } else {
+          await CompatPortForwarder.stopAll();
+        }
+      } catch (e) {
+        console.warn('[ProxyModeManager] 启动兼容端口失败:', e);
+      }
+
+      return {
+        success: true,
+        message: `已启用自研 TUN（tun2socks->${socksPort}），系统代理已清理。`,
+        vpnName: 'ChongdongTUN'
+      };
     } catch (error) {
       throw new Error(`应用VPN模式失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  /**
-   * 获取当前代理节点信息
-   */
-  private async getCurrentProxyNodes(): Promise<any[]> {
-    try {
-      // 这里应该从代理管理器获取当前活跃的代理节点
-      // 简化实现：返回空数组，实际应该从proxyManager获取
-      console.log(`[ProxyModeManager] 获取当前代理节点信息`);
-      return [];
-    } catch (error) {
-      console.warn(`[ProxyModeManager] 获取代理节点信息失败:`, error);
-      return [];
-    }
-  }
+  
 
   /**
    * 获取当前模式
@@ -278,20 +276,8 @@ export class ProxyModeManager {
     }
     
     try {
-      // 检查内置L2TP服务器是否正在运行
-      const serverStatus = vpnServerManager.getStatus();
-      
-      if (!serverStatus.running) {
-        return { 
-          connected: false, 
-          error: serverStatus.error || '内置L2TP服务器未运行' 
-        };
-      }
-
-      // 如果服务器正在运行，我们假设它已准备好接受连接
-      return { 
-        connected: true
-      };
+      const running = (await Promise.resolve(TunController.isRunning())) as boolean;
+      return running ? { connected: true } : { connected: false, error: 'TUN 未运行' };
     } catch (error) {
       return { connected: false, error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -303,10 +289,13 @@ export class ProxyModeManager {
   public async disconnectVpn(): Promise<void> {
     if (this.currentMode === 'vpn') {
       try {
-        // 停止内置L2TP服务器
-        await vpnServerManager.stopVpnServer();
-        this.currentVpnName = undefined; // 清除VPN名称
-        console.log(`[ProxyModeManager] 内置L2TP服务器已停止`);
+        // 停止自研 TUN 控制器
+        await TunController.stop();
+        await CompatPortForwarder.stopAll();
+        proxyManager.updateNetworkSettings({ enableTun: false } as any);
+        try { (proxyManager as any).setSuppressSystemProxyForTun?.(false); } catch {}
+        this.currentVpnName = undefined;
+        console.log(`[ProxyModeManager] 已停止自研 TUN 模式`);
       } catch (error) {
         console.error(`[ProxyModeManager] 断开VPN连接失败:`, error);
         throw error;

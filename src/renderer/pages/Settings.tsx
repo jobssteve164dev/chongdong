@@ -320,6 +320,8 @@ const Settings: React.FC = () => {
         'enableDnsRules', 'dnsRules', 'enableDnsFallback', 'dnsFallbackServers',
         'enableTun', 'tunDevice', 'enableFakeIp', 'fakeIpRange',
         'enableUdp', 'enableIpv6', 'logLevel', 'enableLog', 'logFile',
+        // 兼容端口（让未跟随系统代理的应用可用固定端口）
+        'enableCompatProxy', 'compatHttpPort', 'compatSocksPort',
         // 延迟测试相关设置
         'latencyTestUrl', 'latencyTestTimeout', 'latencyTestRetries', 
         'latencyTestInterval', 'enableAutoLatencyTest', 'latencyTestConcurrency', 'latencyTestUrls'
@@ -863,33 +865,18 @@ const Settings: React.FC = () => {
                       
                       {/* VPN配置提示 */}
                       <Alert
-                        message="VPN配置说明"
+                        message="TUN模式说明"
                         description={
                           <div>
-                            <p><strong>虫洞VPN模式已启动内置L2TP服务器</strong></p>
-                            <p>请在系统网络设置中添加VPN连接，使用以下信息：</p>
+                            <p><strong>已切换为 TUN 模式（系统 utun 设备）。</strong></p>
                             <ul>
-                              <li><strong>服务器地址：</strong>127.0.0.1</li>
-                              <li><strong>协议：</strong>L2TP/IPSec</li>
-                              <li><strong>用户名：</strong>chongdong</li>
-                              <li><strong>密码：</strong>chongdong123</li>
-                              <li><strong>共享密钥：</strong>chongdong-secret</li>
+                              <li>macOS 首次启用会弹出系统管理员授权，用于创建 utun 设备。</li>
+                              <li>TUN 将在 IP 层劫持系统流量，无需在系统里新建 VPN 配置。</li>
+                              <li>启用后会自动路由（auto_route），并清空系统代理以避免冲突。</li>
+                              <li>如需自定义设备名或 FakeIP 范围，请在下方“TUN设置”中配置。</li>
+                              <li>若授权被拒绝，TUN 启动会失败，请重新启用并允许授权。</li>
                             </ul>
-                            <p><strong>配置步骤：</strong></p>
-                            <ul>
-                              <li>在macOS上：打开"系统偏好设置" → "网络" → 点击"+" → 选择"VPN" → 选择"L2TP over IPSec"</li>
-                              <li>在Windows上：打开"设置" → "网络和Internet" → "VPN" → "添加VPN连接"</li>
-                              <li>在Linux上：使用NetworkManager添加L2TP连接</li>
-                            </ul>
-                            <p><strong>注意事项：</strong></p>
-                            <ul>
-                              <li>macOS会自动使用L2TP默认端口(1701)和IPSec默认端口(500)</li>
-                              <li>共享密钥是必填项，请使用上面提供的密钥</li>
-                              <li>代理节点流量将直接路由，避免死循环</li>
-                              <li>其他流量将通过L2TP隧道进行代理</li>
-                              <li>连接后所有系统流量将自动通过虫洞代理</li>
-                            </ul>
-                            <p>或者您可以切换到其他代理模式以使用应用内置的代理功能。</p>
+                            <p>提示：切换到“直连/规则/全局模式”时，TUN 将被禁用并恢复常规代理。</p>
                           </div>
                         }
                         type="info"
@@ -901,13 +888,28 @@ const Settings: React.FC = () => {
                 </Row>
               )}
 
-              <Form.Item name="externalController" label="外部控制器地址">
-                <Input placeholder="127.0.0.1:9090" />
-              </Form.Item>
+              <Divider />
 
-              <Form.Item name="secret" label="API密钥">
-                <Input.Password placeholder="留空则不设置密钥" />
-              </Form.Item>
+              <Title level={4}>兼容性代理</Title>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableCompatProxy" label="启用兼容端口" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="compatHttpPort" label="兼容HTTP端口">
+                    <InputNumber min={1024} max={65535} placeholder={1080} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="compatSocksPort" label="兼容SOCKS端口">
+                    <InputNumber min={1024} max={65535} placeholder={1080} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              {/* 移除外部控制器地址和API密钥，这些在TUN模式下不需要 */}
             </Form>
           </Card>
         </TabPane>
@@ -924,7 +926,7 @@ const Settings: React.FC = () => {
           <Card title="安全配置">
             <Alert
               message="安全提示"
-              description="请确保API密钥的安全性，建议设置强密码。"
+              description="配置应用的安全相关设置，包括日志、UDP和外部API访问。"
               type="info"
               showIcon
               style={{ marginBottom: 24 }}
@@ -962,6 +964,38 @@ const Settings: React.FC = () => {
                 <Col xs={24} sm={12}>
                   <Form.Item name="logFile" label="日志文件">
                     <Input placeholder="chongdong.log" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider />
+
+              <Title level={4}>外部API设置（高级）</Title>
+              <Alert
+                message="外部API说明"
+                description="启用外部API允许其他工具（如Clash for Windows）通过HTTP API控制虫洞。仅在需要时启用。"
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableExternalApi" label="启用外部API" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="externalController" label="外部控制器地址">
+                    <Input placeholder="127.0.0.1:9090" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="secret" label="API密钥">
+                    <Input.Password placeholder="留空则不设置密钥" />
                   </Form.Item>
                 </Col>
               </Row>

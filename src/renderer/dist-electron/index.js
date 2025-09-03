@@ -613,6 +613,22 @@ class CoreDownloader {
   getCoreInfo(coreName) {
     const { platform: platform2, arch } = this.getPlatformInfo();
     switch (coreName) {
+      case "tun2socks": {
+        const ver = "v2.5.0";
+        const name = "tun2socks";
+        const fileName = platform2 === "win32" ? "tun2socks.exe" : "tun2socks";
+        const os2 = platform2;
+        const ar = arch;
+        const asset = `${name}-${os2}-${ar}.zip`;
+        return {
+          name: "tun2socks",
+          version: ver,
+          platform: platform2,
+          arch,
+          fileName,
+          downloadUrl: `https://github.com/xjasonlyu/tun2socks/releases/download/${ver}/${asset}`
+        };
+      }
       case "singbox":
         return {
           name: "sing-box",
@@ -750,8 +766,14 @@ class CoreDownloader {
         command = "gunzip";
         args = ["-f", filePath];
       } else if (isZip) {
+        tempDir = path$1.join(this.coresDir, "temp");
+        console.log(`创建临时目录: ${tempDir}`);
+        if (!fs$1.existsSync(tempDir)) {
+          fs$1.mkdirSync(tempDir, { recursive: true });
+        }
         command = "unzip";
-        args = ["-o", filePath, "-d", extractDir];
+        args = ["-o", filePath, "-d", tempDir];
+        console.log(`执行解压命令: ${command} ${args.join(" ")}`);
       } else {
         console.log("不支持的文件格式，跳过解压");
         resolve();
@@ -761,9 +783,10 @@ class CoreDownloader {
       child.on("close", (code) => {
         console.log(`解压命令退出码: ${code}`);
         if (code === 0) {
-          if (isTarGz) {
+          if (isTarGz || isZip) {
             console.log(`解压成功，开始查找可执行文件...`);
-            this.findAndMoveExecutable(tempDir, extractDir, targetFileName).then(() => {
+            const searchDir = tempDir || extractDir;
+            this.findAndMoveExecutable(searchDir, extractDir, targetFileName).then(() => {
               console.log("可执行文件移动完成");
               resolve();
             }).catch((error) => {
@@ -904,6 +927,7 @@ class CoreDownloader {
    */
   getCoresStatus() {
     return {
+      tun2socks: this.isCoreInstalled("tun2socks"),
       singbox: this.isCoreInstalled("singbox"),
       xray: this.isCoreInstalled("xray"),
       clash: this.isCoreInstalled("clash"),
@@ -968,7 +992,22 @@ class ProxyChainConfigGenerator {
    */
   generateChainConfig(nodes, listenPort) {
     if (nodes.length === 0) {
-      throw new Error("No nodes provided for chain configuration");
+      const inbounds2 = this.generateInbounds(listenPort);
+      const logConfig2 = this.generateLogConfig();
+      return {
+        inbounds: inbounds2,
+        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
+        route: {
+          rules: [
+            {
+              inbound: [inbounds2[0].tag, "tun-in"],
+              outbound: "direct"
+            }
+          ],
+          final: "direct"
+        },
+        log: logConfig2
+      };
     }
     const validNodes = nodes.filter((node2) => {
       const isValid = node2 && node2.server && node2.port;
@@ -978,7 +1017,22 @@ class ProxyChainConfigGenerator {
       return isValid;
     });
     if (validNodes.length === 0) {
-      throw new Error("No valid nodes found for chain configuration after filtering. All provided nodes were incomplete.");
+      const inbounds2 = this.generateInbounds(listenPort);
+      const logConfig2 = this.generateLogConfig();
+      return {
+        inbounds: inbounds2,
+        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
+        route: {
+          rules: [
+            {
+              inbound: [inbounds2[0].tag, "tun-in"],
+              outbound: "direct"
+            }
+          ],
+          final: "direct"
+        },
+        log: logConfig2
+      };
     }
     console.log(`[ProxyChainConfigGenerator] Generating chain config for ${validNodes.length} valid nodes on port ${listenPort}`);
     const inbounds = this.generateInbounds(listenPort);
@@ -1175,7 +1229,7 @@ class ProxyChainConfigGenerator {
     return {
       rules: [
         {
-          inbound: ["mixed-in"],
+          inbound: ["mixed-in", "tun-in"],
           outbound: firstNodeTag
         }
       ],
@@ -1190,7 +1244,7 @@ class ProxyChainConfigGenerator {
     return {
       rules: [
         {
-          inbound: [inboundTag],
+          inbound: [inboundTag, "tun-in"],
           outbound: outboundTag
         }
       ],
@@ -2470,7 +2524,7 @@ class ProxyChainMiddlewareManager {
     PortManager.getInstance().cleanup();
   }
 }
-const execAsync$1 = require$$1$1.promisify(child_process.exec);
+const execAsync = require$$1$1.promisify(child_process.exec);
 class SystemProxyManager {
   constructor() {
   }
@@ -2536,14 +2590,14 @@ class SystemProxyManager {
    */
   async setWindowsProxy(host, port) {
     try {
-      await execAsync$1(`netsh winhttp set proxy ${host}:${port}`);
+      await execAsync(`netsh winhttp set proxy ${host}:${port}`);
       const script = `
         $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
         Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 1
         Set-ItemProperty -Path $regPath -Name ProxyServer -Value "${host}:${port}"
         Set-ItemProperty -Path $regPath -Name ProxyOverride -Value "<-loopback>"
       `;
-      await execAsync$1(`powershell -Command "${script}"`);
+      await execAsync(`powershell -Command "${script}"`);
       console.log(`Windows proxy set to ${host}:${port}`);
     } catch (error) {
       throw new Error(`Failed to set Windows proxy: ${error}`);
@@ -2551,14 +2605,14 @@ class SystemProxyManager {
   }
   async clearWindowsProxy() {
     try {
-      await execAsync$1("netsh winhttp reset proxy");
+      await execAsync("netsh winhttp reset proxy");
       const script = `
         $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
         Set-ItemProperty -Path $regPath -Name ProxyEnable -Value 0
         Remove-ItemProperty -Path $regPath -Name ProxyServer -ErrorAction SilentlyContinue
         Remove-ItemProperty -Path $regPath -Name ProxyOverride -ErrorAction SilentlyContinue
       `;
-      await execAsync$1(`powershell -Command "${script}"`);
+      await execAsync(`powershell -Command "${script}"`);
       console.log("Windows proxy cleared");
     } catch (error) {
       throw new Error(`Failed to clear Windows proxy: ${error}`);
@@ -2566,7 +2620,7 @@ class SystemProxyManager {
   }
   async getWindowsProxy() {
     try {
-      const { stdout } = await execAsync$1("netsh winhttp show proxy");
+      const { stdout } = await execAsync("netsh winhttp show proxy");
       const lines = stdout.split("\n");
       for (const line of lines) {
         if (line.includes("Proxy Server(s):")) {
@@ -2597,24 +2651,24 @@ class SystemProxyManager {
     const actualHttpPort = httpPort || socksPort;
     try {
       console.log(`获取网络服务列表...`);
-      const { stdout: services } = await execAsync$1("networksetup -listallnetworkservices");
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
       const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
       console.log(`找到网络服务:`, serviceLines);
       for (const service of serviceLines) {
         if (service.trim()) {
           console.log(`设置网络服务 "${service.trim()}" 的代理...`);
           console.log(`设置HTTP代理: ${host}:${actualHttpPort}`);
-          await execAsync$1(`networksetup -setwebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          await execAsync(`networksetup -setwebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
           console.log(`设置HTTPS代理: ${host}:${actualHttpPort}`);
-          await execAsync$1(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
+          await execAsync(`networksetup -setsecurewebproxy "${service.trim()}" ${host} ${actualHttpPort}`);
           console.log(`设置SOCKS代理: ${host}:${socksPort}`);
-          await execAsync$1(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${socksPort}`);
+          await execAsync(`networksetup -setsocksfirewallproxy "${service.trim()}" ${host} ${socksPort}`);
           console.log(`启用HTTP代理`);
-          await execAsync$1(`networksetup -setwebproxystate "${service.trim()}" on`);
+          await execAsync(`networksetup -setwebproxystate "${service.trim()}" on`);
           console.log(`启用HTTPS代理`);
-          await execAsync$1(`networksetup -setsecurewebproxystate "${service.trim()}" on`);
+          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" on`);
           console.log(`启用SOCKS代理`);
-          await execAsync$1(`networksetup -setsocksfirewallproxystate "${service.trim()}" on`);
+          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" on`);
         }
       }
       console.log(`=== macOS 系统代理设置完成 ===`);
@@ -2710,13 +2764,13 @@ class SystemProxyManager {
   }
   async clearMacOSProxy() {
     try {
-      const { stdout: services } = await execAsync$1("networksetup -listallnetworkservices");
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
       const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
       for (const service of serviceLines) {
         if (service.trim()) {
-          await execAsync$1(`networksetup -setwebproxystate "${service.trim()}" off`);
-          await execAsync$1(`networksetup -setsecurewebproxystate "${service.trim()}" off`);
-          await execAsync$1(`networksetup -setsocksfirewallproxystate "${service.trim()}" off`);
+          await execAsync(`networksetup -setwebproxystate "${service.trim()}" off`);
+          await execAsync(`networksetup -setsecurewebproxystate "${service.trim()}" off`);
+          await execAsync(`networksetup -setsocksfirewallproxystate "${service.trim()}" off`);
         }
       }
       console.log("macOS proxy cleared");
@@ -2726,11 +2780,11 @@ class SystemProxyManager {
   }
   async getMacOSProxy() {
     try {
-      const { stdout: services } = await execAsync$1("networksetup -listallnetworkservices");
+      const { stdout: services } = await execAsync("networksetup -listallnetworkservices");
       const serviceLines = services.split("\n").filter((line) => line.trim() && !line.includes("*"));
       for (const service of serviceLines) {
         if (service.trim()) {
-          const { stdout } = await execAsync$1(`networksetup -getwebproxy "${service.trim()}"`);
+          const { stdout } = await execAsync(`networksetup -getwebproxy "${service.trim()}"`);
           const lines = stdout.split("\n");
           for (const line of lines) {
             if (line.includes("Server:") && !line.includes("(null)")) {
@@ -2759,16 +2813,16 @@ class SystemProxyManager {
   async setLinuxProxy(host, port) {
     try {
       const proxyUrl = `http://${host}:${port}`;
-      await execAsync$1(`export http_proxy=${proxyUrl}`);
-      await execAsync$1(`export https_proxy=${proxyUrl}`);
-      await execAsync$1(`export HTTP_PROXY=${proxyUrl}`);
-      await execAsync$1(`export HTTPS_PROXY=${proxyUrl}`);
+      await execAsync(`export http_proxy=${proxyUrl}`);
+      await execAsync(`export https_proxy=${proxyUrl}`);
+      await execAsync(`export HTTP_PROXY=${proxyUrl}`);
+      await execAsync(`export HTTPS_PROXY=${proxyUrl}`);
       try {
-        await execAsync$1(`gsettings set org.gnome.system.proxy mode 'manual'`);
-        await execAsync$1(`gsettings set org.gnome.system.proxy.http host '${host}'`);
-        await execAsync$1(`gsettings set org.gnome.system.proxy.http port ${port}`);
-        await execAsync$1(`gsettings set org.gnome.system.proxy.https host '${host}'`);
-        await execAsync$1(`gsettings set org.gnome.system.proxy.https port ${port}`);
+        await execAsync(`gsettings set org.gnome.system.proxy mode 'manual'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.http host '${host}'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.http port ${port}`);
+        await execAsync(`gsettings set org.gnome.system.proxy.https host '${host}'`);
+        await execAsync(`gsettings set org.gnome.system.proxy.https port ${port}`);
       } catch (error) {
         console.warn("GNOME settings not available, using environment variables only");
       }
@@ -2779,12 +2833,12 @@ class SystemProxyManager {
   }
   async clearLinuxProxy() {
     try {
-      await execAsync$1("unset http_proxy");
-      await execAsync$1("unset https_proxy");
-      await execAsync$1("unset HTTP_PROXY");
-      await execAsync$1("unset HTTPS_PROXY");
+      await execAsync("unset http_proxy");
+      await execAsync("unset https_proxy");
+      await execAsync("unset HTTP_PROXY");
+      await execAsync("unset HTTPS_PROXY");
       try {
-        await execAsync$1('gsettings set org.gnome.system.proxy mode "none"');
+        await execAsync('gsettings set org.gnome.system.proxy mode "none"');
       } catch (error) {
         console.warn("GNOME settings not available");
       }
@@ -2807,10 +2861,10 @@ class SystemProxyManager {
         }
       }
       try {
-        const { stdout } = await execAsync$1("gsettings get org.gnome.system.proxy mode");
+        const { stdout } = await execAsync("gsettings get org.gnome.system.proxy mode");
         if (stdout.includes("manual")) {
-          const { stdout: host } = await execAsync$1("gsettings get org.gnome.system.proxy.http host");
-          const { stdout: port } = await execAsync$1("gsettings get org.gnome.system.proxy.http port");
+          const { stdout: host } = await execAsync("gsettings get org.gnome.system.proxy.http host");
+          const { stdout: port } = await execAsync("gsettings get org.gnome.system.proxy.http port");
           if (host && port) {
             return {
               host: host.trim().replace(/['"]/g, ""),
@@ -2888,7 +2942,7 @@ class SystemProxyManager {
   async createWindowsVPN(config) {
     try {
       const command = `Add-VpnConnection -Name "${config.name}" -ServerAddress "${config.server}" -TunnelType "${config.type}" -EncryptionLevel "Required" -AuthenticationMethod MSChapv2 -Force -PassThru -AllUserConnection`;
-      await execAsync$1(`powershell -Command "${command}"`);
+      await execAsync(`powershell -Command "${command}"`);
       console.log(`Windows VPN connection created: ${config.name}`);
     } catch (error) {
       throw new Error(`Failed to create Windows VPN: ${error}`);
@@ -2896,7 +2950,7 @@ class SystemProxyManager {
   }
   async connectWindowsVPN(name) {
     try {
-      await execAsync$1(`rasdial "${name}"`);
+      await execAsync(`rasdial "${name}"`);
       console.log(`Windows VPN connected: ${name}`);
     } catch (error) {
       throw new Error(`Failed to connect Windows VPN: ${error}`);
@@ -2904,7 +2958,7 @@ class SystemProxyManager {
   }
   async disconnectWindowsVPN(name) {
     try {
-      await execAsync$1(`rasdial "${name}" /disconnect`);
+      await execAsync(`rasdial "${name}" /disconnect`);
       console.log(`Windows VPN disconnected: ${name}`);
     } catch (error) {
       throw new Error(`Failed to disconnect Windows VPN: ${error}`);
@@ -2917,7 +2971,7 @@ class SystemProxyManager {
     try {
       console.log(`[SystemProxyManager] 尝试创建macOS VPN服务: ${config.name}`);
       try {
-        const { stdout } = await execAsync$1(`scutil --nc list`);
+        const { stdout } = await execAsync(`scutil --nc list`);
         if (stdout.includes(config.name)) {
           console.log(`macOS VPN service ${config.name} already exists`);
           return;
@@ -2948,13 +3002,13 @@ class SystemProxyManager {
       try {
         require("fs").writeFileSync(vpnConfigPath, vpnConfig);
         console.log(`[SystemProxyManager] VPN配置文件已创建: ${vpnConfigPath}`);
-        await execAsync$1(`sudo scutil --nc select "${config.name}"`);
+        await execAsync(`sudo scutil --nc select "${config.name}"`);
         console.log(`[SystemProxyManager] VPN服务已启用: ${config.name}`);
       } catch (error) {
         console.warn(`[SystemProxyManager] VPN配置创建失败: ${error}`);
         console.log(`[SystemProxyManager] 使用备用方案创建VPN服务`);
         try {
-          await execAsync$1(`sudo networksetup -createpppoeservice "${config.name}" "en0" "${config.username || "chongdong"}" "${config.password || "defaultsecret"}"`);
+          await execAsync(`sudo networksetup -createpppoeservice "${config.name}" "en0" "${config.username || "chongdong"}" "${config.password || "defaultsecret"}"`);
           console.log(`[SystemProxyManager] PPPoE VPN服务已创建: ${config.name}`);
         } catch (pppoeError) {
           console.warn(`[SystemProxyManager] PPPoE服务创建也失败: ${pppoeError}`);
@@ -2968,12 +3022,12 @@ class SystemProxyManager {
     try {
       console.log(`[SystemProxyManager] 尝试连接macOS VPN: ${name}`);
       try {
-        await execAsync$1(`sudo scutil --nc start "${name}"`);
+        await execAsync(`sudo scutil --nc start "${name}"`);
         console.log(`macOS VPN connected via scutil: ${name}`);
       } catch (scutilError) {
         console.warn(`[SystemProxyManager] scutil连接失败: ${scutilError}`);
         try {
-          await execAsync$1(`sudo networksetup -connectpppoeservice "${name}"`);
+          await execAsync(`sudo networksetup -connectpppoeservice "${name}"`);
           console.log(`macOS VPN connected via PPPoE: ${name}`);
         } catch (pppoeError) {
           console.warn(`[SystemProxyManager] PPPoE连接也失败: ${pppoeError}`);
@@ -2988,12 +3042,12 @@ class SystemProxyManager {
     try {
       console.log(`[SystemProxyManager] 尝试断开macOS VPN: ${name}`);
       try {
-        await execAsync$1(`sudo scutil --nc stop "${name}"`);
+        await execAsync(`sudo scutil --nc stop "${name}"`);
         console.log(`macOS VPN disconnected via scutil: ${name}`);
       } catch (scutilError) {
         console.warn(`[SystemProxyManager] scutil断开失败: ${scutilError}`);
         try {
-          await execAsync$1(`sudo networksetup -disconnectpppoeservice "${name}"`);
+          await execAsync(`sudo networksetup -disconnectpppoeservice "${name}"`);
           console.log(`macOS VPN disconnected via PPPoE: ${name}`);
         } catch (pppoeError) {
           console.warn(`[SystemProxyManager] PPPoE断开也失败: ${pppoeError}`);
@@ -3016,7 +3070,7 @@ class SystemProxyManager {
   }
   async connectLinuxVPN(name) {
     try {
-      await execAsync$1(`nmcli connection up "${name}"`);
+      await execAsync(`nmcli connection up "${name}"`);
       console.log(`Linux VPN connected: ${name}`);
     } catch (error) {
       throw new Error(`Failed to connect Linux VPN: ${error}`);
@@ -3024,7 +3078,7 @@ class SystemProxyManager {
   }
   async disconnectLinuxVPN(name) {
     try {
-      await execAsync$1(`nmcli connection down "${name}"`);
+      await execAsync(`nmcli connection down "${name}"`);
       console.log(`Linux VPN disconnected: ${name}`);
     } catch (error) {
       throw new Error(`Failed to disconnect Linux VPN: ${error}`);
@@ -3079,7 +3133,7 @@ class SystemProxyManager {
   async getWindowsVPNStatus(name) {
     try {
       const command = `Get-VpnConnection -Name "${name}" | Select-Object -ExpandProperty ConnectionStatus`;
-      const result = await execAsync$1(`powershell -Command "${command}"`);
+      const result = await execAsync(`powershell -Command "${command}"`);
       const status = result.stdout.trim().toLowerCase();
       return { connected: status === "connected" };
     } catch (error) {
@@ -3093,7 +3147,7 @@ class SystemProxyManager {
     try {
       console.log(`[SystemProxyManager] 检查macOS VPN状态: ${name}`);
       try {
-        const { stdout } = await execAsync$1(`scutil --nc list`);
+        const { stdout } = await execAsync(`scutil --nc list`);
         if (!stdout.includes(name)) {
           return { connected: false, error: `VPN service "${name}" does not exist` };
         }
@@ -3101,14 +3155,14 @@ class SystemProxyManager {
         console.warn(`[SystemProxyManager] 检查VPN服务列表失败: ${error}`);
       }
       try {
-        const result = await execAsync$1(`sudo scutil --nc status "${name}"`);
+        const result = await execAsync(`sudo scutil --nc status "${name}"`);
         const isConnected = result.stdout.includes("Connected") || result.stdout.includes("connected");
         console.log(`[SystemProxyManager] VPN状态检查结果: ${result.stdout}`);
         return { connected: isConnected };
       } catch (scutilError) {
         console.warn(`[SystemProxyManager] scutil状态检查失败: ${scutilError}`);
         try {
-          const result = await execAsync$1(`sudo networksetup -showpppoestatus "${name}"`);
+          const result = await execAsync(`sudo networksetup -showpppoestatus "${name}"`);
           const isConnected = result.stdout.includes("connected") || result.stdout.includes("Connected");
           return { connected: isConnected };
         } catch (networksetupError) {
@@ -3126,7 +3180,7 @@ class SystemProxyManager {
   async getLinuxVPNStatus(name) {
     try {
       const command = `nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active | grep "${name}"`;
-      const result = await execAsync$1(command);
+      const result = await execAsync(command);
       return { connected: result.stdout.includes("activated") };
     } catch (error) {
       return { connected: false, error: `Linux VPN status check failed: ${error}` };
@@ -3143,10 +3197,10 @@ class SystemProxyManager {
     };
     try {
       if (process.platform === "win32") {
-        await execAsync$1("net session");
+        await execAsync("net session");
         result.admin = true;
       } else {
-        await execAsync$1("sudo -n true");
+        await execAsync("sudo -n true");
         result.admin = true;
       }
     } catch (error) {
@@ -3167,6 +3221,7 @@ class ProxyManager {
   constructor() {
     this.processes = /* @__PURE__ */ new Map();
     this.useMiddleware = true;
+    this.suppressSystemProxyForTun = false;
     this.configDir = path$1.join(electron.app.getPath("userData"), "proxy-configs");
     this.binDir = path$1.join(electron.app.getPath("userData"), "bin");
     if (!fs$1.existsSync(this.configDir)) {
@@ -3188,6 +3243,40 @@ class ProxyManager {
   updateNetworkSettings(settings) {
     this.currentNetworkSettings = settings;
     console.log("网络设置已更新:", settings);
+  }
+  /**
+   * 获取最近一次应用到 sing-box 的最终配置（只读快照）
+   */
+  getCurrentSingboxConfig() {
+    return this._lastFinalConfig;
+  }
+  /**
+   * 是否存在任意全局 sing-box 进程（非中间件适配器）
+   */
+  hasGlobalProcess() {
+    return Array.from(this.processes.values()).some((p) => p.type === "singbox");
+  }
+  /**
+   * 在 TUN 模式下屏蔽系统代理设置
+   */
+  setSuppressSystemProxyForTun(suppress) {
+    this.suppressSystemProxyForTun = suppress;
+    console.log(`[ProxyManager] suppressSystemProxyForTun = ${suppress}`);
+  }
+  /**
+   * 停止并清理中间件（如果存在）
+   */
+  async stopMiddleware() {
+    if (this.middlewareManager) {
+      try {
+        console.log("[ProxyManager] 停止中间件...");
+        await this.middlewareManager.stop();
+        this.middlewareManager = void 0;
+        console.log("[ProxyManager] 中间件已停止");
+      } catch (e) {
+        console.warn("[ProxyManager] 停止中间件出现非致命错误:", e);
+      }
+    }
   }
   /**
    * 测试代理连接
@@ -3377,7 +3466,14 @@ class ProxyManager {
     const process2 = this.processes.get(processId);
     if (process2) {
       try {
-        process2.process.kill();
+        if (process2.process) {
+          process2.process.kill();
+        } else if (process2.pid) {
+          try {
+            global.process.kill(process2.pid, "SIGTERM");
+          } catch (e) {
+          }
+        }
         this.processes.delete(processId);
         console.log(`进程 ${processId} 已停止`);
       } catch (error) {
@@ -3405,42 +3501,83 @@ class ProxyManager {
     fs$1.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
     const singboxPath = await this.getSingboxPath();
     console.log(`Sing-box 可执行文件路径: ${singboxPath}`);
+    const isDarwin = process.platform === "darwin";
+    const needElevate = !!(isDarwin && (networkSettings == null ? void 0 : networkSettings.enableTun));
     return new Promise((resolve, reject) => {
-      var _a2, _b2, _c2, _d;
+      var _a2, _b2, _c2, _d, _e;
       console.log(`=== 启动 Sing-box 子进程 ===`);
       console.log(`可执行文件: ${singboxPath}`);
       console.log(`配置文件: ${configPath}`);
       console.log(`工作目录: ${this.binDir}`);
       console.log(`启动参数: ['run', '-c', '${configPath}']`);
-      const childProcess = child_process.spawn(singboxPath, ["run", "-c", configPath], {
-        stdio: ["pipe", "pipe", "pipe"],
-        detached: false,
-        cwd: this.binDir
-        // 设置工作目录为 bin 目录
-      });
-      console.log(`子进程已启动，PID: ${childProcess.pid}`);
-      childProcess.on("error", (error) => {
-        console.error(`=== Sing-box 进程错误 ===`);
-        console.error(`错误详情:`, error);
-        console.error(`错误消息: ${error.message}`);
-        console.error(`错误堆栈: ${error.stack}`);
-        if (!resolved) {
-          resolved = true;
-          reject(error);
-        }
-      });
-      childProcess.on("exit", (code, signal) => {
-        console.log(`=== Sing-box 进程退出 ===`);
-        console.log(`退出代码: ${code}`);
-        console.log(`退出信号: ${signal}`);
-        console.log(`进程ID: ${processId}`);
-        this.processes.delete(processId);
-        if (code !== 0 && !resolved) {
-          resolved = true;
-          reject(new Error(`Sing-box process failed with exit code: ${code}`));
-        }
-      });
-      childProcess.stdout.on("data", (data) => {
+      let childProcess = null;
+      let elevatedPid = void 0;
+      const pidFile = path$1.join(this.binDir, `${processId}.pid`);
+      const logFile = path$1.join(this.binDir, `${processId}.log`);
+      if (needElevate) {
+        const shell = `sh -c 'cd "${this.binDir}"; nohup "${singboxPath}" run -c "${configPath}" > "${logFile}" 2>&1 & echo $! > "${pidFile}"'`;
+        const appleScript = `do shell script "${shell.replace(/"/g, '\\"')}" with administrator privileges`;
+        console.log(`以管理员权限启动 sing-box (macOS TUN)...`);
+        const osa = child_process.spawn("/usr/bin/osascript", ["-e", appleScript], { stdio: ["ignore", "pipe", "pipe"] });
+        let osaError = "";
+        osa.stderr.on("data", (d) => osaError += d.toString());
+        osa.on("exit", (code) => {
+          var _a3;
+          if (code !== 0) {
+            console.error(`osascript 启动失败: ${osaError}`);
+            try {
+              const { BrowserWindow } = require("electron");
+              const win = (_a3 = BrowserWindow.getAllWindows()) == null ? void 0 : _a3[0];
+              win == null ? void 0 : win.webContents.send("tun:elevate-error", osaError || "osascript exit with non-zero code");
+            } catch {
+            }
+            reject(new Error(`Failed to elevate sing-box: ${osaError}`));
+            return;
+          }
+          try {
+            if (fs$1.existsSync(pidFile)) {
+              const pidStr = fs$1.readFileSync(pidFile, "utf8").trim();
+              elevatedPid = parseInt(pidStr, 10);
+              console.log(`Elevated sing-box PID: ${elevatedPid}`);
+            } else {
+              console.warn(`未找到PID文件: ${pidFile}`);
+            }
+          } catch (e) {
+            console.warn(`读取PID文件失败:`, e);
+          }
+        });
+      } else {
+        childProcess = child_process.spawn(singboxPath, ["run", "-c", configPath], {
+          stdio: ["pipe", "pipe", "pipe"],
+          detached: false,
+          cwd: this.binDir
+        });
+        console.log(`子进程已启动，PID: ${childProcess.pid}`);
+      }
+      if (childProcess) {
+        childProcess.on("error", (error) => {
+          console.error(`=== Sing-box 进程错误 ===`);
+          console.error(`错误详情:`, error);
+          console.error(`错误消息: ${error.message}`);
+          console.error(`错误堆栈: ${error.stack}`);
+          if (!resolved) {
+            resolved = true;
+            reject(error);
+          }
+        });
+        childProcess.on("exit", (code, signal) => {
+          console.log(`=== Sing-box 进程退出 ===`);
+          console.log(`退出代码: ${code}`);
+          console.log(`退出信号: ${signal}`);
+          console.log(`进程ID: ${processId}`);
+          this.processes.delete(processId);
+          if (code !== 0 && !resolved) {
+            resolved = true;
+            reject(new Error(`Sing-box process failed with exit code: ${code}`));
+          }
+        });
+      }
+      if (childProcess && childProcess.stdout) childProcess.stdout.on("data", (data) => {
         const output = data.toString();
         console.log(`=== Sing-box 标准输出 ===`);
         console.log(`输出内容: ${output}`);
@@ -3457,7 +3594,7 @@ class ProxyManager {
           console.error(`❌ [流量监控] 检测到错误: ${output}`);
         }
       });
-      childProcess.stderr.on("data", (data) => {
+      if (childProcess && childProcess.stderr) childProcess.stderr.on("data", (data) => {
         var _a3, _b3;
         const errorMessage = data.toString();
         console.error(`=== Sing-box 标准错误 ===`);
@@ -3506,27 +3643,65 @@ class ProxyManager {
         id: processId,
         type: "singbox",
         process: childProcess,
+        pid: elevatedPid,
+        elevated: needElevate,
         config: finalConfig,
         port: ((_b2 = (_a2 = finalConfig.inbounds) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.listen_port) || 1080,
         networkSettings
       });
+      if (needElevate) {
+        const hasTunInbound = Array.isArray(finalConfig.inbounds) && finalConfig.inbounds.some((i) => (i == null ? void 0 : i.type) === "tun");
+        if (!hasTunInbound) {
+          console.error("[TUN 校验] 未检测到 type=tun 的入站配置，终止启动");
+          try {
+            childProcess == null ? void 0 : childProcess.kill();
+          } catch {
+          }
+          try {
+            if (elevatedPid) process.kill(elevatedPid, "SIGTERM");
+          } catch {
+          }
+          try {
+            if (fs$1.existsSync(pidFile)) fs$1.unlinkSync(pidFile);
+          } catch {
+          }
+          try {
+            const { BrowserWindow } = require("electron");
+            const win = (_c2 = BrowserWindow.getAllWindows()) == null ? void 0 : _c2[0];
+            win == null ? void 0 : win.webContents.send("tun:missing-inbound");
+          } catch {
+          }
+          return reject(new Error("TUN 模式缺少 tun 入站配置"));
+        }
+      }
       console.log(`Started Sing-box process: ${processId}`);
       let resolved = false;
-      const port = ((_d = (_c2 = finalConfig.inbounds) == null ? void 0 : _c2[0]) == null ? void 0 : _d.listen_port) || 1080;
+      const port = ((_e = (_d = finalConfig.inbounds) == null ? void 0 : _d[0]) == null ? void 0 : _e.listen_port) || 1080;
       console.log(`=== 准备验证端口 ===`);
       console.log(`验证端口: ${port}`);
       console.log(`等待时间: 2秒`);
       setTimeout(async () => {
         console.log(`=== 开始端口验证 ===`);
         console.log(`当前时间: ${(/* @__PURE__ */ new Date()).toISOString()}`);
-        console.log(`进程状态: ${childProcess.killed ? "已终止" : "运行中"}`);
-        console.log(`进程PID: ${childProcess.pid}`);
+        if (childProcess) {
+          console.log(`进程状态: ${childProcess.killed ? "已终止" : "运行中"}`);
+          console.log(`进程PID: ${childProcess.pid}`);
+        } else {
+          console.log(`提权模式：PID=${elevatedPid}`);
+        }
         if (!resolved) {
           try {
             console.log(`开始检查端口 ${port} 是否可用...`);
             const isPortReady = await this.checkPortReady("127.0.0.1", port, 5e3);
             console.log(`端口检查结果: ${isPortReady ? "成功" : "失败"}`);
             if (isPortReady) {
+              if (needElevate) {
+                try {
+                  await this.waitForTunReady((networkSettings == null ? void 0 : networkSettings.tunDevice) || "utun0", 6e3);
+                } catch (e) {
+                  console.warn("[TUN] 等待 utun 路由就绪超时（继续启动）:", (e == null ? void 0 : e.message) || e);
+                }
+              }
               console.log(`=== Sing-box 启动成功 ===`);
               console.log(`端口 ${port} 验证成功`);
               console.log(`进程ID: ${processId}`);
@@ -3539,8 +3714,19 @@ class ProxyManager {
             } else {
               console.error(`=== Sing-box 启动失败 ===`);
               console.error(`端口 ${port} 验证失败`);
-              console.error(`终止进程 PID: ${childProcess.pid}`);
-              childProcess.kill();
+              if (childProcess) {
+                console.error(`终止进程 PID: ${childProcess.pid}`);
+                childProcess.kill();
+              } else if (elevatedPid) {
+                try {
+                  process.kill(elevatedPid, "SIGTERM");
+                } catch (e) {
+                }
+                try {
+                  if (fs$1.existsSync(pidFile)) fs$1.unlinkSync(pidFile);
+                } catch (e) {
+                }
+              }
               resolved = true;
               reject(new Error(`Sing-box 启动失败: 端口 ${port} 不可用`));
             }
@@ -3548,8 +3734,19 @@ class ProxyManager {
             console.error(`=== Sing-box 端口验证异常 ===`);
             console.error(`异常详情:`, error);
             console.error(`异常消息: ${error instanceof Error ? error.message : "Unknown error"}`);
-            console.error(`终止进程 PID: ${childProcess.pid}`);
-            childProcess.kill();
+            if (childProcess) {
+              console.error(`终止进程 PID: ${childProcess.pid}`);
+              childProcess.kill();
+            } else if (elevatedPid) {
+              try {
+                process.kill(elevatedPid, "SIGTERM");
+              } catch (e) {
+              }
+              try {
+                if (fs$1.existsSync(pidFile)) fs$1.unlinkSync(pidFile);
+              } catch (e) {
+              }
+            }
             resolved = true;
             reject(new Error(`Sing-box 启动失败: 端口验证异常`));
           }
@@ -3710,7 +3907,14 @@ class ProxyManager {
   async stopAll() {
     for (const [id, proxyProcess] of this.processes) {
       try {
-        proxyProcess.process.kill("SIGTERM");
+        if (proxyProcess.process) {
+          proxyProcess.process.kill("SIGTERM");
+        } else if (proxyProcess.pid) {
+          try {
+            global.process.kill(proxyProcess.pid, "SIGTERM");
+          } catch (_) {
+          }
+        }
         console.log(`Stopped ${proxyProcess.type} process: ${id}`);
       } catch (error) {
         console.error(`Failed to stop ${proxyProcess.type} process: ${id}`, error);
@@ -3858,6 +4062,29 @@ class ProxyManager {
     return coreDownloader.getCorePath("singbox");
   }
   /**
+   * 等待 utun 设备与路由就绪
+   */
+  async waitForTunReady(interfaceName, timeoutMs = 6e3) {
+    const start = Date.now();
+    const { exec } = require("child_process");
+    const execAsync2 = (cmd) => new Promise((resolve, reject) => {
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+      });
+    });
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const ifconfig = await execAsync2(`/sbin/ifconfig ${interfaceName}`);
+        const hasAddr = /inet\s+\d+\.\d+\.\d+\.\d+/.test(ifconfig);
+        if (hasAddr) return;
+      } catch {
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    throw new Error("TUN interface not ready in time");
+  }
+  /**
    * 获取Xray可执行文件路径
    */
   async getXrayPath() {
@@ -3981,22 +4208,37 @@ class ProxyManager {
         finalConfig.dns.fallback = networkSettings.dnsFallbackServers;
       }
     }
-    if (finalConfig.inbounds) {
-      const tunInbound = finalConfig.inbounds.find((inbound) => inbound.type === "tun");
-      if (tunInbound) {
-        if (networkSettings.enableTun) {
-          tunInbound.disabled = false;
-          tunInbound.interface_name = networkSettings.tunDevice || "utun0";
-          if (networkSettings.enableFakeIp) {
-            tunInbound.inet4_address = [networkSettings.fakeIpRange || "198.18.0.1/16"];
-          }
-          if (networkSettings.enableIpv6) {
-            tunInbound.inet6_address = ["fdfe:dcba:9876::1/126"];
-          }
-        } else {
-          tunInbound.disabled = true;
-        }
+    if (!finalConfig.inbounds) {
+      finalConfig.inbounds = [];
+    }
+    const existingTun = finalConfig.inbounds.find((inbound) => inbound.type === "tun");
+    if (networkSettings.enableTun) {
+      const tunConfig = existingTun || {
+        type: "tun",
+        tag: "tun-in",
+        interface_name: networkSettings.tunDevice || "utun0",
+        mtu: 9e3,
+        stack: "system",
+        auto_route: true
+      };
+      tunConfig.disabled = false;
+      tunConfig.interface_name = networkSettings.tunDevice || "utun0";
+      tunConfig.mtu = 9e3;
+      tunConfig.stack = "system";
+      tunConfig.auto_route = true;
+      tunConfig.inet4_address = networkSettings.enableFakeIp ? [networkSettings.fakeIpRange || "198.18.0.1/16"] : ["172.19.0.1/28"];
+      if (networkSettings.enableIpv6) {
+        tunConfig.inet6_address = ["fdfe:dcba:9876::1/126"];
       }
+      if (!existingTun) {
+        finalConfig.inbounds.unshift(tunConfig);
+      }
+    } else if (existingTun) {
+      existingTun.disabled = true;
+    }
+    try {
+      this._lastFinalConfig = finalConfig;
+    } catch {
     }
     return finalConfig;
   }
@@ -4007,7 +4249,14 @@ class ProxyManager {
     const existingProcesses = Array.from(this.processes.values()).filter((p) => p.type === type2);
     for (const process2 of existingProcesses) {
       try {
-        process2.process.kill("SIGTERM");
+        if (process2.process) {
+          process2.process.kill("SIGTERM");
+        } else if (process2.pid) {
+          try {
+            global.process.kill(process2.pid, "SIGTERM");
+          } catch (_) {
+          }
+        }
         console.log(`清理旧 ${type2} 进程: ${process2.id}`);
       } catch (error) {
         console.error(`清理旧 ${type2} 进程失败: ${process2.id}`, error);
@@ -4154,9 +4403,13 @@ class ProxyManager {
       console.log(`[ProxyManager] 开始启动中间件...`);
       await this.middlewareManager.start();
       console.log(`[ProxyManager] 中间件启动成功`);
-      console.log(`[ProxyManager] 设置系统代理...`);
-      await systemProxyManager.setSystemProxy("127.0.0.1", port, port);
-      console.log(`[ProxyManager] 系统代理设置成功`);
+      if (!this.suppressSystemProxyForTun) {
+        console.log(`[ProxyManager] 设置系统代理...`);
+        await systemProxyManager.setSystemProxy("127.0.0.1", port, port);
+        console.log(`[ProxyManager] 系统代理设置成功`);
+      } else {
+        console.log(`[ProxyManager] 已屏蔽系统代理设置（TUN 模式）`);
+      }
       console.log(`✅ [ProxyManager] 中间件代理链启动成功: ${chainId}`);
     } catch (error) {
       console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
@@ -4300,556 +4553,255 @@ class ProxyManager {
       }
     });
   }
+  getMiddlewareEntryPort() {
+    if (this.middlewareManager) {
+      const st = this.middlewareManager.getStatus();
+      return st.entryPort;
+    }
+    return void 0;
+  }
+  hasMiddlewareRunning() {
+    if (!this.middlewareManager) return false;
+    const st = this.middlewareManager.getStatus();
+    return st.status === "running";
+  }
 }
 const proxyManager = ProxyManager.getInstance();
-const execAsync = require$$1$1.promisify(child_process.exec);
-class VpnServerManager {
+class TunControllerClass {
   constructor() {
-    this.status = {
-      running: false,
-      connectedClients: 0
-    };
-    this.serverInfo = {
-      host: "127.0.0.1",
-      port: 1701,
-      // L2TP默认端口
-      username: "chongdong",
-      password: "chongdong123",
-      sharedSecret: "chongdong-secret",
-      // L2TP/IPSec共享密钥
-      protocol: "L2TP/IPSec"
-    };
-    this.proxyNodes = [];
-    this.originalRoutes = [];
-    this.nextTunnelId = 1;
-    this.nextSessionId = 1;
-    this.activeTunnels = /* @__PURE__ */ new Map();
-    this.activeSessions = /* @__PURE__ */ new Map();
-    this.configDir = path$1.join(electron.app.getPath("userData"), "vpn-server");
-    if (!fs$1.existsSync(this.configDir)) {
-      fs$1.mkdirSync(this.configDir, { recursive: true });
-    }
+    this.runningPid = null;
+    const userData = electron.app.getPath("userData");
+    this.binDir = path$1.join(userData, "bin");
+    this.pidFile = path$1.join(this.binDir, "tun2socks.pid");
+    this.logFile = path$1.join(this.binDir, "tun2socks.log");
   }
   static getInstance() {
-    if (!VpnServerManager.instance) {
-      VpnServerManager.instance = new VpnServerManager();
+    if (!TunControllerClass.instance) {
+      TunControllerClass.instance = new TunControllerClass();
     }
-    return VpnServerManager.instance;
+    return TunControllerClass.instance;
   }
-  /**
-   * 启动VPN服务器
-   */
-  async startVpnServer(config) {
-    console.log(`[VpnServerManager] 启动内置L2TP服务器`);
-    try {
-      this.proxyNodes = config.proxyNodes || [];
-      await this.configureTrafficRouting();
-      await this.startL2tpServer();
-      this.status.running = true;
-      this.status.interface = config.interface;
-      this.status.serverInfo = this.serverInfo;
-      console.log(`[VpnServerManager] 内置L2TP服务器启动成功`);
-      console.log(`[VpnServerManager] 服务器信息: ${this.serverInfo.host}:${this.serverInfo.port}`);
-      console.log(`[VpnServerManager] 用户名: ${this.serverInfo.username}`);
-      console.log(`[VpnServerManager] 密码: ${this.serverInfo.password}`);
-    } catch (error) {
-      this.status.error = error instanceof Error ? error.message : String(error);
-      console.error(`[VpnServerManager] L2TP服务器启动失败:`, error);
-      throw error;
-    }
-  }
-  /**
-   * 配置流量路由以避免死循环
-   */
-  async configureTrafficRouting() {
-    console.log(`[VpnServerManager] 配置流量路由以避免死循环`);
-    try {
-      await this.saveCurrentRoutes();
-      for (const node2 of this.proxyNodes) {
-        const nodeHost = node2.server || node2.host;
-        if (nodeHost && nodeHost !== "127.0.0.1" && nodeHost !== "localhost") {
-          await this.addDirectRoute(nodeHost);
-        }
+  resolveTunBinaryPath() {
+    const localPath = path$1.join(this.binDir, process.platform === "win32" ? "tun2socks.exe" : "tun2socks");
+    if (fs$1.existsSync(localPath)) {
+      try {
+        if (process.platform !== "win32") fs$1.chmodSync(localPath, 493);
+      } catch (_) {
       }
-      console.log(`[VpnServerManager] 流量路由配置完成`);
-    } catch (error) {
-      console.error(`[VpnServerManager] 配置流量路由失败:`, error);
-      throw error;
+      return localPath;
     }
+    const brewArm = "/opt/homebrew/bin/tun2socks";
+    const brewX86 = "/usr/local/bin/tun2socks";
+    if (fs$1.existsSync(brewArm)) return brewArm;
+    if (fs$1.existsSync(brewX86)) return brewX86;
+    return "tun2socks";
   }
-  /**
-   * 保存当前路由表
-   */
-  async saveCurrentRoutes() {
-    try {
-      const { stdout } = await execAsync("netstat -rn");
-      this.originalRoutes = stdout.split("\n").filter((line) => line.trim());
-      console.log(`[VpnServerManager] 已保存 ${this.originalRoutes.length} 条原始路由`);
-    } catch (error) {
-      console.warn(`[VpnServerManager] 保存路由表失败:`, error);
+  async start(options) {
+    const isDarwin = process.platform === "darwin";
+    const tunName = options.tunName || "utun0";
+    const socksHost = options.socksHost || "127.0.0.1";
+    const socksPort = options.socksPort;
+    const mtu = options.mtu || 9e3;
+    const enableUdp = options.enableUdp !== false;
+    const enableIpv6 = !!options.enableIpv6;
+    const dnsServer = options.dnsServer;
+    const extraArgs = options.extraArgs || [];
+    await this.stop().catch(() => {
+    });
+    const tun2socksPath = this.resolveTunBinaryPath();
+    const args = [];
+    args.push("--interface", tunName);
+    args.push("--proxy", `socks5://${socksHost}:${socksPort}`);
+    args.push("--mtu", String(mtu));
+    args.push("--loglevel", "info");
+    if (enableUdp) args.push("--udp");
+    if (enableIpv6) args.push("--ipv6");
+    if (dnsServer) {
+      args.push("--dns-addr", dnsServer);
     }
-  }
-  /**
-   * 为代理节点添加直连路由
-   */
-  async addDirectRoute(host) {
-    try {
-      const command = `sudo route add ${host} -gateway $(netstat -rn | grep default | awk '{print $2}' | head -1)`;
-      await execAsync(command);
-      console.log(`[VpnServerManager] 已为代理节点 ${host} 添加直连路由`);
-    } catch (error) {
-      console.warn(`[VpnServerManager] 为 ${host} 添加直连路由失败:`, error);
-    }
-  }
-  /**
-   * 启动内置L2TP服务器
-   */
-  async startL2tpServer() {
-    try {
-      this.l2tpServer = require$$0$2.createSocket("udp4");
-      this.l2tpServer.on("message", (msg, rinfo) => {
-        console.log(`[VpnServerManager] 收到L2TP消息: ${rinfo.address}:${rinfo.port}, 长度: ${msg.length}`);
-        this.handleL2tpMessage(msg, rinfo);
-      });
-      this.l2tpServer.on("error", (error) => {
-        console.error(`[VpnServerManager] L2TP服务器错误:`, error);
-      });
-      this.l2tpServer.on("listening", () => {
-        const address = this.l2tpServer.address();
-        console.log(`[VpnServerManager] L2TP服务器监听在 ${address.address}:${address.port}`);
-      });
+    args.push(...extraArgs);
+    const logRedir = `>> "${this.logFile}" 2>&1`;
+    const cmd = `"${tun2socksPath}" ${args.map((a) => a.replace(/"/g, '\\"')).join(" ")} ${logRedir}`;
+    if (isDarwin) {
+      const shell = `sh -c 'cd "${this.binDir}"; nohup ${cmd} & echo $! > "${this.pidFile}"'`;
+      const appleScript = `do shell script "${shell.replace(/"/g, '\\"')}" with administrator privileges`;
       await new Promise((resolve, reject) => {
-        this.l2tpServer.bind(this.serverInfo.port, this.serverInfo.host, () => {
+        const osa = child_process.spawn("/usr/bin/osascript", ["-e", appleScript], { stdio: ["ignore", "pipe", "pipe"] });
+        let stderr = "";
+        osa.stderr.on("data", (d) => {
+          stderr += d.toString();
+        });
+        osa.on("exit", (code) => {
+          if (code !== 0) {
+            reject(new Error(`osascript failed: ${stderr || "unknown error"}`));
+            return;
+          }
+          try {
+            if (fs$1.existsSync(this.pidFile)) {
+              const t = fs$1.readFileSync(this.pidFile, "utf8").trim();
+              this.runningPid = parseInt(t, 10);
+            }
+          } catch (_) {
+          }
           resolve();
         });
-        this.l2tpServer.on("error", (error) => {
-          console.error(`[VpnServerManager] L2TP服务器启动失败:`, error);
-          reject(error);
-        });
       });
-    } catch (error) {
-      console.error(`[VpnServerManager] 启动L2TP服务器失败:`, error);
-      throw error;
+    } else {
+      const child = child_process.spawn(tun2socksPath, args, {
+        cwd: this.binDir,
+        stdio: ["ignore", "ignore", "ignore"],
+        detached: false
+      });
+      this.runningPid = child.pid || null;
+      try {
+        fs$1.writeFileSync(this.pidFile, String(this.runningPid || ""));
+      } catch (_) {
+      }
     }
   }
-  /**
-   * 处理L2TP消息
-   */
-  handleL2tpMessage(msg, rinfo) {
-    console.log(`[VpnServerManager] 处理L2TP消息...`);
-    console.log(`[VpnServerManager] Message length: ${msg.length} bytes`);
-    console.log(`[VpnServerManager] Message hex: ${msg.toString("hex")}`);
+  async stop() {
     try {
-      if (msg.length < 6) {
-        console.warn(`[VpnServerManager] L2TP消息太短: ${msg.length} bytes`);
-        return;
-      }
-      const flags = msg.readUInt16BE(0);
-      const version = flags & 15;
-      const hasLength = (flags & 16384) !== 0;
-      const isControl = (flags & 32768) !== 0;
-      console.log(`[VpnServerManager] L2TP版本: ${version}, 标志: 0x${flags.toString(16)}, 控制消息: ${isControl}`);
-      console.log(`[VpnServerManager] Has length bit: ${hasLength}, Is control message: ${isControl}`);
-      if (version !== 2) {
-        console.warn(`[VpnServerManager] 不支持的L2TP版本: ${version}`);
-        return;
-      }
-      let offset = 2;
-      if (hasLength) {
-        const length = msg.readUInt16BE(offset);
-        console.log(`[VpnServerManager] L2TP消息长度: ${length}`);
-        offset += 2;
-      }
-      const tunnelId = msg.readUInt16BE(offset);
-      const sessionId = msg.readUInt16BE(offset + 2);
-      offset += 4;
-      console.log(`[VpnServerManager] 隧道ID: ${tunnelId}, 会话ID: ${sessionId}`);
-      console.log(`[VpnServerManager] Offset after header: ${offset}`);
-      if (isControl) {
-        this.handleL2tpControlMessage(msg, rinfo, tunnelId, sessionId, offset);
-      } else {
-        this.handleL2tpDataMessage(msg, rinfo, tunnelId, sessionId, offset);
-      }
-    } catch (error) {
-      console.error(`[VpnServerManager] 处理L2TP消息失败:`, error);
-    }
-  }
-  /**
-   * 处理L2TP控制消息
-   */
-  handleL2tpControlMessage(msg, rinfo, tunnelId, sessionId, offset) {
-    try {
-      if (msg.length < offset + 4) {
-        console.warn(`[VpnServerManager] 控制消息太短`);
-        return;
-      }
-      const ns = msg.readUInt16BE(offset);
-      const nr = msg.readUInt16BE(offset + 2);
-      offset += 4;
-      console.log(`[VpnServerManager] 控制消息: Ns=${ns}, Nr=${nr}`);
-      console.log(`[VpnServerManager] 原始消息: ${msg.toString("hex")}`);
-      const avps = this.parseAvps(msg, offset);
-      const messageTypeAvp = avps.find((avp) => avp.vendorId === 0 && avp.type === 0);
-      if (!messageTypeAvp) {
-        console.warn(`[VpnServerManager] 未找到消息类型AVP`);
-        return;
-      }
-      if (messageTypeAvp.value.length < 2) {
-        console.warn(`[VpnServerManager] Control message without valid Message Type AVP received.`);
-        return;
-      }
-      const messageType = messageTypeAvp.value.readUInt16BE(0);
-      console.log(`[VpnServerManager] 找到消息类型: ${messageType}`);
-      console.log(`[VpnServerManager] 客户端消息的所有AVPs:`, avps.map((avp) => ({
-        type: avp.type,
-        vendorId: avp.vendorId,
-        value: avp.value.toString("hex")
-      })));
-      switch (messageType) {
-        case 1:
-          this.handleSccrq(rinfo, tunnelId, ns, nr);
-          break;
-        case 2:
-          this.handleSccrp(rinfo, tunnelId, ns, nr, avps);
-          break;
-        case 3:
-          this.handleScccn(rinfo, tunnelId, ns, nr, avps);
-          break;
-        case 6:
-          this.handleStopccn(rinfo, tunnelId, ns, nr);
-          break;
-        case 14:
-          this.handleIcrq(rinfo, tunnelId, sessionId, ns, nr);
-          break;
-        case 15:
-          this.handleIcrp(rinfo, tunnelId, sessionId, ns, nr);
-          break;
-        case 16:
-          this.handleIccn(rinfo, tunnelId, sessionId, ns, nr);
-          break;
-        default:
-          console.log(`[VpnServerManager] 未处理的消息类型: ${messageType}`);
-      }
-    } catch (error) {
-      console.error(`[VpnServerManager] 处理控制消息失败:`, error);
-    }
-  }
-  parseAvps(msg, offset) {
-    const avps = [];
-    let avpOffset = offset;
-    console.log(`[VpnServerManager] 开始解析AVPs，起始偏移: ${offset}, 消息总长度: ${msg.length}`);
-    while (avpOffset < msg.length) {
-      if (avpOffset + 6 > msg.length) {
-        console.warn(`[VpnServerManager] AVP数据太短，无法解析头部。偏移: ${avpOffset}, 剩余长度: ${msg.length - avpOffset}`);
-        break;
-      }
-      const avpHeader = msg.readUInt16BE(avpOffset);
-      const isMandatory = (avpHeader & 32768) !== 0;
-      const avpLength = avpHeader & 1023;
-      const vendorId = msg.readUInt16BE(avpOffset + 2);
-      const avpType = msg.readUInt16BE(avpOffset + 4);
-      console.log(`[VpnServerManager] AVP解析: 偏移=${avpOffset}, 类型=${avpType}, 厂商ID=${vendorId}, 长度=${avpLength}, 标志=0x${avpHeader.toString(16)}, 强制=${isMandatory}`);
-      if (avpLength < 6 || avpOffset + avpLength > msg.length) {
-        console.warn(`[VpnServerManager] AVP长度无效: ${avpLength}, 偏移: ${avpOffset}, 消息长度: ${msg.length}`);
-        break;
-      }
-      const value = msg.slice(avpOffset + 6, avpOffset + avpLength);
-      console.log(`[VpnServerManager] AVP值: ${value.toString("hex")}`);
-      avps.push({ type: avpType, vendorId, value });
-      avpOffset += avpLength;
-      if (avpLength === 0) {
-        console.warn(`[VpnServerManager] AVP长度为0，停止解析`);
-        break;
-      }
-    }
-    console.log(`[VpnServerManager] AVP解析完成，共找到 ${avps.length} 个AVP`);
-    return avps;
-  }
-  /**
-   * 处理L2TP数据消息
-   */
-  handleL2tpDataMessage(_msg, _rinfo, tunnelId, sessionId, _offset) {
-    console.log(`[VpnServerManager] 处理数据消息: 隧道=${tunnelId}, 会话=${sessionId}`);
-  }
-  /**
-   * 处理SCCRQ (Start-Control-Connection-Request)
-   */
-  handleSccrq(rinfo, tunnelId, ns, nr) {
-    console.log(`[VpnServerManager] 处理SCCRQ: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    const assignedTunnelId = this.nextTunnelId++;
-    const serverChallenge = require$$8.randomBytes(16);
-    this.activeTunnels.set(assignedTunnelId, {
-      clientAddress: rinfo.address,
-      clientPort: rinfo.port,
-      serverChallenge
-    });
-    this.sendSccrp(rinfo, assignedTunnelId, ns, nr);
-  }
-  /**
-   * 处理SCCRP (Start-Control-Connection-Reply)
-   */
-  handleSccrp(_rinfo, tunnelId, ns, nr, _avps) {
-    console.log(`[VpnServerManager] 处理SCCRP: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-  }
-  /**
-   * 处理SCCCN (Start-Control-Connection-Connected)
-   */
-  handleScccn(_rinfo, tunnelId, ns, nr, avps) {
-    console.log(`[VpnServerManager] 处理SCCCN: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    const tunnel = this.activeTunnels.get(tunnelId);
-    if (!tunnel) {
-      console.error(`[VpnServerManager] SCCCN for unknown tunnel ${tunnelId}`);
-      return;
-    }
-    const challengeResponseAvp = avps.find((avp) => avp.vendorId === 0 && avp.type === 8);
-    if (!challengeResponseAvp) {
-      console.error(`[VpnServerManager] SCCCN missing Challenge Response AVP. Disconnecting.`);
-      return;
-    }
-    const id = Buffer.from([2]);
-    const expectedResponse = require$$8.createHash("md5").update(id).update(this.serverInfo.sharedSecret).update(tunnel.serverChallenge).digest();
-    if (!expectedResponse.equals(challengeResponseAvp.value)) {
-      console.error(`[VpnServerManager] Invalid Challenge Response. Disconnecting.`);
-      console.error(`[VpnServerManager] Expected: ${expectedResponse.toString("hex")}`);
-      console.error(`[VpnServerManager] Received: ${challengeResponseAvp.value.toString("hex")}`);
-      return;
-    }
-    console.log(`[VpnServerManager] Challenge Response validated. Control connection established: Tunnel=${tunnelId}`);
-  }
-  handleStopccn(rinfo, tunnelId, ns, _nr) {
-    console.log(`[VpnServerManager] 处理StopCCN，隧道ID: ${tunnelId}`);
-    console.log(`[VpnServerManager] StopCCN详情: tunnelId=${tunnelId}, ns=${ns}, _nr=${_nr}`);
-    console.log(`[VpnServerManager] 客户端地址: ${rinfo.address}:${rinfo.port}`);
-    this.sendStopccn(rinfo, tunnelId, 0, ns + 1);
-  }
-  /**
-   * 处理ICRQ (Incoming-Call-Request)
-   */
-  handleIcrq(rinfo, tunnelId, sessionId, ns, nr) {
-    console.log(`[VpnServerManager] 处理ICRQ: 隧道=${tunnelId}, 会话=${sessionId}, Ns=${ns}, Nr=${nr}`);
-    const assignedSessionId = this.nextSessionId++;
-    this.activeSessions.set(assignedSessionId, {
-      tunnelId,
-      clientAddress: rinfo.address,
-      clientPort: rinfo.port
-    });
-    this.sendIcrp(rinfo, tunnelId, assignedSessionId, ns, nr);
-  }
-  /**
-   * 处理ICRP (Incoming-Call-Reply)
-   */
-  handleIcrp(rinfo, tunnelId, sessionId, ns, nr) {
-    console.log(`[VpnServerManager] 处理ICRP: 隧道=${tunnelId}, 会话=${sessionId}, Ns=${ns}, Nr=${nr}`);
-    this.sendIccn(rinfo, tunnelId, sessionId, ns, nr);
-  }
-  /**
-   * 处理ICCN (Incoming-Call-Connected)
-   */
-  handleIccn(_rinfo, tunnelId, sessionId, ns, nr) {
-    console.log(`[VpnServerManager] 处理ICCN: 隧道=${tunnelId}, 会话=${sessionId}, Ns=${ns}, Nr=${nr}`);
-    console.log(`[VpnServerManager] 会话已建立: 隧道=${tunnelId}, 会话=${sessionId}`);
-    this.status.connectedClients++;
-  }
-  createAvp(attributeType, value, vendorId = 0, isMandatory = true) {
-    const headerLength = 6;
-    const totalLength = headerLength + value.length;
-    const buffer = Buffer.alloc(totalLength);
-    let flags = totalLength & 1023;
-    if (isMandatory) {
-      flags |= 32768;
-    }
-    buffer.writeUInt16BE(flags, 0);
-    buffer.writeUInt16BE(vendorId, 2);
-    buffer.writeUInt16BE(attributeType, 4);
-    value.copy(buffer, 6);
-    return buffer;
-  }
-  /**
-   * 发送ICRP (Incoming-Call-Reply)
-   */
-  sendIcrp(rinfo, tunnelId, sessionId, ns, nr) {
-    const response = this.createL2tpControlMessage(tunnelId, sessionId, ns, nr, 15);
-    this.sendL2tpMessage(rinfo, response);
-  }
-  /**
-   * 发送ICCN (Incoming-Call-Connected)
-   */
-  sendIccn(rinfo, tunnelId, sessionId, ns, nr) {
-    const response = this.createL2tpControlMessage(tunnelId, sessionId, ns, nr, 16);
-    this.sendL2tpMessage(rinfo, response);
-  }
-  /**
-   * 创建L2TP控制消息
-   */
-  createL2tpControlMessage(tunnelId, sessionId, ns, nr, messageType, avps = []) {
-    const messageTypeAvp = Buffer.alloc(8);
-    messageTypeAvp.writeUInt16BE(32776, 0);
-    messageTypeAvp.writeUInt16BE(0, 2);
-    messageTypeAvp.writeUInt16BE(0, 4);
-    messageTypeAvp.writeUInt16BE(messageType, 6);
-    const allAvps = Buffer.concat([messageTypeAvp, ...avps]);
-    const header = Buffer.alloc(12);
-    const totalLength = header.length + allAvps.length;
-    header.writeUInt16BE(51202, 0);
-    header.writeUInt16BE(totalLength, 2);
-    header.writeUInt16BE(tunnelId, 4);
-    header.writeUInt16BE(sessionId, 6);
-    header.writeUInt16BE(ns, 8);
-    header.writeUInt16BE(nr, 10);
-    return Buffer.concat([header, allAvps]);
-  }
-  /**
-   * 发送SCCRP (Start-Control-Connection-Reply)
-   */
-  sendSccrp(rinfo, tunnelId, ns, nr) {
-    console.log(`[VpnServerManager] 发送SCCRP: 隧道=${tunnelId}, Ns=${ns}, Nr=${nr}`);
-    const tunnel = this.activeTunnels.get(tunnelId);
-    if (!tunnel) {
-      console.error(`[VpnServerManager] sendSccrp failed: Tunnel ${tunnelId} not found.`);
-      return;
-    }
-    const messageTypeValue = Buffer.alloc(2);
-    messageTypeValue.writeUInt16BE(2, 0);
-    const messageTypeAvp = this.createAvp(0, messageTypeValue);
-    const protocolVersionValue = Buffer.alloc(2);
-    protocolVersionValue.writeUInt16BE(256, 0);
-    const protocolVersionAvp = this.createAvp(2, protocolVersionValue);
-    const framingCapabilitiesValue = Buffer.alloc(4);
-    framingCapabilitiesValue.writeUInt32BE(3, 0);
-    const framingCapabilitiesAvp = this.createAvp(3, framingCapabilitiesValue);
-    const hostNameValue = Buffer.from("ChongDongVPN");
-    const hostNameAvp = this.createAvp(7, hostNameValue);
-    const challengeAvp = this.createAvp(6, tunnel.serverChallenge);
-    const allAvps = Buffer.concat([
-      messageTypeAvp,
-      protocolVersionAvp,
-      framingCapabilitiesAvp,
-      hostNameAvp,
-      challengeAvp
-    ]);
-    const header = Buffer.alloc(12);
-    const totalLength = header.length + allAvps.length;
-    header.writeUInt16BE(51202, 0);
-    header.writeUInt16BE(totalLength, 2);
-    header.writeUInt16BE(tunnelId, 4);
-    header.writeUInt16BE(0, 6);
-    header.writeUInt16BE(0, 8);
-    header.writeUInt16BE(ns + 1, 10);
-    const response = Buffer.concat([header, allAvps]);
-    console.log(`[VpnServerManager] SCCRP响应: ${response.toString("hex")}`);
-    this.sendL2tpMessage(rinfo, response);
-  }
-  /**
-   * 发送StopCCN (Stop-Control-Connection-Notification)
-   */
-  sendStopccn(rinfo, tunnelId, ns, nr) {
-    const response = this.createL2tpControlMessage(tunnelId, 0, ns, nr, 6);
-    console.log(`[VpnServerManager] 发送StopCCN响应到 ${rinfo.address}:${rinfo.port}`);
-    console.log(`[VpnServerManager] StopCCN响应十六进制: ${response.toString("hex")}`);
-    console.log(`[VpnServerManager] StopCCN响应长度: ${response.length} 字节`);
-    console.log(`[VpnServerManager] StopCCN响应详情:`);
-    console.log(`  - 标志: 0x${response.readUInt16BE(0).toString(16)}`);
-    console.log(`  - 长度: ${response.readUInt16BE(2)}`);
-    console.log(`  - 隧道ID: ${response.readUInt16BE(4)}`);
-    console.log(`  - 会话ID: ${response.readUInt16BE(6)}`);
-    console.log(`  - Ns: ${response.readUInt16BE(8)}`);
-    console.log(`  - Nr: ${response.readUInt16BE(10)}`);
-    const ourAvps = this.parseAvps(response, 12);
-    console.log(`[VpnServerManager] 我们发送的AVPs:`, ourAvps.map((avp) => ({
-      type: avp.type,
-      vendorId: avp.vendorId,
-      value: avp.value.toString("hex")
-    })));
-    this.sendL2tpMessage(rinfo, response);
-  }
-  /**
-   * 发送L2TP消息
-   */
-  sendL2tpMessage(rinfo, message) {
-    this.l2tpServer.send(message, rinfo.port, rinfo.address, (error) => {
-      if (error) {
-        console.error(`[VpnServerManager] 发送L2TP消息失败:`, error);
-      } else {
-        console.log(`[VpnServerManager] 已发送L2TP消息到 ${rinfo.address}:${rinfo.port}, 长度: ${message.length}`);
-      }
-    });
-  }
-  /**
-   * 停止VPN服务器
-   */
-  async stopVpnServer() {
-    console.log(`[VpnServerManager] 停止内置L2TP服务器`);
-    if (this.l2tpServer) {
-      this.l2tpServer.close();
-      this.l2tpServer = null;
-    }
-    this.status.running = false;
-    this.status.connectedClients = 0;
-    this.status.error = void 0;
-    this.status.serverInfo = null;
-    await this.restoreOriginalRoutes();
-    console.log(`[VpnServerManager] 内置L2TP服务器已停止`);
-  }
-  /**
-   * 恢复原始路由表
-   */
-  async restoreOriginalRoutes() {
-    try {
-      console.log(`[VpnServerManager] 恢复原始路由表`);
-      for (const node2 of this.proxyNodes) {
-        const nodeHost = node2.server || node2.host;
-        if (nodeHost && nodeHost !== "127.0.0.1" && nodeHost !== "localhost") {
+      if (fs$1.existsSync(this.pidFile)) {
+        const t = fs$1.readFileSync(this.pidFile, "utf8").trim();
+        const pid = parseInt(t, 10);
+        if (!isNaN(pid) && pid > 0) {
           try {
-            await execAsync(`sudo route delete ${nodeHost}`);
-            console.log(`[VpnServerManager] 已移除代理节点 ${nodeHost} 的直连路由`);
-          } catch (error) {
-            console.warn(`[VpnServerManager] 移除 ${nodeHost} 的直连路由失败:`, error);
+            process.kill(pid);
+          } catch (_) {
+          }
+        }
+        try {
+          fs$1.unlinkSync(this.pidFile);
+        } catch (_) {
+        }
+      }
+    } catch (_) {
+    }
+    this.runningPid = null;
+  }
+  isRunning() {
+    if (this.runningPid && this.runningPid > 0) {
+      try {
+        process.kill(this.runningPid, 0);
+        return true;
+      } catch (e) {
+        if (e && (e.code === "EPERM" || e.errno === -1)) {
+          return true;
+        }
+      }
+    }
+    try {
+      if (fs$1.existsSync(this.pidFile)) {
+        const t = fs$1.readFileSync(this.pidFile, "utf8").trim();
+        const pid = parseInt(t, 10);
+        if (!isNaN(pid)) {
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch (e) {
+            if (e && (e.code === "EPERM" || e.errno === -1)) {
+              return true;
+            }
           }
         }
       }
-      console.log(`[VpnServerManager] 路由表恢复完成`);
-    } catch (error) {
-      console.error(`[VpnServerManager] 恢复路由表失败:`, error);
+    } catch (_) {
     }
+    return false;
   }
-  /**
-   * 获取VPN服务器状态
-   */
-  getStatus() {
-    return { ...this.status };
-  }
-  /**
-   * 获取服务器连接信息
-   */
-  getServerInfo() {
-    return this.status.serverInfo;
-  }
-  /**
-   * 生成系统VPN配置说明
-   */
-  generateVpnConfigInstructions() {
-    if (!this.status.serverInfo) {
-      return "VPN服务器未运行";
+  getPid() {
+    if (this.runningPid) return this.runningPid;
+    try {
+      if (fs$1.existsSync(this.pidFile)) {
+        const t = fs$1.readFileSync(this.pidFile, "utf8").trim();
+        const pid = parseInt(t, 10);
+        if (!isNaN(pid)) return pid;
+      }
+    } catch (_) {
     }
-    const { host, port, username, password, sharedSecret, protocol } = this.status.serverInfo;
-    return `
-VPN服务器信息：
-- 服务器地址: ${host}
-- 端口: ${port}
-- 协议: ${protocol}
-- 用户名: ${username}
-- 密码: ${password}
-- 共享密钥: ${sharedSecret}
-
-流量分流说明：
-- 代理节点流量将直接路由，避免死循环
-- 其他流量将通过L2TP隧道进行代理
-
-请在系统网络设置中添加VPN连接，使用以上信息进行配置。
-    `.trim();
+    return null;
+  }
+  async runCmd(command, timeoutMs = 4e3) {
+    return new Promise((resolve) => {
+      const child = child_process.exec(command, { timeout: timeoutMs }, (err, stdout, stderr) => {
+        if (err) {
+          resolve(`ERR: ${err.message}
+${stderr || ""}`);
+          return;
+        }
+        resolve(stdout.toString());
+      });
+      child.on("error", () => resolve("ERR: spawn error"));
+    });
+  }
+  async diagnose(tunName = "utun0") {
+    const running = this.isRunning();
+    const pid = this.getPid();
+    const ifconfig = await this.runCmd(`ifconfig ${tunName} | cat`);
+    const routesIpv4 = await this.runCmd(`netstat -rn -f inet | cat`);
+    const routesIpv6 = await this.runCmd(`netstat -rn -f inet6 | cat`);
+    const dns3 = process.platform === "darwin" ? await this.runCmd("scutil --dns | cat") : await this.runCmd("cat /etc/resolv.conf | cat");
+    return { running, pid, ifconfig, routesIpv4, routesIpv6, dns: dns3 };
   }
 }
-const vpnServerManager = VpnServerManager.getInstance();
+const TunController = TunControllerClass.getInstance();
+class CompatPortForwarderClass {
+  constructor() {
+    this.servers = /* @__PURE__ */ new Map();
+  }
+  static getInstance() {
+    if (!CompatPortForwarderClass.instance) {
+      CompatPortForwarderClass.instance = new CompatPortForwarderClass();
+    }
+    return CompatPortForwarderClass.instance;
+  }
+  async start(localPort, targetHost, targetPort) {
+    await this.stop(localPort).catch(() => {
+    });
+    const server2 = require$$0$1.createServer((client) => {
+      const upstream = new require$$0$1.Socket();
+      upstream.connect(targetPort, targetHost, () => {
+        client.pipe(upstream).pipe(client);
+      });
+      upstream.on("error", () => {
+        try {
+          client.destroy();
+        } catch (_) {
+        }
+      });
+      client.on("error", () => {
+        try {
+          upstream.destroy();
+        } catch (_) {
+        }
+      });
+    });
+    await new Promise((resolve, reject) => {
+      server2.once("error", reject);
+      server2.listen(localPort, "127.0.0.1", () => {
+        server2.removeListener("error", reject);
+        resolve();
+      });
+    });
+    this.servers.set(localPort, server2);
+    console.log(`[CompatPortForwarder] 监听 127.0.0.1:${localPort} -> ${targetHost}:${targetPort}`);
+  }
+  async stop(localPort) {
+    const server2 = this.servers.get(localPort);
+    if (!server2) return;
+    await new Promise((resolve) => server2.close(() => resolve()));
+    this.servers.delete(localPort);
+    console.log(`[CompatPortForwarder] 已停止 127.0.0.1:${localPort}`);
+  }
+  async stopAll() {
+    const ports = Array.from(this.servers.keys());
+    for (const p of ports) {
+      await this.stop(p).catch(() => {
+      });
+    }
+  }
+}
+const CompatPortForwarder = CompatPortForwarderClass.getInstance();
 class ProxyModeManager {
   constructor() {
     this.currentMode = "rule";
@@ -4896,13 +4848,12 @@ class ProxyModeManager {
     console.log(`[ProxyModeManager] 清理当前模式: ${this.currentMode}`);
     try {
       if (this.currentMode === "vpn") {
-        console.log(`[ProxyModeManager] VPN模式：请手动在系统设置中断开VPN连接`);
-        await vpnServerManager.stopVpnServer();
+        console.log(`[ProxyModeManager] 关闭 TUN 设置并重启引擎`);
+        proxyManager.updateNetworkSettings({ enableTun: false });
+        await proxyManager.restartAllProcesses();
         this.currentVpnName = void 0;
       }
-      if (this.currentMode !== "vpn") {
-        await systemProxyManager.clearSystemProxy();
-      }
+      await systemProxyManager.clearSystemProxy();
       console.log(`[ProxyModeManager] 当前模式清理完成`);
     } catch (error) {
       console.error(`[ProxyModeManager] 清理当前模式失败:`, error);
@@ -4963,69 +4914,68 @@ class ProxyModeManager {
     }
   }
   /**
-   * 应用VPN模式
+   * 应用VPN模式（TUN）
    */
-  async applyVpnMode(_settings, _networkSettings) {
-    console.log(`[ProxyModeManager] 应用VPN模式`);
+  async applyVpnMode(settings, networkSettings) {
+    var _a2, _b2, _c2;
+    console.log(`[ProxyModeManager] 应用VPN模式（TUN）`);
     try {
-      const proxyNodes = await this.getCurrentProxyNodes();
-      console.log(`[ProxyModeManager] 获取到 ${proxyNodes.length} 个代理节点用于流量分流`);
-      const vpnServerConfig = {
-        type: "l2tp",
-        port: 1701,
-        // L2TP默认端口
-        interface: "l2tp0",
-        subnet: "10.8.0.0",
-        proxyNodes
-        // 传递代理节点信息用于路由配置
-      };
-      try {
-        await vpnServerManager.startVpnServer(vpnServerConfig);
-        console.log(`[ProxyModeManager] 内置L2TP服务器已启动`);
-        const serverInfo = vpnServerManager.getServerInfo();
-        if (!serverInfo) {
-          throw new Error("无法获取VPN服务器信息");
-        }
-        console.log(`[ProxyModeManager] VPN服务器信息:`, serverInfo);
-        this.currentMode = "vpn";
-        this.currentVpnName = "ChongdongL2TP";
-        return {
-          success: true,
-          message: `VPN模式已启用：内置L2TP服务器已启动。请在系统网络设置中添加VPN连接，使用以下信息：
-服务器地址: ${serverInfo.host}
-端口: ${serverInfo.port}
-协议: ${serverInfo.protocol}
-用户名: ${serverInfo.username}
-密码: ${serverInfo.password}
-
-注意：代理节点流量将直接路由以避免死循环。`,
-          vpnName: "ChongdongL2TP"
-        };
-      } catch (vpnError) {
-        console.warn(`[ProxyModeManager] L2TP服务器启动失败:`, vpnError);
-        await vpnServerManager.stopVpnServer();
-        this.currentMode = "vpn";
-        this.currentVpnName = "ChongdongL2TP";
-        return {
-          success: false,
-          message: `VPN模式启用失败: ${vpnError instanceof Error ? vpnError.message : String(vpnError)}. 请检查端口是否被占用。`,
-          vpnName: "ChongdongL2TP"
-        };
+      const tunName = (networkSettings == null ? void 0 : networkSettings.tunDevice) || settings.tunDevice || "utun0";
+      const enableUdp = (networkSettings == null ? void 0 : networkSettings.enableUdp) ?? settings.enableUdp ?? true;
+      const enableIpv6 = (networkSettings == null ? void 0 : networkSettings.enableIpv6) ?? settings.enableIpv6 ?? false;
+      const dnsServer = (networkSettings == null ? void 0 : networkSettings.dnsServer) || settings.dnsServer;
+      const socksPort = ((_a2 = proxyManager.getMiddlewareEntryPort) == null ? void 0 : _a2.call(proxyManager)) || settings.socksPort;
+      if (!socksPort || socksPort <= 0) {
+        throw new Error("无效的 SOCKS 入口端口，无法启动 TUN 模式");
       }
+      const mergedNetwork = {
+        enableTun: false,
+        tunDevice: tunName,
+        enableUdp,
+        enableIpv6,
+        enableDns: (networkSettings == null ? void 0 : networkSettings.enableDns) ?? settings.enableDns ?? true,
+        dnsServer
+      };
+      proxyManager.updateNetworkSettings(mergedNetwork);
+      try {
+        (_b2 = proxyManager.setSuppressSystemProxyForTun) == null ? void 0 : _b2.call(proxyManager, true);
+      } catch {
+      }
+      await TunController.start({
+        tunName,
+        socksHost: "127.0.0.1",
+        socksPort,
+        enableUdp,
+        enableIpv6,
+        dnsServer
+      });
+      this.currentMode = "vpn";
+      this.currentVpnName = "ChongdongTUN";
+      await systemProxyManager.clearSystemProxy();
+      try {
+        if (settings.enableCompatProxy) {
+          const httpPort = settings.compatHttpPort || 1080;
+          const socksPort2 = settings.compatSocksPort || 1080;
+          const entry = ((_c2 = proxyManager.getMiddlewareEntryPort) == null ? void 0 : _c2.call(proxyManager)) || settings.socksPort;
+          if (entry) {
+            await CompatPortForwarder.start(httpPort, "127.0.0.1", entry);
+            if (socksPort2 !== httpPort) {
+              await CompatPortForwarder.start(socksPort2, "127.0.0.1", entry);
+            }
+          }
+        } else {
+          await CompatPortForwarder.stopAll();
+        }
+      } catch (e) {
+        console.warn("[ProxyModeManager] 启动兼容端口失败:", e);
+      }
+      return {
+        success: true,
+        message: `已启用自研 TUN（tun2socks->${socksPort}），系统代理已清理。`,
+        vpnName: "ChongdongTUN"
+      };
     } catch (error) {
       throw new Error(`应用VPN模式失败: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  /**
-   * 获取当前代理节点信息
-   */
-  async getCurrentProxyNodes() {
-    try {
-      console.log(`[ProxyModeManager] 获取当前代理节点信息`);
-      return [];
-    } catch (error) {
-      console.warn(`[ProxyModeManager] 获取代理节点信息失败:`, error);
-      return [];
     }
   }
   /**
@@ -5048,16 +4998,8 @@ class ProxyModeManager {
       return { connected: false, error: "当前不是VPN模式" };
     }
     try {
-      const serverStatus = vpnServerManager.getStatus();
-      if (!serverStatus.running) {
-        return {
-          connected: false,
-          error: serverStatus.error || "内置L2TP服务器未运行"
-        };
-      }
-      return {
-        connected: true
-      };
+      const running = await Promise.resolve(TunController.isRunning());
+      return running ? { connected: true } : { connected: false, error: "TUN 未运行" };
     } catch (error) {
       return { connected: false, error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -5066,11 +5008,18 @@ class ProxyModeManager {
    * 断开VPN连接
    */
   async disconnectVpn() {
+    var _a2;
     if (this.currentMode === "vpn") {
       try {
-        await vpnServerManager.stopVpnServer();
+        await TunController.stop();
+        await CompatPortForwarder.stopAll();
+        proxyManager.updateNetworkSettings({ enableTun: false });
+        try {
+          (_a2 = proxyManager.setSuppressSystemProxyForTun) == null ? void 0 : _a2.call(proxyManager, false);
+        } catch {
+        }
         this.currentVpnName = void 0;
-        console.log(`[ProxyModeManager] 内置L2TP服务器已停止`);
+        console.log(`[ProxyModeManager] 已停止自研 TUN 模式`);
       } catch (error) {
         console.error(`[ProxyModeManager] 断开VPN连接失败:`, error);
         throw error;
@@ -18645,14 +18594,7 @@ var _eval = EvalError;
 var range = RangeError;
 var ref = ReferenceError;
 var syntax = SyntaxError;
-var type;
-var hasRequiredType;
-function requireType() {
-  if (hasRequiredType) return type;
-  hasRequiredType = 1;
-  type = TypeError;
-  return type;
-}
+var type = TypeError;
 var uri = URIError;
 var abs$1 = Math.abs;
 var floor$1 = Math.floor;
@@ -18898,7 +18840,7 @@ function requireCallBindApplyHelpers() {
   if (hasRequiredCallBindApplyHelpers) return callBindApplyHelpers;
   hasRequiredCallBindApplyHelpers = 1;
   var bind3 = functionBind;
-  var $TypeError2 = requireType();
+  var $TypeError2 = type;
   var $call2 = requireFunctionCall();
   var $actualApply = requireActualApply();
   callBindApplyHelpers = function callBindBasic(args) {
@@ -18971,7 +18913,7 @@ var $EvalError = _eval;
 var $RangeError = range;
 var $ReferenceError = ref;
 var $SyntaxError = syntax;
-var $TypeError$1 = requireType();
+var $TypeError$1 = type;
 var $URIError = uri;
 var abs = abs$1;
 var floor = floor$1;
@@ -19302,7 +19244,7 @@ var GetIntrinsic2 = getIntrinsic;
 var $defineProperty = GetIntrinsic2("%Object.defineProperty%", true);
 var hasToStringTag = requireShams()();
 var hasOwn$1 = hasown;
-var $TypeError = requireType();
+var $TypeError = type;
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 var esSetTostringtag = function setToStringTag(object, value) {
   var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
@@ -26460,6 +26402,7 @@ electron.ipcMain.handle("latency:reset", async () => {
   }
 });
 electron.ipcMain.handle("settings:updated", async (_, settings) => {
+  var _a2;
   try {
     console.log("收到设置更新通知:", settings);
     if (settings.settings) {
@@ -26544,6 +26487,26 @@ electron.ipcMain.handle("settings:updated", async (_, settings) => {
               error: error instanceof Error ? error.message : "Unknown error"
             });
           }
+        }
+        try {
+          const mode = proxyModeManager.getCurrentMode();
+          if (mode === "vpn") {
+            await CompatPortForwarder.stopAll();
+            const appSettings = settings.settings;
+            if (appSettings.enableCompatProxy) {
+              const entry = ((_a2 = proxyManager2.getMiddlewareEntryPort) == null ? void 0 : _a2.call(proxyManager2)) || appSettings.socksPort || appSettings.mixedPort || appSettings.proxyPort;
+              if (entry) {
+                const httpPort = appSettings.compatHttpPort || 1080;
+                const socksPort = appSettings.compatSocksPort || 1080;
+                await CompatPortForwarder.start(httpPort, "127.0.0.1", entry);
+                if (socksPort !== httpPort) {
+                  await CompatPortForwarder.start(socksPort, "127.0.0.1", entry);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("应用兼容端口设置失败:", err);
         }
       } catch (error) {
         console.error("更新代理管理器设置失败:", error);
@@ -26956,6 +26919,15 @@ electron.ipcMain.handle("proxy:checkVpnStatus", async () => {
       success: false,
       error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}`
     };
+  }
+});
+electron.ipcMain.handle("tun:diagnose", async (_event, tunName) => {
+  try {
+    const result = await TunController.diagnose(tunName || "utun0");
+    return { success: true, data: result };
+  } catch (error) {
+    console.error("TUN 诊断失败:", error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
 electron.ipcMain.handle("proxy:disconnectVpn", async () => {

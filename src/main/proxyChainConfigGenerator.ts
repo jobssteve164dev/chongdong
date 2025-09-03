@@ -47,7 +47,23 @@ export class ProxyChainConfigGenerator {
    */
   public generateChainConfig(nodes: ProxyNode[], listenPort: number): ProxyChainConfig {
     if (nodes.length === 0) {
-      throw new Error('No nodes provided for chain configuration');
+      // 无节点时的安全回退：仍然生成一个可启动的基础配置（mixed 入站 + direct 出站）
+      const inbounds = this.generateInbounds(listenPort);
+      const logConfig = this.generateLogConfig();
+      return {
+        inbounds,
+        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
+        route: {
+          rules: [
+            {
+              inbound: [inbounds[0].tag, 'tun-in'],
+              outbound: 'direct'
+            }
+          ],
+          final: 'direct'
+        },
+        log: logConfig
+      };
     }
 
     // 增加验证步骤：过滤掉无效节点，防止因上游数据问题导致崩溃
@@ -60,7 +76,22 @@ export class ProxyChainConfigGenerator {
     });
 
     if (validNodes.length === 0) {
-      throw new Error('No valid nodes found for chain configuration after filtering. All provided nodes were incomplete.');
+      const inbounds = this.generateInbounds(listenPort);
+      const logConfig = this.generateLogConfig();
+      return {
+        inbounds,
+        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
+        route: {
+          rules: [
+            {
+              inbound: [inbounds[0].tag, 'tun-in'],
+              outbound: 'direct'
+            }
+          ],
+          final: 'direct'
+        },
+        log: logConfig
+      };
     }
     
     console.log(`[ProxyChainConfigGenerator] Generating chain config for ${validNodes.length} valid nodes on port ${listenPort}`);
@@ -309,7 +340,7 @@ export class ProxyChainConfigGenerator {
     return {
       rules: [
         {
-          inbound: ['mixed-in'],
+          inbound: ['mixed-in', 'tun-in'],
           outbound: firstNodeTag,
         },
       ],
@@ -325,7 +356,7 @@ export class ProxyChainConfigGenerator {
     return {
       rules: [
         {
-          inbound: [inboundTag],
+          inbound: [inboundTag, 'tun-in'],
           outbound: outboundTag,
         },
       ],

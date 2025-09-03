@@ -8,6 +8,8 @@ import { createNotificationManager, NotificationConfig } from './notificationMan
 import { proxyManager } from './proxyManager';
 import { systemProxyManager } from './systemProxyManager';
 import { proxyModeManager } from './proxyModeManager';
+import { CompatPortForwarder } from './compatPortForwarder';
+import { TunController } from './tunController';
 import { coreDownloader } from './coreDownloader';
 import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
@@ -1138,6 +1140,27 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
             });
           }
         }
+        // 兼容端口：在 VPN 模式下即时启停转发器
+        try {
+          const mode = proxyModeManager.getCurrentMode();
+          if (mode === 'vpn') {
+            await CompatPortForwarder.stopAll();
+            const appSettings = settings.settings;
+            if (appSettings.enableCompatProxy) {
+              const entry = (proxyManager as any).getMiddlewareEntryPort?.() || appSettings.socksPort || appSettings.mixedPort || appSettings.proxyPort;
+              if (entry) {
+                const httpPort = appSettings.compatHttpPort || 1080;
+                const socksPort = appSettings.compatSocksPort || 1080;
+                await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
+                if (socksPort !== httpPort) {
+                  await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('应用兼容端口设置失败:', err);
+        }
       } catch (error) {
         console.error('更新代理管理器设置失败:', error);
       }
@@ -1621,6 +1644,16 @@ ipcMain.handle('proxy:checkVpnStatus', async () => {
       success: false,
       error: `检查VPN状态失败: ${error instanceof Error ? error.message : String(error)}`
     };
+  }
+});
+
+ipcMain.handle('tun:diagnose', async (_event, tunName?: string) => {
+  try {
+    const result = await TunController.diagnose(tunName || 'utun0');
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('TUN 诊断失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
 

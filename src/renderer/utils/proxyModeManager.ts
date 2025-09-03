@@ -124,7 +124,7 @@ export class ProxyModeManager {
       case 'direct':
         return '直连模式：所有流量直连，不经过代理';
       case 'vpn':
-        return 'VPN模式：通过系统VPN接口代理全部流量';
+        return 'VPN模式（TUN）：通过系统 utun 设备接管全局流量';
       default:
         return '未知模式';
     }

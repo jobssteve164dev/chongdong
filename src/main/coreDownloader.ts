@@ -88,6 +88,24 @@ export class CoreDownloader {
     const { platform, arch } = this.getPlatformInfo();
     
     switch (coreName) {
+      case 'tun2socks': {
+        const ver = 'v2.5.0';
+        // 参考 xjasonlyu/tun2socks 发布产物命名（常见为 <name>-<os>-<arch>.zip）
+        // 该命名在不同版本可能有差异；如下载失败，前端应提示采用 Homebrew 安装。
+        const name = 'tun2socks';
+        const fileName = platform === 'win32' ? 'tun2socks.exe' : 'tun2socks';
+        const os = platform;
+        const ar = arch;
+        const asset = `${name}-${os}-${ar}.zip`;
+        return {
+          name: 'tun2socks',
+          version: ver,
+          platform,
+          arch,
+          fileName,
+          downloadUrl: `https://github.com/xjasonlyu/tun2socks/releases/download/${ver}/${asset}`
+        };
+      }
       case 'singbox':
         return {
           name: 'sing-box',
@@ -249,8 +267,15 @@ export class CoreDownloader {
         command = 'gunzip';
         args = ['-f', filePath];
       } else if (isZip) {
+        // 为ZIP也使用临时目录再探测移动，避免压缩包内部文件名与目标名不一致
+        tempDir = join(this.coresDir, 'temp');
+        console.log(`创建临时目录: ${tempDir}`);
+        if (!existsSync(tempDir)) {
+          mkdirSync(tempDir, { recursive: true });
+        }
         command = 'unzip';
-        args = ['-o', filePath, '-d', extractDir];
+        args = ['-o', filePath, '-d', tempDir];
+        console.log(`执行解压命令: ${command} ${args.join(' ')}`);
       } else {
         console.log('不支持的文件格式，跳过解压');
         resolve();
@@ -262,10 +287,11 @@ export class CoreDownloader {
       child.on('close', (code) => {
         console.log(`解压命令退出码: ${code}`);
         if (code === 0) {
-          if (isTarGz) {
+          if (isTarGz || isZip) {
             console.log(`解压成功，开始查找可执行文件...`);
-            // 查找并移动可执行文件
-            this.findAndMoveExecutable(tempDir, extractDir, targetFileName)
+            // 查找并移动可执行文件（从临时目录移动到目标目录）
+            const searchDir = tempDir || extractDir;
+            this.findAndMoveExecutable(searchDir, extractDir, targetFileName)
               .then(() => {
                 console.log('可执行文件移动完成');
                 resolve();
@@ -451,6 +477,7 @@ export class CoreDownloader {
    */
   public getCoresStatus(): { [key: string]: boolean } {
     return {
+      tun2socks: this.isCoreInstalled('tun2socks'),
       singbox: this.isCoreInstalled('singbox'),
       xray: this.isCoreInstalled('xray'),
       clash: this.isCoreInstalled('clash'),
