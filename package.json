@@ -95,6 +95,12 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "src/renderer/assets",
+        "to": "assets"
+      }
+    ],
     "files": [
       "dist/**/*",
       "node_modules/**/*",

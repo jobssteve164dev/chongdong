@@ -42,6 +42,21 @@ let rebuildTrayMenu: (() => void) | null = null;
 let savedChainsCache: ChainConfig[] = [];
 let isQuitting = false;
 
+// 向渲染进程广播代理状态
+function broadcastProxyStatus(running: boolean, payload: any = {}): void {
+  try {
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      const win = windows[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('proxy:statusChanged', { running, ...payload });
+      }
+    }
+  } catch (err) {
+    console.warn('广播代理状态失败:', err);
+  }
+}
+
 // 全局快捷键和通知管理器
 let globalShortcutManager: ReturnType<typeof createGlobalShortcutManager> | null = null;
 let notificationManager: ReturnType<typeof createNotificationManager> | null = null;
@@ -204,12 +219,19 @@ function createTray(): void {
       // 构建产物常见位置
       candidates.push(join(__dirname, '../renderer/tray-icon.png'));
       candidates.push(join(__dirname, '../renderer/assets/tray-icon.png'));
+      // 打包后资源目录（通过 extraResources 注入）
+      try { candidates.push(join(process.resourcesPath, 'assets', 'tray-icon.png')); } catch {}
+      try { candidates.push(join(process.resourcesPath, 'assets', 'icon.png')); } catch {}
       // 退回到 icon.png
       candidates.push(join(__dirname, '../renderer/assets/icon.png'));
 
       const hit = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
       if (!hit) throw new Error('未找到托盘图标文件');
       icon = nativeImage.createFromPath(hit).resize({ width: 18, height: 18 });
+      // macOS 可选：将图标标记为模板以适配浅/深色菜单栏
+      if (process.platform === 'darwin' && icon && typeof (icon as any).setTemplateImage === 'function') {
+        try { (icon as any).setTemplateImage(false); } catch {}
+      }
       console.log('使用托盘图标:', hit);
     } catch (error) {
       console.log('使用默认托盘图标');
@@ -251,13 +273,52 @@ function createTray(): void {
               return null; })();
             if (!found) return;
             await proxyManager.stopMiddleware().catch(() => {});
+            const proto = ((found.protocol || '') as string).toLowerCase();
+            const normalizedType = proto === 'ss' ? 'shadowsocks' : proto;
+            const outbound: any = {
+              type: normalizedType,
+              tag: found.name || `proxy-${n.id}`,
+              server: found.host,
+              server_port: found.port
+            };
+            if (normalizedType === 'vmess') {
+              outbound.uuid = found.uuid;
+              outbound.security = (found as any).security || 'auto';
+              if (found.network === 'ws') {
+                outbound.transport = {
+                  type: 'ws',
+                  path: found.wsPath || '/',
+                  headers: (found.wsHeaders || {})
+                };
+                if ((found as any).wsHost && !outbound.transport.headers.Host) {
+                  outbound.transport.headers.Host = (found as any).wsHost;
+                }
+              }
+            } else if (normalizedType === 'shadowsocks') {
+              outbound.method = (found as any).method || (found as any).encryption;
+              outbound.password = found.password;
+            } else if (normalizedType === 'trojan') {
+              outbound.password = found.password;
+              const serverName = (found as any).sni || found.host;
+              outbound.tls = { enabled: true, server_name: serverName, insecure: (found as any).allowInsecure ?? true };
+            }
+
             const cfg = { log: { level: appSettings.logLevel || 'info', output: appSettings.enableLog ? (appSettings.logFile || 'chongdong.log') : 'console' },
               experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: '' } },
               dns: { servers: [{ tag: 'default', address: appSettings.dnsServer || '8.8.8.8', detour: 'direct' }], final: 'default' },
               inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: appSettings.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: appSettings.proxyPort || 7897 } ],
-              outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, { type: (found.protocol || '').toLowerCase() === 'ss' ? 'shadowsocks' : (found.protocol || '').toLowerCase(), tag: found.name || 'proxy-1', server: found.host, server_port: found.port, uuid: found.uuid, password: found.password, security: (found as any).security, transport: found.network === 'ws' ? { type: 'ws', path: found.wsPath || '/', headers: found.wsHeaders || {} } : undefined } ],
-              route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: (found.name || 'proxy-1') } };
+              outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ],
+              route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
             await proxyManager.startSingbox(cfg);
+            broadcastProxyStatus(true, { source: 'tray-node' });
+            // 启动成功后设置系统代理
+            try {
+              const socksPort = appSettings.socksPort || 7896;
+              const httpPort = appSettings.proxyPort || 7897;
+              await systemProxyManager.setSystemProxy('127.0.0.1', socksPort, httpPort);
+            } catch (err) {
+              console.warn('设置系统代理失败:', err);
+            }
           } catch (e) { console.error('通过托盘启动节点失败:', e); }
         }
       })) : [{ label: '无可用节点', enabled: false }];
@@ -270,7 +331,10 @@ function createTray(): void {
             if (subs.length === 0) return;
             const chain: ChainConfig = { id: 'tray_dynamic_all', name: '托盘·自动链', description: '从全部订阅自动选择最佳节点', type: 'dynamic', proxies: subs.map((s: any) => s.id), rules: [], enabled: true, createdAt: new Date(), updatedAt: new Date() } as any;
             const port = settings.proxyPort || 7897;
-            await dynamicChainManager.startChain(chain, port);
+            const result = await dynamicChainManager.startChain(chain, port);
+            broadcastProxyStatus(true, { source: 'tray-dynamic-all', port: result.port || port });
+            // 设置系统代理到返回端口（HTTP/SOCKS 同端口）
+            try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
           } catch (e) { console.error('通过托盘启动动态链失败:', e); }
         }
       }];
@@ -290,9 +354,13 @@ function createTray(): void {
                 try {
                   const port = settings.proxyPort || 7897;
                   if (c.type === 'dynamic') {
-                    await dynamicChainManager.startChain(c, port);
+                    const result = await dynamicChainManager.startChain(c, port);
+                    broadcastProxyStatus(true, { source: 'tray-dynamic', chainId: c.id, port: result.port || port });
+                    try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   } else {
                     await proxyManager.startChain(c, { listenPort: port } as any);
+                    broadcastProxyStatus(true, { source: 'tray-static', chainId: c.id, port });
+                    try { await systemProxyManager.setSystemProxy('127.0.0.1', port, port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   }
                 } catch (e) { console.error('启动已保存代理链失败:', e); }
               }
@@ -310,7 +378,7 @@ function createTray(): void {
         { label: '选择节点', submenu: nodeItems },
         { label: '代理链', submenu: dynamicChainItems },
         { type: 'separator' },
-        { label: '停止代理', click: async () => { try { await proxyManager.stopAll(); await systemProxyManager.clearSystemProxy(); } catch (e) { console.warn(e); } } },
+        { label: '停止代理', click: async () => { try { await proxyManager.stopAll(); await systemProxyManager.clearSystemProxy(); broadcastProxyStatus(false, { source: 'tray-stop' }); } catch (e) { console.warn(e); } } },
         { label: '刷新菜单', click: () => { rebuildTrayMenu && rebuildTrayMenu(); } },
         { type: 'separator' },
         { label: '隐藏', click: () => { if (mainWindow) mainWindow.hide(); } },
@@ -790,6 +858,8 @@ ipcMain.handle('proxy:stop', async () => {
     // 优先停止中间件，再停止所有单引擎进程
     try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
     await proxyManager.stopAll();
+    try { await systemProxyManager.clearSystemProxy(); } catch {}
+    broadcastProxyStatus(false, { source: 'ipc-stop' });
     return { success: true };
   } catch (error) {
     console.error('Failed to stop proxy:', error);

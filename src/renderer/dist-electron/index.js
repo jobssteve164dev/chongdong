@@ -25881,6 +25881,19 @@ let tray = null;
 let rebuildTrayMenu = null;
 let savedChainsCache = [];
 let isQuitting = false;
+function broadcastProxyStatus(running, payload = {}) {
+  try {
+    const windows = electron.BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      const win = windows[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("proxy:statusChanged", { running, ...payload });
+      }
+    }
+  } catch (err) {
+    console.warn("广播代理状态失败:", err);
+  }
+}
 let globalShortcutManager = null;
 let notificationManager = null;
 async function quitApp() {
@@ -26009,6 +26022,14 @@ function createTray() {
       }
       candidates.push(path$1.join(__dirname, "../renderer/tray-icon.png"));
       candidates.push(path$1.join(__dirname, "../renderer/assets/tray-icon.png"));
+      try {
+        candidates.push(path$1.join(process.resourcesPath, "assets", "tray-icon.png"));
+      } catch {
+      }
+      try {
+        candidates.push(path$1.join(process.resourcesPath, "assets", "icon.png"));
+      } catch {
+      }
       candidates.push(path$1.join(__dirname, "../renderer/assets/icon.png"));
       const hit = candidates.find((p) => {
         try {
@@ -26019,6 +26040,12 @@ function createTray() {
       });
       if (!hit) throw new Error("未找到托盘图标文件");
       icon = electron.nativeImage.createFromPath(hit).resize({ width: 18, height: 18 });
+      if (process.platform === "darwin" && icon && typeof icon.setTemplateImage === "function") {
+        try {
+          icon.setTemplateImage(false);
+        } catch {
+        }
+      }
       console.log("使用托盘图标:", hit);
     } catch (error) {
       console.log("使用默认托盘图标");
@@ -26058,10 +26085,62 @@ function createTray() {
         label: n.name,
         click: async () => {
           try {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send("ui:startNodeById", n.id);
-            } else {
-              console.warn("主窗口不存在，无法委托渲染层启动节点");
+            const appSettings = settingsManager.getSettings();
+            const found = (() => {
+              for (const s of appSettings.subscriptions || []) {
+                const f = (s.servers || []).find((sv) => sv.id === n.id);
+                if (f) return f;
+              }
+              return null;
+            })();
+            if (!found) return;
+            await proxyManager.stopMiddleware().catch(() => {
+            });
+            const proto = (found.protocol || "").toLowerCase();
+            const normalizedType = proto === "ss" ? "shadowsocks" : proto;
+            const outbound = {
+              type: normalizedType,
+              tag: found.name || `proxy-${n.id}`,
+              server: found.host,
+              server_port: found.port
+            };
+            if (normalizedType === "vmess") {
+              outbound.uuid = found.uuid;
+              outbound.security = found.security || "auto";
+              if (found.network === "ws") {
+                outbound.transport = {
+                  type: "ws",
+                  path: found.wsPath || "/",
+                  headers: found.wsHeaders || {}
+                };
+                if (found.wsHost && !outbound.transport.headers.Host) {
+                  outbound.transport.headers.Host = found.wsHost;
+                }
+              }
+            } else if (normalizedType === "shadowsocks") {
+              outbound.method = found.method || found.encryption;
+              outbound.password = found.password;
+            } else if (normalizedType === "trojan") {
+              outbound.password = found.password;
+              const serverName = found.sni || found.host;
+              outbound.tls = { enabled: true, server_name: serverName, insecure: found.allowInsecure ?? true };
+            }
+            const cfg = {
+              log: { level: appSettings.logLevel || "info", output: appSettings.enableLog ? appSettings.logFile || "chongdong.log" : "console" },
+              experimental: { clash_api: { external_controller: "127.0.0.1:9090", external_ui: "", secret: "" } },
+              dns: { servers: [{ tag: "default", address: appSettings.dnsServer || "8.8.8.8", detour: "direct" }], final: "default" },
+              inbounds: [{ type: "socks", tag: "socks-in", listen: "127.0.0.1", listen_port: appSettings.socksPort || 7896 }, { type: "http", tag: "http-in", listen: "127.0.0.1", listen_port: appSettings.proxyPort || 7897 }],
+              outbounds: [{ type: "direct", tag: "direct" }, { type: "dns", tag: "dns" }, outbound],
+              route: { rules: [{ geoip: "private", outbound: "direct" }, { geoip: "cn", outbound: "direct" }], final: outbound.tag }
+            };
+            await proxyManager.startSingbox(cfg);
+            broadcastProxyStatus(true, { source: "tray-node" });
+            try {
+              const socksPort = appSettings.socksPort || 7896;
+              const httpPort = appSettings.proxyPort || 7897;
+              await systemProxyManager.setSystemProxy("127.0.0.1", socksPort, httpPort);
+            } catch (err) {
+              console.warn("设置系统代理失败:", err);
             }
           } catch (e) {
             console.error("通过托盘启动节点失败:", e);
@@ -26076,7 +26155,13 @@ function createTray() {
             if (subs2.length === 0) return;
             const chain = { id: "tray_dynamic_all", name: "托盘·自动链", description: "从全部订阅自动选择最佳节点", type: "dynamic", proxies: subs2.map((s) => s.id), rules: [], enabled: true, createdAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() };
             const port = settings.proxyPort || 7897;
-            await dynamicChainManager.startChain(chain, port);
+            const result = await dynamicChainManager.startChain(chain, port);
+            broadcastProxyStatus(true, { source: "tray-dynamic-all", port: result.port || port });
+            try {
+              await systemProxyManager.setSystemProxy("127.0.0.1", result.port || port, result.port || port);
+            } catch (err) {
+              console.warn("设置系统代理失败:", err);
+            }
           } catch (e) {
             console.error("通过托盘启动动态链失败:", e);
           }
@@ -26094,10 +26179,23 @@ function createTray() {
               label: `启动：${c.name}`,
               click: async () => {
                 try {
-                  if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send("ui:startChainById", c.id);
+                  const port = settings.proxyPort || 7897;
+                  if (c.type === "dynamic") {
+                    const result = await dynamicChainManager.startChain(c, port);
+                    broadcastProxyStatus(true, { source: "tray-dynamic", chainId: c.id, port: result.port || port });
+                    try {
+                      await systemProxyManager.setSystemProxy("127.0.0.1", result.port || port, result.port || port);
+                    } catch (err) {
+                      console.warn("设置系统代理失败:", err);
+                    }
                   } else {
-                    console.warn("主窗口不存在，无法委托渲染层启动代理链");
+                    await proxyManager.startChain(c, { listenPort: port });
+                    broadcastProxyStatus(true, { source: "tray-static", chainId: c.id, port });
+                    try {
+                      await systemProxyManager.setSystemProxy("127.0.0.1", port, port);
+                    } catch (err) {
+                      console.warn("设置系统代理失败:", err);
+                    }
                   }
                 } catch (e) {
                   console.error("启动已保存代理链失败:", e);
@@ -26119,6 +26217,7 @@ function createTray() {
           try {
             await proxyManager.stopAll();
             await systemProxyManager.clearSystemProxy();
+            broadcastProxyStatus(false, { source: "tray-stop" });
           } catch (e) {
             console.warn(e);
           }
@@ -26523,6 +26622,11 @@ electron.ipcMain.handle("proxy:stop", async () => {
       console.warn("[IPC] stopMiddleware ignore:", e);
     }
     await proxyManager.stopAll();
+    try {
+      await systemProxyManager.clearSystemProxy();
+    } catch {
+    }
+    broadcastProxyStatus(false, { source: "ipc-stop" });
     return { success: true };
   } catch (error) {
     console.error("Failed to stop proxy:", error);

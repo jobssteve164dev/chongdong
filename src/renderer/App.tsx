@@ -61,10 +61,28 @@ const AppContent: React.FC = () => {
 
     proxyEngine.onStatusChange(handleStatusChange);
 
+    // 监听主进程广播的状态变化（托盘启动/停止等）
+    const offStatusChanged = window.electron.ipcRenderer.on('proxy:statusChanged', (payload: any) => {
+      try {
+        setProxyConnected(!!payload?.running);
+      } catch {}
+    });
+
     return () => {
       proxyEngine.offStatusChange(handleStatusChange);
+      try { (offStatusChanged as any)?.(); } catch {}
     };
   }, [setProxyConnected, setCurrentProxyNode, setCurrentProxyChain, setTrafficStats]);
+
+  // 兜底：应用加载时主动同步一次运行状态（托盘可能已先启动）
+  useEffect(() => {
+    (async () => {
+      try {
+        const isRunning = await proxyEngine.checkRunningStatus();
+        setProxyConnected(!!isRunning);
+      } catch {}
+    })();
+  }, [setProxyConnected]);
 
   const menuItems = [
     {
