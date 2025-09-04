@@ -601,6 +601,8 @@ ipcMain.handle('proxy:startSingbox', async (_, config) => {
   
   try {
     console.log(`开始启动 Sing-box...`);
+    // 切换到节点模式前，确保中间件已停止
+    try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
     await proxyManager.startSingbox(config);
     console.log(`=== Sing-box 启动成功 ===`);
     return { success: true };
@@ -614,6 +616,8 @@ ipcMain.handle('proxy:startSingbox', async (_, config) => {
 
 ipcMain.handle('proxy:startXray', async (_, config) => {
   try {
+    // 切换到节点模式前，确保中间件已停止
+    try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
     await proxyManager.startXray(config);
     return { success: true };
   } catch (error) {
@@ -624,6 +628,8 @@ ipcMain.handle('proxy:startXray', async (_, config) => {
 
 ipcMain.handle('proxy:startClash', async (_, config) => {
   try {
+    // 切换到节点模式前，确保中间件已停止
+    try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
     await proxyManager.startClash(config);
     return { success: true };
   } catch (error) {
@@ -634,6 +640,8 @@ ipcMain.handle('proxy:startClash', async (_, config) => {
 
 ipcMain.handle('proxy:stop', async () => {
   try {
+    // 优先停止中间件，再停止所有单引擎进程
+    try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
     await proxyManager.stopAll();
     return { success: true };
   } catch (error) {

@@ -887,13 +887,14 @@ export class ProxyManager {
    */
   public async getStats(): Promise<any> {
     try {
-      // 优先：如果中间件代理链在运行，则直接汇总其统计
-      if (this.middlewareManager) {
+      // 优先：仅当中间件代理链“正在运行”时才汇总其统计
+      const mm = this.middlewareManager;
+      if (mm && mm.getStatus().status === 'running') {
         try {
-          const chainStats: any = this.middlewareManager.getTrafficStats();
-          const history = (this.middlewareManager as any).getConnectionHistory?.() || [];
+          const chainStats: any = mm.getTrafficStats();
+          const history = (mm as any).getConnectionHistory?.() || [];
           // 异步刷新一次连接元数据（远端域名/端口）
-          try { await (this.middlewareManager as any).refreshConnectionMetadata?.(); } catch {}
+          try { await (mm as any).refreshConnectionMetadata?.(); } catch {}
           // middleware 返回的是 bytes 级别统计，这里统一映射为渲染端使用的字段
           // 约定：上传=客户端->适配器(trafficRouter.bytesReceived)，下载=适配器->客户端(bytesSent)
           return {
