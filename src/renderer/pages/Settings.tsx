@@ -1645,16 +1645,12 @@ const Settings: React.FC = () => {
           tab={
             <span>
               <SecurityScanOutlined />
-              错误监控
+              日志查看器
             </span>
           }
           key="errors"
         >
-          <ErrorMonitor 
-            showNotification={true}
-            autoResolve={false}
-            maxDisplayErrors={10}
-          />
+          <ErrorMonitor />
         </TabPane>
       </Tabs>
     </div>
