@@ -18,6 +18,7 @@ import { dnsService } from './services/dnsService';
 import { dynamicChainManager } from './dynamicChainManager';
 import { AppSettings, ChainConfig } from '../shared/types';
 import * as fs from 'fs';
+import { databaseUpdateManager } from './databaseUpdateManager';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -1891,6 +1892,33 @@ ipcMain.handle('proxy:disconnectVpn', async () => {
     return {
       success: false,
       error: `断开VPN连接失败: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+});
+
+// 数据库更新相关IPC处理程序
+ipcMain.handle('database:checkUpdate', async (_, settings: any) => {
+  try {
+    const result = await databaseUpdateManager.manualUpdateCheck(settings);
+    return result;
+  } catch (error) {
+    console.error('手动检查数据库更新失败:', error);
+    return { 
+      success: false, 
+      message: `检查失败: ${error instanceof Error ? error.message : String(error)}` 
+    };
+  }
+});
+
+ipcMain.handle('database:getStatus', async () => {
+  try {
+    const status = databaseUpdateManager.getDatabaseStatus();
+    return { success: true, status };
+  } catch (error) {
+    console.error('获取数据库状态失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error) 
     };
   }
 });

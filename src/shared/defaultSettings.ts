@@ -97,7 +97,12 @@ export class DefaultSettings {
       enableAutoLatencyTest: false,
       latencyTestConcurrency: 3,
       latencyTestUrls: 'http://connectivitycheck.gstatic.com/generate_204\nhttp://www.google.com/generate_204\nhttp://www.baidu.com',
-      latencyTestValidityPeriod: 30
+      latencyTestValidityPeriod: 30,
+      // 数据库自动更新设置
+      enableDatabaseAutoUpdate: false,
+      databaseUpdateInterval: 24, // 默认24小时
+      databaseUpdateCheckOnStartup: true
+      // databaseLastUpdateCheck 是可选的，不需要在默认设置中定义
     };
   }
 

@@ -33,8 +33,6 @@ import {
   CheckCircleOutlined,
   SecurityScanOutlined,
   DesktopOutlined,
-  ExperimentOutlined,
-  ClearOutlined,
 } from '@ant-design/icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
@@ -873,7 +871,7 @@ const Settings: React.FC = () => {
                               <li>macOS 首次启用会弹出系统管理员授权，用于创建 utun 设备。</li>
                               <li>TUN 将在 IP 层劫持系统流量，无需在系统里新建 VPN 配置。</li>
                               <li>启用后会自动路由（auto_route），并清空系统代理以避免冲突。</li>
-                              <li>如需自定义设备名或 FakeIP 范围，请在下方“TUN设置”中配置。</li>
+                              <li>本应用已内置 tun2socks 实现，不再需要“网络设置”中的 TUN 相关选项。</li>
                               <li>若授权被拒绝，TUN 启动会失败，请重新启用并允许授权。</li>
                             </ul>
                             <p>提示：切换到“直连/规则/全局模式”时，TUN 将被禁用并恢复常规代理。</p>
@@ -899,12 +897,12 @@ const Settings: React.FC = () => {
                 </Col>
                 <Col xs={24} sm={8}>
                   <Form.Item name="compatHttpPort" label="兼容HTTP端口">
-                    <InputNumber min={1024} max={65535} placeholder={1080} style={{ width: '100%' }} />
+                    <InputNumber min={1024} max={65535} placeholder="1080" style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
                   <Form.Item name="compatSocksPort" label="兼容SOCKS端口">
-                    <InputNumber min={1024} max={65535} placeholder={1080} style={{ width: '100%' }} />
+                    <InputNumber min={1024} max={65535} placeholder="1080" style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1159,34 +1157,7 @@ const Settings: React.FC = () => {
               )}
             </Form>
 
-            <Divider />
-
-            <Title level={4}>TUN设置</Title>
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12}>
-                <Form.Item name="enableTun" label="启用TUN" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Form.Item name="tunDevice" label="TUN设备">
-                  <Input placeholder="utun0" />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12}>
-                <Form.Item name="enableFakeIp" label="启用FakeIP" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Form.Item name="fakeIpRange" label="FakeIP范围">
-                  <Input placeholder="198.18.0.1/16" />
-                </Form.Item>
-              </Col>
-            </Row>
+            {/* TUN 设置已废弃：由内置 tun2socks 自动管理，以下区块被隐藏 */}
 
             <Divider />
 

@@ -24,6 +24,14 @@ declare global {
         updateConfig: (config: any) => Promise<{ success: boolean; error?: string }>;
         isSupported: () => Promise<{ supported: boolean; error?: string }>;
       };
+      dns: {
+        startService: () => Promise<{ success: boolean; error?: string }>;
+        stopService: () => Promise<{ success: boolean; error?: string }>;
+        getSystemDnsServers: () => Promise<{ success: boolean; servers?: string[]; error?: string }>;
+        testDnsQuery: (domain: string, dnsServer: string) => Promise<{ success: boolean; result?: any; error?: string }>;
+        checkDnsLeak: () => Promise<{ success: boolean; result?: any; error?: string }>;
+        clearDnsCache: () => Promise<{ success: boolean; error?: string }>;
+      };
     };
   }
 }

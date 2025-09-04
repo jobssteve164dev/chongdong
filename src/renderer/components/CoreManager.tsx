@@ -1,13 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Space, Tag, Modal, message, Alert, Row, Col, Typography, Divider } from 'antd';
-import { DownloadOutlined, CheckCircleOutlined, ReloadOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { Card, Button, Space, Tag, Modal, message, Alert, Row, Col, Typography, Divider, Switch, InputNumber } from 'antd';
+import { DownloadOutlined, CheckCircleOutlined, ReloadOutlined, DatabaseOutlined, SyncOutlined } from '@ant-design/icons';
 import { CoreManager as CoreManagerUtil, CoreStatus } from '../utils/coreManager';
+import { Storage } from '../utils/storage';
+import { DefaultSettings } from '../utils/defaultSettings';
 import './CoreManager.css';
 
 const { Title, Text } = Typography;
 
 interface CoreManagerProps {
   onCoreStatusChange?: (status: CoreStatus) => void;
+}
+
+interface DatabaseUpdateSettings {
+  enableDatabaseAutoUpdate: boolean;
+  databaseUpdateInterval: number;
+  databaseUpdateCheckOnStartup: boolean;
+  databaseLastUpdateCheck?: number;
 }
 
 const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
@@ -19,8 +28,15 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
     geosite: false,
     tun2socks: false
   });
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [databaseStatus, setDatabaseStatus] = useState<{ [key: string]: { installed: boolean; lastModified?: string } }>({});
+  const [updateSettings, setUpdateSettings] = useState<DatabaseUpdateSettings>({
+    enableDatabaseAutoUpdate: false,
+    databaseUpdateInterval: 24,
+    databaseUpdateCheckOnStartup: true
+  });
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   // 加载核心状态
   const loadCoresStatus = async () => {
@@ -34,8 +50,72 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
     }
   };
 
+  // 加载数据库状态
+  const loadDatabaseStatus = async () => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('database:getStatus');
+      if (result.success) {
+        setDatabaseStatus(result.status);
+      }
+    } catch (error) {
+      console.error('加载数据库状态失败:', error);
+    }
+  };
+
+  // 加载更新设置
+  const loadUpdateSettings = () => {
+    try {
+      const settings = Storage.get<DatabaseUpdateSettings>('databaseUpdateSettings');
+      if (settings) {
+        setUpdateSettings(settings);
+      }
+    } catch (error) {
+      console.error('加载更新设置失败:', error);
+    }
+  };
+
+  // 保存更新设置
+  const saveUpdateSettings = (settings: DatabaseUpdateSettings) => {
+    try {
+      Storage.set('databaseUpdateSettings', settings);
+      setUpdateSettings(settings);
+      
+      // 通知主进程更新设置
+      window.electron.ipcRenderer.invoke('settings:updated', {
+        settings: { ...DefaultSettings.getDefaultAppSettings(), ...settings }
+      });
+      
+      message.success('数据库更新设置已保存');
+    } catch (error) {
+      console.error('保存更新设置失败:', error);
+      message.error('保存设置失败');
+    }
+  };
+
+  // 手动检查更新
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      const settings = Storage.get('databaseUpdateSettings') || updateSettings;
+      const result = await window.electron.ipcRenderer.invoke('database:checkUpdate', settings);
+      
+      if (result.success) {
+        message.success(result.message);
+        await loadDatabaseStatus();
+      } else {
+        message.error(result.message);
+      }
+    } catch (error) {
+      message.error('检查更新失败');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
   useEffect(() => {
     loadCoresStatus();
+    loadDatabaseStatus();
+    loadUpdateSettings();
   }, []);
 
   // 下载核心
@@ -78,6 +158,7 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
       if (success) {
         message.success(`${CoreManagerUtil.getDatabaseDisplayName(dbName)} 下载完成`);
         await loadCoresStatus();
+        await loadDatabaseStatus();
       } else {
         message.error(`${CoreManagerUtil.getDatabaseDisplayName(dbName)} 下载失败`);
       }
@@ -106,12 +187,16 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
 
   // 显示数据库信息
   const showDatabaseInfo = (dbName: string) => {
+    const status = databaseStatus[dbName.toLowerCase()];
+    const lastModified = status?.lastModified ? new Date(status.lastModified).toLocaleString() : '未知';
+    
     Modal.info({
       title: `${CoreManagerUtil.getDatabaseDisplayName(dbName)} 信息`,
       content: (
         <div>
           <p><strong>描述:</strong> {CoreManagerUtil.getDatabaseDescription(dbName)}</p>
-          <p><strong>状态:</strong> {coresStatus[dbName as keyof CoreStatus] ? '已安装' : '未安装'}</p>
+          <p><strong>状态:</strong> {status?.installed ? '已安装' : '未安装'}</p>
+          <p><strong>最后修改:</strong> {lastModified}</p>
           <p><strong>用途:</strong> 用于 Sing-box 的地理位置路由功能</p>
           <p><strong>大小:</strong> 约 2-5 MB</p>
         </div>
@@ -141,7 +226,10 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
             <Button 
               type="text" 
               icon={<ReloadOutlined />} 
-              onClick={loadCoresStatus}
+              onClick={() => {
+                loadCoresStatus();
+                loadDatabaseStatus();
+              }}
               loading={loading}
             >
               刷新
@@ -162,7 +250,7 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
         <div style={{ marginBottom: 16 }}>
           <Title level={5}>代理核心</Title>
           <Row gutter={[16, 16]}>
-            {cores.map(({ key, name, color }) => (
+            {cores.map(({ key, name }) => (
               <Col key={key} xs={24} sm={8}>
                 <Card size="small" className="core-item">
                   <div className="core-item-content">
@@ -216,44 +304,124 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
             showIcon
             style={{ marginBottom: 16 }}
           />
-          <Row gutter={[16, 16]}>
-            {databases.map(({ key, name, color }) => (
-              <Col key={key} xs={24} sm={12}>
-                <Card size="small" className="core-item">
-                  <div className="core-item-content">
-                    <div className="core-info">
-                      <Text strong>{name}</Text>
-                      <Tag color={coresStatus[key as keyof CoreStatus] ? 'green' : 'red'}>
-                        {coresStatus[key as keyof CoreStatus] ? '已安装' : '未安装'}
-                      </Tag>
-                    </div>
-                    <Space>
-                      <Button
-                        type="text"
-                        size="small"
-                        onClick={() => showDatabaseInfo(key)}
-                      >
-                        详情
-                      </Button>
-                      {!coresStatus[key as keyof CoreStatus] && (
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          loading={downloading === key}
-                          onClick={() => handleDownloadDatabase(key)}
-                        >
-                          下载
-                        </Button>
-                      )}
-                      {coresStatus[key as keyof CoreStatus] && (
-                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                      )}
-                    </Space>
+          
+          {/* 数据库自动更新设置 */}
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <Text strong>数据库自动更新</Text>
+                <br />
+                <Text type="secondary">自动检查并下载最新的数据库文件</Text>
+              </div>
+              <Switch
+                checked={updateSettings.enableDatabaseAutoUpdate}
+                onChange={(checked) => {
+                  const newSettings = { ...updateSettings, enableDatabaseAutoUpdate: checked };
+                  saveUpdateSettings(newSettings);
+                }}
+              />
+            </div>
+            
+            {updateSettings.enableDatabaseAutoUpdate && (
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <div>
+                    <Text>更新间隔（小时）</Text>
+                    <InputNumber
+                      min={1}
+                      max={168}
+                      value={updateSettings.databaseUpdateInterval}
+                      onChange={(value) => {
+                        const newSettings = { ...updateSettings, databaseUpdateInterval: value || 24 };
+                        saveUpdateSettings(newSettings);
+                      }}
+                      style={{ width: '100%', marginTop: 8 }}
+                    />
                   </div>
-                </Card>
-              </Col>
-            ))}
+                </Col>
+                <Col xs={24} sm={12}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 24 }}>
+                    <Switch
+                      checked={updateSettings.databaseUpdateCheckOnStartup}
+                      onChange={(checked) => {
+                        const newSettings = { ...updateSettings, databaseUpdateCheckOnStartup: checked };
+                        saveUpdateSettings(newSettings);
+                      }}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text>启动时检查更新</Text>
+                  </div>
+                </Col>
+              </Row>
+            )}
+            
+            <div style={{ marginTop: 16 }}>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<SyncOutlined />}
+                  loading={checkingUpdate}
+                  onClick={handleCheckUpdate}
+                >
+                  立即检查更新
+                </Button>
+                {updateSettings.databaseLastUpdateCheck && (
+                  <Text type="secondary">
+                    最后检查: {new Date(updateSettings.databaseLastUpdateCheck).toLocaleString()}
+                  </Text>
+                )}
+              </Space>
+            </div>
+          </Card>
+          
+          <Row gutter={[16, 16]}>
+            {databases.map(({ key, name }) => {
+              const status = databaseStatus[key.toLowerCase()];
+              const lastModified = status?.lastModified ? new Date(status.lastModified).toLocaleString() : '';
+              
+              return (
+                <Col key={key} xs={24} sm={12}>
+                  <Card size="small" className="core-item">
+                    <div className="core-item-content">
+                      <div className="core-info">
+                        <Text strong>{name}</Text>
+                        <Tag color={status?.installed ? 'green' : 'red'}>
+                          {status?.installed ? '已安装' : '未安装'}
+                        </Tag>
+                        {lastModified && (
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: 4 }}>
+                            更新: {lastModified}
+                          </div>
+                        )}
+                      </div>
+                      <Space>
+                        <Button
+                          type="text"
+                          size="small"
+                          onClick={() => showDatabaseInfo(key)}
+                        >
+                          详情
+                        </Button>
+                        {!status?.installed && (
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            loading={downloading === key}
+                            onClick={() => handleDownloadDatabase(key)}
+                          >
+                            下载
+                          </Button>
+                        )}
+                        {status?.installed && (
+                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                        )}
+                      </Space>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
         </div>
       </Card>

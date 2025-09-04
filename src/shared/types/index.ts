@@ -127,6 +127,11 @@ export interface AppSettings {
   enableCompatProxy?: boolean;
   compatHttpPort?: number; // 默认 1080 可用于 HTTP 兼容
   compatSocksPort?: number; // 默认 1080 可用于 SOCKS 兼容
+  // 数据库自动更新设置
+  enableDatabaseAutoUpdate?: boolean;
+  databaseUpdateInterval?: number; // 更新间隔（小时），默认24小时
+  databaseUpdateCheckOnStartup?: boolean; // 启动时检查更新
+  databaseLastUpdateCheck?: number; // 最后检查时间戳
 }
 
 export interface NetworkSettings {

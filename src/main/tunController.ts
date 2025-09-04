@@ -175,6 +175,32 @@ class TunControllerClass {
         }
       }
     } catch (_) {}
+    // 兜底：通过系统命令检测进程或 utun 接口（避免状态误判）
+    try {
+      const out = readFileSync(this.logFile, { encoding: 'utf8' });
+      if (out && /tun2socks/i.test(out)) {
+        // 有近期日志不代表进程存在，但作为弱信号
+      }
+    } catch (_) {}
+    try {
+      // 优先查找进程
+      const check = require('child_process').execSync(
+        process.platform === 'win32' ? 'tasklist | findstr /i tun2socks' : 'pgrep -fl tun2socks || true',
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      ).toString();
+      if (check && check.trim().length > 0) {
+        return true;
+      }
+    } catch (_) {}
+    try {
+      // macOS 下检查 utun 接口是否存在
+      if (process.platform === 'darwin') {
+        const ifc = require('child_process').execSync('ifconfig -l | tr " " "\n" | grep -E "^utun[0-9]+$" | head -n 1 || true', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+        if (ifc && ifc.trim().length > 0) {
+          return true;
+        }
+      }
+    } catch (_) {}
     return false;
   }
 
