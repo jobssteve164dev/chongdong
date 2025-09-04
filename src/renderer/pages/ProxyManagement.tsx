@@ -131,6 +131,16 @@ const ProxyManagement: React.FC = () => {
   const saveChainConfigs = (configs: ChainConfig[]) => {
     Storage.set('chain_configs', configs);
     setChainConfigs(configs);
+    // 同步到主进程：保存到磁盘并刷新托盘菜单；失败则回退为仅刷新缓存
+    try {
+      // 落盘 + 刷新托盘
+      (window as any).electron?.ipcRenderer?.invoke('chains:save', configs).catch(() => {
+        // 仅更新缓存 + 刷新托盘
+        (window as any).electron?.ipcRenderer?.invoke('chains:updateSaved', configs).catch(() => {});
+      });
+    } catch (_) {
+      try { (window as any).electron?.ipcRenderer?.invoke('chains:updateSaved', configs); } catch {}
+    }
   };
 
   const loadSystemProxy = async () => {

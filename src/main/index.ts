@@ -17,6 +17,7 @@ import { systemMonitor } from './systemMonitor';
 import { dnsService } from './services/dnsService';
 import { dynamicChainManager } from './dynamicChainManager';
 import { AppSettings, ChainConfig } from '../shared/types';
+import * as fs from 'fs';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -36,6 +37,9 @@ try {
 // 全局主窗口引用
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let rebuildTrayMenu: (() => void) | null = null;
+// 渲染层上报的已保存代理链缓存（优先用于托盘展示）
+let savedChainsCache: ChainConfig[] = [];
 let isQuitting = false;
 
 // 全局快捷键和通知管理器
@@ -184,56 +188,142 @@ function getUserPreferences() {
 function createTray(): void {
   try {
     console.log('开始创建系统托盘...');
+    // 防重复创建
+    if (tray) {
+      console.log('托盘已存在，跳过创建');
+      return;
+    }
     
-    // 创建托盘图标
+    // 创建托盘图标（优先 tray-icon.png 非 template PNG，18px）
     let icon;
     try {
-      // 尝试使用应用图标
-      const iconPath = join(__dirname, '../renderer/assets/icon.png');
       const fs = require('fs');
-      if (fs.existsSync(iconPath)) {
-        icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
-        console.log('使用自定义托盘图标');
-      } else {
-        throw new Error('图标文件不存在');
-      }
+      const candidates: string[] = [];
+      // 开发环境优先使用源码路径
+      try { candidates.push(join(app.getAppPath(), 'src/renderer/assets/tray-icon.png')); } catch {}
+      // 构建产物常见位置
+      candidates.push(join(__dirname, '../renderer/tray-icon.png'));
+      candidates.push(join(__dirname, '../renderer/assets/tray-icon.png'));
+      // 退回到 icon.png
+      candidates.push(join(__dirname, '../renderer/assets/icon.png'));
+
+      const hit = candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!hit) throw new Error('未找到托盘图标文件');
+      icon = nativeImage.createFromPath(hit).resize({ width: 18, height: 18 });
+      console.log('使用托盘图标:', hit);
     } catch (error) {
-      // 如果找不到图标文件，创建一个简单的图标
       console.log('使用默认托盘图标');
-      icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3Njape.org5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==');
+      icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAB8SURBVDiNY2AYBYMRMDIyMjAyMjL8//+f4f///wws0AqYGBkZGRgYGBj+//8P5v///5+BBaQYpBikCKoYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGKQYpBikGAAAZqQZ8QAAAABJRU5ErkJggg==').resize({ width: 18, height: 18 });
     }
     
     tray = new Tray(icon);
     console.log('托盘图标已创建');
     
-    // 设置托盘菜单
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: '显示所有窗口',
-        click: () => {
-          console.log('托盘菜单：显示所有窗口被点击');
-          showMainWindow();
-        }
-      },
-      {
-        label: '隐藏',
-        click: () => {
-          console.log('托盘菜单：隐藏被点击');
-          if (mainWindow) {
-            mainWindow.hide();
-          }
-        }
-      },
-      {
-        label: '退出',
-        click: async () => {
-          console.log('托盘菜单：退出被点击');
-          await quitApp();
+    // 高级托盘菜单构建器（节点显示全部，不限 20）
+    const buildTrayMenu = (): Electron.Menu => {
+      const settings = settingsManager.getSettings();
+      const mode = proxyModeManager.getCurrentMode();
+
+      const modeItems: Electron.MenuItemConstructorOptions[] = [
+        { label: '规则模式', type: 'radio', checked: mode === 'rule', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'rule', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
+        { label: '全局模式', type: 'radio', checked: mode === 'global', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'global', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
+        { label: '直连模式', type: 'radio', checked: mode === 'direct', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'direct', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
+        { label: 'VPN 模式 (TUN)', type: 'radio', checked: mode === 'vpn', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'vpn', settings, networkSettings: { enableTun: true, tunDevice: settings.tunDevice } }); rebuildTrayMenu && rebuildTrayMenu(); } },
+      ];
+
+      // 读取全部节点
+      const subs = settings.subscriptions || [];
+      const allNodes: { id: string; name: string; }[] = [];
+      for (const s of subs) {
+        for (const n of (s.servers || [])) {
+          allNodes.push({ id: n.id, name: n.name });
         }
       }
-    ]);
-    
-    tray.setContextMenu(contextMenu);
+      const nodeItems: Electron.MenuItemConstructorOptions[] = allNodes.length > 0 ? allNodes.map(n => ({
+        label: n.name,
+        click: async () => {
+          try {
+            const appSettings = settingsManager.getSettings();
+            const found = (() => {
+              for (const s of appSettings.subscriptions || []) {
+                const f = (s.servers || []).find((sv: any) => sv.id === n.id);
+                if (f) return f; }
+              return null; })();
+            if (!found) return;
+            await proxyManager.stopMiddleware().catch(() => {});
+            const cfg = { log: { level: appSettings.logLevel || 'info', output: appSettings.enableLog ? (appSettings.logFile || 'chongdong.log') : 'console' },
+              experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: '' } },
+              dns: { servers: [{ tag: 'default', address: appSettings.dnsServer || '8.8.8.8', detour: 'direct' }], final: 'default' },
+              inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: appSettings.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: appSettings.proxyPort || 7897 } ],
+              outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, { type: (found.protocol || '').toLowerCase() === 'ss' ? 'shadowsocks' : (found.protocol || '').toLowerCase(), tag: found.name || 'proxy-1', server: found.host, server_port: found.port, uuid: found.uuid, password: found.password, security: (found as any).security, transport: found.network === 'ws' ? { type: 'ws', path: found.wsPath || '/', headers: found.wsHeaders || {} } : undefined } ],
+              route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: (found.name || 'proxy-1') } };
+            await proxyManager.startSingbox(cfg);
+          } catch (e) { console.error('通过托盘启动节点失败:', e); }
+        }
+      })) : [{ label: '无可用节点', enabled: false }];
+
+      const dynamicChainItems: Electron.MenuItemConstructorOptions[] = [{
+        label: '启动（从全部订阅自动择优）',
+        click: async () => {
+          try {
+            const subs = settingsManager.getSettings().subscriptions || [];
+            if (subs.length === 0) return;
+            const chain: ChainConfig = { id: 'tray_dynamic_all', name: '托盘·自动链', description: '从全部订阅自动选择最佳节点', type: 'dynamic', proxies: subs.map((s: any) => s.id), rules: [], enabled: true, createdAt: new Date(), updatedAt: new Date() } as any;
+            const port = settings.proxyPort || 7897;
+            await dynamicChainManager.startChain(chain, port);
+          } catch (e) { console.error('通过托盘启动动态链失败:', e); }
+        }
+      }];
+
+      // 显示所有已保存的代理链：优先渲染层上报缓存，其次磁盘 chains.json，再其次 settings.chains
+      try {
+        const chainsFromRenderer = savedChainsCache || [];
+        const chainsOnDisk = loadChainsFromDisk();
+        const chainsFromSettings: ChainConfig[] = ((settings as any).chains || []) as ChainConfig[];
+        const chains: ChainConfig[] = (chainsFromRenderer && chainsFromRenderer.length > 0) ? chainsFromRenderer : ((chainsOnDisk && chainsOnDisk.length > 0) ? chainsOnDisk : (chainsFromSettings || []));
+        if (Array.isArray(chains) && chains.length > 0) {
+          dynamicChainItems.push({ type: 'separator' });
+          for (const c of chains) {
+            dynamicChainItems.push({
+              label: `启动：${c.name}`,
+              click: async () => {
+                try {
+                  const port = settings.proxyPort || 7897;
+                  if (c.type === 'dynamic') {
+                    await dynamicChainManager.startChain(c, port);
+                  } else {
+                    await proxyManager.startChain(c, { listenPort: port } as any);
+                  }
+                } catch (e) { console.error('启动已保存代理链失败:', e); }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      const menu = Menu.buildFromTemplate([
+        { label: '显示主窗口', click: () => showMainWindow() },
+        { type: 'separator' },
+        { label: '代理模式', submenu: modeItems },
+        { label: '选择节点', submenu: nodeItems },
+        { label: '代理链', submenu: dynamicChainItems },
+        { type: 'separator' },
+        { label: '停止代理', click: async () => { try { await proxyManager.stopAll(); await systemProxyManager.clearSystemProxy(); } catch (e) { console.warn(e); } } },
+        { label: '刷新菜单', click: () => { rebuildTrayMenu && rebuildTrayMenu(); } },
+        { type: 'separator' },
+        { label: '隐藏', click: () => { if (mainWindow) mainWindow.hide(); } },
+        { label: '退出', click: async () => { await quitApp(); } },
+      ]);
+      return menu;
+    };
+
+    // 刷新函数 + 初始菜单
+    rebuildTrayMenu = () => {
+      try { if (!tray) return; tray.setContextMenu(buildTrayMenu()); } catch (e) { console.error('刷新托盘菜单失败:', e); }
+    };
+    tray.setContextMenu(buildTrayMenu());
     tray.setToolTip('虫洞代理');
     console.log('托盘菜单已设置');
     
@@ -261,6 +351,21 @@ function createTray(): void {
   } catch (error) {
     console.error('创建系统托盘失败:', error);
   }
+}
+
+// 从磁盘加载代理链（userData/chains.json）
+function loadChainsFromDisk(): ChainConfig[] {
+  try {
+    const p = join(app.getPath('userData'), 'chains.json');
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, 'utf8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data as ChainConfig[];
+    }
+  } catch (e) {
+    console.warn('读取 chains.json 失败:', e);
+  }
+  return [];
 }
 
 function createWindow(): void {
@@ -323,8 +428,8 @@ function createWindow(): void {
   };
 
   mainWindow.on('ready-to-show', () => {
-    // 始终创建托盘
-    createTray();
+    // 仅在未存在时创建托盘
+    if (!tray) createTray();
     
     // 初始化全局快捷键管理器
     globalShortcutManager = createGlobalShortcutManager(mainWindow);
@@ -548,6 +653,48 @@ app.on('quit', (_, exitCode) => {
 // import { ProxyNode } from '../shared/types';
 
 // 基础IPC处理程序
+// 托盘：接收渲染层上报的已保存代理链
+ipcMain.handle('chains:updateSaved', async (_e, chains: ChainConfig[]) => {
+  try {
+    if (Array.isArray(chains)) {
+      savedChainsCache = chains;
+      console.log(`已更新保存的代理链(${chains.length})`);
+      // 刷新托盘
+      try { rebuildTrayMenu && rebuildTrayMenu(); } catch {}
+      return { success: true };
+    }
+    return { success: false, error: 'Invalid chains payload' };
+  } catch (err) {
+    return { success: false, error: (err as any)?.message || String(err) };
+  }
+});
+
+// 托盘：保存代理链到磁盘并刷新
+ipcMain.handle('chains:save', async (_e, chains: ChainConfig[]) => {
+  try {
+    if (!Array.isArray(chains)) return { success: false, error: 'Invalid chains payload' };
+    const p = join(app.getPath('userData'), 'chains.json');
+    fs.writeFileSync(p, JSON.stringify(chains, null, 2), 'utf8');
+    savedChainsCache = chains;
+    try { rebuildTrayMenu && rebuildTrayMenu(); } catch {}
+    return { success: true, path: p };
+  } catch (err) {
+    return { success: false, error: (err as any)?.message || String(err) };
+  }
+});
+
+// 托盘：获取全部已保存代理链（缓存 > 磁盘 > settings）
+ipcMain.handle('chains:get', async () => {
+  try {
+    const settings = settingsManager.getSettings();
+    const chains = (savedChainsCache && savedChainsCache.length > 0)
+      ? savedChainsCache
+      : (loadChainsFromDisk().length > 0 ? loadChainsFromDisk() : (((settings as any).chains || []) as ChainConfig[]));
+    return { success: true, chains };
+  } catch (err) {
+    return { success: false, error: (err as any)?.message || String(err) };
+  }
+});
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
