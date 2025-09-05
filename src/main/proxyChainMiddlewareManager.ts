@@ -15,6 +15,7 @@ import { TrafficRouter } from './trafficRouter';
 import { ProtocolAdapter } from './protocolAdapter'; // [新增] 引入正确的单节点适配器
 import { v4 as uuidv4 } from 'uuid';
 import { PortManager } from './portManager'; // [修改] 从新的 portManager 文件导入
+import { chainStatusManager } from './chainStatusManager'; // [新增] 导入状态管理器
 
 /**
  * 代理链中间件管理器 - 协调多个协议适配器和流量路由器
@@ -33,10 +34,19 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
   // 新增：连接历史缓存（供渲染端展示）
   private connectionHistory: any[] = [];
   private connectionIndex: Map<string, number> = new Map();
+  // 新增：代理链配置信息
+  private chainId: string | undefined;
+  private chainName: string | undefined;
+  private chainType: 'static' | 'dynamic' | undefined;
+  private chainNodes: ProxyNode[] | undefined;
 
-  constructor(config: ProxyChainMiddlewareConfig) {
+  constructor(config: ProxyChainMiddlewareConfig, chainId?: string, chainName?: string, chainType?: 'static' | 'dynamic', nodes?: ProxyNode[]) {
     this.id = uuidv4();
     this.config = config;
+    this.chainId = chainId;
+    this.chainName = chainName;
+    this.chainType = chainType;
+    this.chainNodes = nodes;
     this.trafficStats = {
       bytesReceived: 0,
       bytesSent: 0,
@@ -79,7 +89,20 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
       console.log(`[ProxyChainMiddlewareManager] 流量路由器启动完成`);
       
       this.status = 'running';
+      this.startTime = new Date();
       console.log(`[ProxyChainMiddlewareManager] 状态已设置为: running`);
+      
+      // 更新状态管理器
+      if (this.chainId && this.chainName && this.chainType && this.chainNodes) {
+        chainStatusManager.updateChainStatus(
+          this.chainId,
+          this.chainName,
+          this.chainType,
+          this,
+          this.chainNodes
+        );
+      }
+      
       console.log(`✅ [ProxyChainMiddlewareManager] 代理链中间件启动成功: ${this.id}`);
     } catch (error) {
       this.status = 'error';
@@ -134,6 +157,31 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
       startTime: this.startTime,
       trafficStats: { ...this.trafficStats }
     };
+  }
+
+  /**
+   * 获取代理链状态
+   */
+  public getChainStatus() {
+    if (this.chainId) {
+      return chainStatusManager.getChainStatus(this.chainId);
+    }
+    return null;
+  }
+
+  /**
+   * 更新代理链状态
+   */
+  public updateChainStatus(): void {
+    if (this.chainId && this.chainName && this.chainType && this.chainNodes) {
+      chainStatusManager.updateChainStatus(
+        this.chainId,
+        this.chainName,
+        this.chainType,
+        this,
+        this.chainNodes
+      );
+    }
   }
 
   /**

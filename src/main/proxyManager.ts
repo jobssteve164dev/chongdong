@@ -1418,7 +1418,7 @@ export class ProxyManager {
   /**
    * 使用中间件启动代理链
    */
-  private async startProxyChainWithMiddleware(chainId: string, nodes: ProxyNode[], port: number): Promise<void> {
+  private async startProxyChainWithMiddleware(chainId: string, nodes: ProxyNode[], port: number, chainConfig?: ChainConfig): Promise<void> {
     console.log(`[ProxyManager] 使用中间件启动代理链: ${chainId}`);
     console.log(`[ProxyManager] 中间件配置详情:`);
     console.log(`  - 入口端口: ${port}`);
@@ -1447,7 +1447,13 @@ export class ProxyManager {
       
       // 创建并启动中间件管理器
       console.log(`[ProxyManager] 创建中间件管理器...`);
-      this.middlewareManager = new ProxyChainMiddlewareManager(config);
+      this.middlewareManager = new ProxyChainMiddlewareManager(
+        config,
+        chainConfig?.id || chainId,
+        chainConfig?.name || `Chain-${chainId}`,
+        chainConfig?.type || 'static',
+        nodes
+      );
       console.log(`[ProxyManager] 中间件管理器创建成功`);
       
       // 添加监控监听器

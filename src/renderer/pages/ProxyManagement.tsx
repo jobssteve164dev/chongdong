@@ -19,6 +19,7 @@ import ProxyChainBuilder from '../components/ProxyChainBuilder';
 import NodeSelector from '../components/NodeSelector';
 import { useNodeStore, NodeStore } from '../utils/stores';
 import { DefaultSettings } from '../utils/defaultSettings';
+import ChainStatusDisplay from '../components/ChainStatusDisplay';
 import './ProxyManagement.css';
 import * as _ from 'lodash';
 
@@ -386,6 +387,21 @@ const ProxyManagement: React.FC = () => {
           </Card>
         </TabPane>
       </Tabs>
+
+      {/* 代理链状态显示 */}
+      {proxyConnected && currentProxyChain && (
+        <div style={{ marginTop: 24 }}>
+          <ChainStatusDisplay
+            chainId={currentProxyChain.id}
+            chainName={currentProxyChain.name}
+            showIPDetection={true}
+            onRefresh={() => {
+              // 刷新代理链状态
+              console.log('刷新代理链状态');
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };

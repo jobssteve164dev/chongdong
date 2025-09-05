@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { chainIPDetector } from './utils/chainIPDetector';
 import Dashboard from '@/pages/Dashboard';
 import ProxyManagement from '@/pages/ProxyManagement';
 import SubscriptionManagement from '@/pages/SubscriptionManagement';
@@ -62,9 +63,31 @@ const AppContent: React.FC = () => {
     proxyEngine.onStatusChange(handleStatusChange);
 
     // 监听主进程广播的状态变化（托盘启动/停止等）
-    const offStatusChanged = window.electron.ipcRenderer.on('proxy:statusChanged', (payload: any) => {
+    const offStatusChanged = window.electron.ipcRenderer.on('proxy:statusChanged', async (payload: any) => {
       try {
         setProxyConnected(!!payload?.running);
+        
+        // 如果包含代理链信息，更新代理链状态
+        if (payload?.chainId && payload?.running) {
+          // 从主进程获取完整的代理链配置信息
+          try {
+            const chainConfig = await chainIPDetector.getChainConfig(payload.chainId);
+            setCurrentProxyChain(chainConfig);
+          } catch (error) {
+            console.warn('获取代理链配置失败:', error);
+            // 设置基本信息作为备选
+            const chainInfo = {
+              id: payload.chainId,
+              name: `Chain-${payload.chainId}`,
+              type: payload.source === 'tray-dynamic' ? 'dynamic' : 'static',
+              proxies: []
+            };
+            setCurrentProxyChain(chainInfo);
+          }
+        } else if (!payload?.running) {
+          // 如果代理停止，清空代理链信息
+          setCurrentProxyChain(null);
+        }
       } catch {}
     });
 

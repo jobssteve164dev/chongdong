@@ -16,6 +16,7 @@ import { crashMonitor } from './crashMonitor';
 import { systemMonitor } from './systemMonitor';
 import { dnsService } from './services/dnsService';
 import { dynamicChainManager } from './dynamicChainManager';
+import { chainStatusManager } from './chainStatusManager';
 import { AppSettings, ChainConfig } from '../shared/types';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
@@ -1622,6 +1623,103 @@ ipcMain.handle('notification:is-supported', async () => {
   }
 });
 
+// 代理链状态IPC处理程序
+ipcMain.handle('chain:getStatus', async (_, chainId: string) => {
+  try {
+    // 优先按传入ID获取；若不存在，则回退到正在运行的代理链
+    let chainStatus = chainStatusManager.getChainStatus(chainId);
+    if (!chainStatus) {
+      const all = chainStatusManager.getAllChainStatuses();
+      const running = all.find(s => s.status === 'running');
+      chainStatus = (running || all[0]) ?? null as any;
+    }
+    if (!chainStatus) {
+      return { success: false, error: '未找到任何代理链状态' };
+    }
+    return { success: true, data: chainStatus };
+  } catch (error) {
+    console.error('获取代理链状态失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error) 
+    };
+  }
+});
+
+// 获取所有代理链状态
+ipcMain.handle('chain:getAllStatuses', async () => {
+  try {
+    const allStatuses = chainStatusManager.getAllChainStatuses();
+    return { success: true, data: allStatuses };
+  } catch (error) {
+    console.error('获取所有代理链状态失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error) 
+    };
+  }
+});
+
+// 检测代理链节点IP地址
+ipcMain.handle('chain:detectNodeIPs', async (_, chainId: string) => {
+  try {
+    // 如果传入的ID无效，回退到当前运行中的代理链
+    let targetId = chainId;
+    const current = chainStatusManager.getChainStatus(chainId);
+    if (!current) {
+      const all = chainStatusManager.getAllChainStatuses();
+      const running = all.find(s => s.status === 'running');
+      if (running) targetId = running.chainId; else if (all[0]) targetId = all[0].chainId;
+    }
+    const nodeIPs = await chainStatusManager.detectChainNodeIPs(targetId);
+    return { success: true, data: nodeIPs };
+  } catch (error) {
+    console.error('检测代理链节点IP失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error) 
+    };
+  }
+});
+
+// 获取代理链配置信息
+ipcMain.handle('chain:getConfig', async (_, chainId: string) => {
+  try {
+    // 首先尝试从ChainStatusManager获取代理链状态
+    const chainStatus = chainStatusManager.getChainStatus(chainId);
+    if (chainStatus) {
+      // 从代理链状态构建配置信息
+      const chainConfig = {
+        id: chainStatus.chainId,
+        name: chainStatus.chainName,
+        description: `代理链: ${chainStatus.chainName}`,
+        type: chainStatus.chainType,
+        proxies: chainStatus.nodes.map(node => node.nodeId), // 只返回节点ID数组
+        rules: [],
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return { success: true, data: chainConfig };
+    }
+    
+    // 如果ChainStatusManager中没有，尝试从磁盘加载
+    const chains = loadChainsFromDisk();
+    const chain = chains.find(c => c.id === chainId);
+    if (chain) {
+      return { success: true, data: chain };
+    } else {
+      return { success: false, error: '代理链配置不存在' };
+    }
+  } catch (error) {
+    console.error('获取代理链配置失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : String(error) 
+    };
+  }
+});
+
 // IP地理位置测试IPC处理程序
 ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
   try {
@@ -1639,7 +1737,8 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
     const proxyUrlObj = new URL(proxyUrl);
     const appSettings = settingsManager.getSettings();
     const proxyHost = proxyUrlObj.hostname || '127.0.0.1';
-    const socksPort = Number(appSettings?.socksPort) || 7896; // SOCKS端口
+    // 使用传入的proxyUrl中的端口，而不是设置中的默认SOCKS端口
+    const socksPort = Number(proxyUrlObj.port) || Number(appSettings?.socksPort) || 7896;
 
     // 通过 SOCKS5 访问
     const tryViaSocks = (api: string): Promise<any> => new Promise((resolve) => {

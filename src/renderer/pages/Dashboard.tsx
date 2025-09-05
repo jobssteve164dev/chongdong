@@ -45,6 +45,7 @@ import { formatBytes, formatSpeed } from '../utils/format';
 import { navigationManager } from '../utils/navigationManager';
 import './Dashboard.css';
 import { rendererSystemMonitor, SystemMetrics } from '../utils/systemMonitor';
+import ChainStatusDisplay from '../components/ChainStatusDisplay';
 
 const { Title, Text } = Typography;
 
@@ -801,6 +802,11 @@ const Dashboard: React.FC = () => {
                   <Text type="secondary">
                     IP地址: {currentGeolocation?.ip ? `${currentGeolocation.ip} (${formatGeolocation(currentGeolocation)})` : '获取中...'}
                   </Text>
+                  {currentProxyChain && (
+                    <Text type="secondary">
+                      代理链模式: {currentProxyChain.name} ({currentProxyChain.proxies.length}个节点)
+                    </Text>
+                  )}
                 </div>
               )}
             </div>
@@ -904,6 +910,23 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* 代理链状态显示 */}
+      {proxyConnected && currentProxyChain && (
+        <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+          <Col span={24}>
+            <ChainStatusDisplay
+              chainId={currentProxyChain.id}
+              chainName={currentProxyChain.name}
+              showIPDetection={true}
+              onRefresh={() => {
+                // 刷新代理链状态
+                handleTestGeolocation();
+              }}
+            />
+          </Col>
+        </Row>
+      )}
 
       {/* 提示信息 */}
       {!proxyConnected && (
