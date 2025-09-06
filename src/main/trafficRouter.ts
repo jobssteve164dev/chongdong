@@ -10,6 +10,7 @@ import {
 import { settingsManager } from './settingsManager';
 import { DefaultSettings } from '../shared/defaultSettings';
 import { HttpHeaderProtectionService } from './services/httpHeaderProtectionService';
+import { behaviorDataManager, BehaviorDataSnapshot } from './services/behaviorDataManager';
 
 /**
  * 流量路由器 - 在多个sing-box实例之间转发流量
@@ -599,9 +600,9 @@ export class TrafficRouter {
   }
 
   /**
-   * 获取行为分析数据
+   * 获取行为分析数据（结合内存数据和持久化数据）
    */
-  getBehaviorAnalytics(): {
+  async getBehaviorAnalytics(): Promise<{
     totalConnections: number;
     totalBytes: number;
     averageConnections: number;
@@ -613,63 +614,126 @@ export class TrafficRouter {
     trafficPatterns: { hour: number; bytes: number }[];
     currentActiveConnections: number;
     currentBytesPerSecond: number;
-  } {
-    
-    // 计算平均连接数（基于最近24小时）
-    const recentConnections = Array.from(this.behaviorData.hourlyConnections.values());
-    const averageConnections = recentConnections.length > 0 
-      ? recentConnections.reduce((sum, count) => sum + count, 0) / recentConnections.length 
-      : 0;
-    
-    // 计算峰值连接数
-    const peakConnections = Math.max(...recentConnections, 0);
-    
-    // 计算平均和峰值流量
-    const recentBytes = Array.from(this.behaviorData.hourlyBytes.values());
-    const averageBytesPerSecond = recentBytes.length > 0 
-      ? recentBytes.reduce((sum, bytes) => sum + bytes, 0) / recentBytes.length / 3600 
-      : 0;
-    const peakBytesPerSecond = Math.max(...recentBytes, 0) / 3600;
-    
-    // 找出活跃时段（连接数超过平均值的时段）
-    const activeHours: number[] = [];
-    for (let hour = 0; hour < 24; hour++) {
-      const hourConnections = this.behaviorData.hourlyConnections.get(hour) || 0;
-      if (hourConnections > averageConnections * 0.5) {
-        activeHours.push(hour);
+  }> {
+    try {
+      // 获取持久化的历史数据
+      const historicalData = await behaviorDataManager.getAggregatedData();
+      
+      // 结合当前内存数据
+      const currentHour = new Date().getHours();
+      const currentHourConnections = this.behaviorData.hourlyConnections.get(currentHour) || 0;
+      const currentHourBytes = this.behaviorData.hourlyBytes.get(currentHour) || 0;
+      
+      // 合并历史数据和当前数据
+      const combinedHourlyConnections: Record<number, number> = { ...historicalData.connectionPatterns.reduce((acc, p) => ({ ...acc, [p.hour]: p.connections }), {} as Record<number, number>) };
+      const combinedHourlyBytes: Record<number, number> = { ...historicalData.trafficPatterns.reduce((acc, p) => ({ ...acc, [p.hour]: p.bytes }), {} as Record<number, number>) };
+      
+      // 更新当前小时的数据
+      combinedHourlyConnections[currentHour] = (combinedHourlyConnections[currentHour] || 0) + currentHourConnections;
+      combinedHourlyBytes[currentHour] = (combinedHourlyBytes[currentHour] || 0) + currentHourBytes;
+      
+      // 计算统计数据
+      const hourlyConnections = Object.values(combinedHourlyConnections) as number[];
+      const averageConnections = hourlyConnections.length > 0 
+        ? hourlyConnections.reduce((sum, count) => sum + count, 0) / hourlyConnections.length 
+        : 0;
+      
+      const peakConnections = Math.max(...hourlyConnections, 0);
+      
+      const hourlyBytes = Object.values(combinedHourlyBytes) as number[];
+      const averageBytesPerSecond = hourlyBytes.length > 0 
+        ? hourlyBytes.reduce((sum, bytes) => sum + bytes, 0) / hourlyBytes.length / 3600 
+        : 0;
+      const peakBytesPerSecond = Math.max(...hourlyBytes, 0) / 3600;
+      
+      // 找出活跃时段
+      const activeHours: number[] = [];
+      for (let hour = 0; hour < 24; hour++) {
+        const hourConnections = combinedHourlyConnections[hour] || 0;
+        if (hourConnections > averageConnections * 0.5) {
+          activeHours.push(hour);
+        }
       }
+      
+      // 生成24小时模式数据
+      const connectionPatterns = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        connections: combinedHourlyConnections[hour] || 0
+      }));
+      
+      const trafficPatterns = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        bytes: combinedHourlyBytes[hour] || 0
+      }));
+      
+      // 当前活跃连接数
+      const currentActiveConnections = this.activeConnections.size;
+      
+      // 当前流量速度
+      const currentBytesPerSecond = this.calculateCurrentThroughput();
+      
+      return {
+        totalConnections: historicalData.totalConnections + this.behaviorData.totalConnections,
+        totalBytes: historicalData.totalBytes + this.behaviorData.totalBytes,
+        averageConnections,
+        peakConnections,
+        averageBytesPerSecond,
+        peakBytesPerSecond,
+        activeHours,
+        connectionPatterns,
+        trafficPatterns,
+        currentActiveConnections,
+        currentBytesPerSecond
+      };
+    } catch (error) {
+      console.error('[TrafficRouter] 获取行为分析数据失败，使用内存数据:', error);
+      
+      // 降级到仅使用内存数据
+      const recentConnections = Array.from(this.behaviorData.hourlyConnections.values());
+      const averageConnections = recentConnections.length > 0 
+        ? recentConnections.reduce((sum, count) => sum + count, 0) / recentConnections.length 
+        : 0;
+      
+      const peakConnections = Math.max(...recentConnections, 0);
+      
+      const recentBytes = Array.from(this.behaviorData.hourlyBytes.values());
+      const averageBytesPerSecond = recentBytes.length > 0 
+        ? recentBytes.reduce((sum, bytes) => sum + bytes, 0) / recentBytes.length / 3600 
+        : 0;
+      const peakBytesPerSecond = Math.max(...recentBytes, 0) / 3600;
+      
+      const activeHours: number[] = [];
+      for (let hour = 0; hour < 24; hour++) {
+        const hourConnections = this.behaviorData.hourlyConnections.get(hour) || 0;
+        if (hourConnections > averageConnections * 0.5) {
+          activeHours.push(hour);
+        }
+      }
+      
+      const connectionPatterns = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        connections: this.behaviorData.hourlyConnections.get(hour) || 0
+      }));
+      
+      const trafficPatterns = Array.from({ length: 24 }, (_, hour) => ({
+        hour,
+        bytes: this.behaviorData.hourlyBytes.get(hour) || 0
+      }));
+      
+      return {
+        totalConnections: this.behaviorData.totalConnections,
+        totalBytes: this.behaviorData.totalBytes,
+        averageConnections,
+        peakConnections,
+        averageBytesPerSecond,
+        peakBytesPerSecond,
+        activeHours,
+        connectionPatterns,
+        trafficPatterns,
+        currentActiveConnections: this.activeConnections.size,
+        currentBytesPerSecond: this.calculateCurrentThroughput()
+      };
     }
-    
-    // 生成24小时模式数据
-    const connectionPatterns = Array.from({ length: 24 }, (_, hour) => ({
-      hour,
-      connections: this.behaviorData.hourlyConnections.get(hour) || 0
-    }));
-    
-    const trafficPatterns = Array.from({ length: 24 }, (_, hour) => ({
-      hour,
-      bytes: this.behaviorData.hourlyBytes.get(hour) || 0
-    }));
-    
-    // 当前活跃连接数
-    const currentActiveConnections = this.activeConnections.size;
-    
-    // 当前流量速度（基于最近1分钟的统计）
-    const currentBytesPerSecond = this.calculateCurrentThroughput();
-    
-    return {
-      totalConnections: this.behaviorData.totalConnections,
-      totalBytes: this.behaviorData.totalBytes,
-      averageConnections,
-      peakConnections,
-      averageBytesPerSecond,
-      peakBytesPerSecond,
-      activeHours,
-      connectionPatterns,
-      trafficPatterns,
-      currentActiveConnections,
-      currentBytesPerSecond
-    };
   }
 
   private calculateCurrentThroughput(): number {
@@ -702,5 +766,36 @@ export class TrafficRouter {
     // 更新总计数
     this.behaviorData.totalConnections++;
     this.behaviorData.totalBytes += currentBytes;
+    
+    // 定期保存数据到持久化存储（每小时保存一次）
+    this.scheduleDataPersistence();
+  }
+
+  private lastPersistenceTime: number = 0;
+  private persistenceInterval: number = 60 * 60 * 1000; // 1小时
+
+  private scheduleDataPersistence(): void {
+    const now = Date.now();
+    if (now - this.lastPersistenceTime > this.persistenceInterval) {
+      this.persistBehaviorData();
+      this.lastPersistenceTime = now;
+    }
+  }
+
+  private async persistBehaviorData(): Promise<void> {
+    try {
+      const snapshot: BehaviorDataSnapshot = {
+        timestamp: Date.now(),
+        totalConnections: this.behaviorData.totalConnections,
+        totalBytes: this.behaviorData.totalBytes,
+        hourlyConnections: Object.fromEntries(this.behaviorData.hourlyConnections),
+        hourlyBytes: Object.fromEntries(this.behaviorData.hourlyBytes)
+      };
+
+      await behaviorDataManager.saveSnapshot(snapshot);
+      console.log('[TrafficRouter] 行为数据已保存到持久化存储');
+    } catch (error) {
+      console.error('[TrafficRouter] 保存行为数据失败:', error);
+    }
   }
 }

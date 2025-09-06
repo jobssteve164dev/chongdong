@@ -2173,10 +2173,33 @@ ipcMain.handle('leak-protection:stop-monitoring', async () => {
 
 ipcMain.handle('behavior-analytics:get-data', async () => {
   try {
-    const data = leakProtectionManager.getBehaviorAnalytics();
+    const data = await leakProtectionManager.getBehaviorAnalytics();
     return { success: true, data };
   } catch (error) {
     console.error('获取行为分析数据失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 行为分析数据管理相关IPC处理程序
+ipcMain.handle('behavior-analytics:get-stats', async () => {
+  try {
+    const { behaviorDataManager } = await import('./services/behaviorDataManager');
+    const stats = await behaviorDataManager.getDataStats();
+    return { success: true, data: stats };
+  } catch (error) {
+    console.error('获取行为分析数据统计失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('behavior-analytics:clear-data', async () => {
+  try {
+    const { behaviorDataManager } = await import('./services/behaviorDataManager');
+    await behaviorDataManager.clearData();
+    return { success: true };
+  } catch (error) {
+    console.error('清理行为分析数据失败:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

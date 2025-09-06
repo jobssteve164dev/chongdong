@@ -465,8 +465,8 @@ export class LeakProtectionManager {
   /**
    * 获取行为分析数据
    */
-  public getBehaviorAnalytics(): any {
-    return this.behaviorAnalyticsService.getAnalyticsData();
+  public async getBehaviorAnalytics(): Promise<any> {
+    return await this.behaviorAnalyticsService.getAnalyticsData();
   }
 
   /**

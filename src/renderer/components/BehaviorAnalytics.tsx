@@ -47,6 +47,12 @@ const BehaviorAnalytics: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [dataStats, setDataStats] = useState<{
+    totalSnapshots: number;
+    oldestSnapshot: Date | null;
+    newestSnapshot: Date | null;
+    dataSizeKB: number;
+  } | null>(null);
 
   const loadAnalyticsData = async () => {
     setLoading(true);
@@ -107,8 +113,36 @@ const BehaviorAnalytics: React.FC = () => {
     }
   };
 
+  const loadDataStats = async () => {
+    try {
+      const result = await window.electronAPI.invoke('behavior-analytics:get-stats');
+      if (result.success) {
+        setDataStats(result.data);
+      }
+    } catch (error) {
+      console.error('加载数据统计失败:', error);
+    }
+  };
+
+  const clearAllData = async () => {
+    try {
+      const result = await window.electronAPI.invoke('behavior-analytics:clear-data');
+      if (result.success) {
+        // 重新加载数据
+        await loadAnalyticsData();
+        await loadDataStats();
+        console.log('行为分析数据已清理');
+      } else {
+        console.error('清理数据失败:', result.error);
+      }
+    } catch (error) {
+      console.error('清理数据失败:', error);
+    }
+  };
+
   useEffect(() => {
     loadAnalyticsData();
+    loadDataStats();
   }, []);
 
   const formatBytes = (bytes: number): string => {
@@ -166,7 +200,10 @@ const BehaviorAnalytics: React.FC = () => {
           </Text>
           <Button 
             icon={<ReloadOutlined />} 
-            onClick={loadAnalyticsData}
+            onClick={async () => {
+              await loadAnalyticsData();
+              await loadDataStats();
+            }}
             loading={loading}
           >
             刷新数据
@@ -336,6 +373,61 @@ const BehaviorAnalytics: React.FC = () => {
               type="success"
               showIcon
             />
+          </Col>
+        </Row>
+      </Card>
+
+      {/* 数据管理 */}
+      <Card title="数据管理" style={{ marginTop: 24 }}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 16 }}>
+              <Text strong>数据统计信息</Text>
+            </div>
+            {dataStats ? (
+              <div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text>数据快照数量: </Text>
+                  <Text strong>{dataStats.totalSnapshots}</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text>数据文件大小: </Text>
+                  <Text strong>{dataStats.dataSizeKB} KB</Text>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <Text>最早记录: </Text>
+                  <Text strong>
+                    {dataStats.oldestSnapshot ? dataStats.oldestSnapshot.toLocaleDateString() : '无'}
+                  </Text>
+                </div>
+                <div>
+                  <Text>最新记录: </Text>
+                  <Text strong>
+                    {dataStats.newestSnapshot ? dataStats.newestSnapshot.toLocaleDateString() : '无'}
+                  </Text>
+                </div>
+              </div>
+            ) : (
+              <Text type="secondary">正在加载数据统计...</Text>
+            )}
+          </Col>
+          <Col xs={24} md={12}>
+            <div style={{ marginBottom: 16 }}>
+              <Text strong>数据操作</Text>
+            </div>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Button 
+                type="primary" 
+                danger
+                onClick={clearAllData}
+                style={{ width: '100%' }}
+              >
+                清理所有历史数据
+              </Button>
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                清理后将从本地存储中删除所有历史行为分析数据，但不会影响当前会话的统计。
+              </Text>
+            </Space>
           </Col>
         </Row>
       </Card>

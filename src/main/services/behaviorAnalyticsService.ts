@@ -40,11 +40,11 @@ export class BehaviorAnalyticsService {
     return this.history.slice(-limit);
   }
 
-  getAnalyticsData(): any {
+  async getAnalyticsData(): Promise<any> {
     if (!this.trafficRouter) {
       return null;
     }
-    return this.trafficRouter.getBehaviorAnalytics();
+    return await this.trafficRouter.getBehaviorAnalytics();
   }
 
   private sampleOnce(): void {
