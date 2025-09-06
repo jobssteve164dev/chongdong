@@ -1375,12 +1375,32 @@ const Settings: React.FC = () => {
 
               <Title level={4}>高级泄露防护设置</Title>
               <Alert
+                message="局域网隔离"
+                description="启用后，将阻断与本地子网中除网关/DNS以外的直连通信，建议在使用代理网络时开启。"
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+              <Alert
                 message="高级泄露防护功能"
                 description="这些高级防护功能可以进一步保护您的网络隐私，防止通过TLS指纹、HTTP头、时间模式、MAC地址等方式泄露身份信息。建议根据您的安全需求选择合适的防护级别。"
                 type="info"
                 showIcon
                 style={{ marginBottom: 16 }}
               />
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableLanIsolation" label="局域网隔离" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={16}>
+                  <Form.Item name="lanAllowedCidrs" label="允许直连网段(可选, 逗号分隔)">
+                    <Input placeholder="例如: 192.168.1.1/32, 10.0.0.1/32" />
+                  </Form.Item>
+                </Col>
+              </Row>
 
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={8}>

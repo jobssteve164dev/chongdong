@@ -7,6 +7,9 @@ import {
   IAdapter,
   AdapterStatus
 } from '../shared/types/middleware';
+import { settingsManager } from './settingsManager';
+import { DefaultSettings } from '../shared/defaultSettings';
+import { HttpHeaderProtectionService } from './services/httpHeaderProtectionService';
 
 /**
  * 流量路由器 - 在多个sing-box实例之间转发流量
@@ -20,6 +23,12 @@ export class TrafficRouter {
   private monitoringListeners: ((event: MonitoringEvent) => void)[] = [];
   private protectionRules: ProtectionRule[] = [];
   private activeConnections: Map<string, Socket> = new Map();
+  // 新增：中间件级防护（真实生效）
+  private httpHeaderProtector = new HttpHeaderProtectionService();
+  private requestDelayRange: [number, number] = [100, 500];
+  private timingProtectionEnabled: boolean = true;
+  private lanIsolationEnabled: boolean = false;
+  private lanAllowedCidrs: string[] = ['127.0.0.1/32'];
   // 新增：按连接统计上传/下载与起始时间，并尽力解析远端主机/端口
   private connectionStats: Map<string, { upload: number; download: number; start: number; chains: string[]; clientAddress: string; host?: string; port?: number; parsed?: boolean } > = new Map();
 
@@ -32,6 +41,34 @@ export class TrafficRouter {
       connections: 0,
       lastActivity: new Date()
     };
+
+    // 同步加载应用设置，初始化中间件级防护参数
+    try {
+      const settings = settingsManager.getSettings?.() || DefaultSettings.getDefaultAppSettings();
+      // 时间泄露防护
+      if (typeof settings.enableTimingLeakProtection === 'boolean') {
+        this.timingProtectionEnabled = settings.enableTimingLeakProtection;
+      }
+      if (Array.isArray(settings.requestDelayRange) && settings.requestDelayRange.length === 2) {
+        const [min, max] = settings.requestDelayRange as [number, number];
+        if (Number.isFinite(min) && Number.isFinite(max) && min >= 0 && max >= min) {
+          this.requestDelayRange = [min, max];
+        }
+      }
+      // HTTP 头防护
+      this.httpHeaderProtector.configure({
+        enabled: settings.enableHttpHeaderProtection ?? true,
+        mode: settings.httpHeaderProtectionMode || 'strict',
+        customUserAgent: settings.customUserAgent || ''
+      });
+      // 局域网隔离
+      this.lanIsolationEnabled = !!settings.enableLanIsolation;
+      if (Array.isArray(settings.lanAllowedCidrs)) {
+        this.lanAllowedCidrs = settings.lanAllowedCidrs.filter((s: any) => typeof s === 'string');
+      }
+    } catch (e) {
+      console.warn('[TrafficRouter] 初始化中间件防护参数失败，使用默认值。', e);
+    }
   }
 
   /**
@@ -261,8 +298,8 @@ export class TrafficRouter {
    * 设置双向数据转发
    */
   private setupDataForwarding(clientSocket: Socket, adapterSocket: Socket, connectionId: string): void {
-    // 客户端 -> 适配器
-    clientSocket.on('data', (data) => {
+    // 客户端 -> 适配器（应用真实生效的中间件：请求延迟 + HTTP头标准化）
+    clientSocket.on('data', async (data) => {
       this.trafficStats.bytesReceived += data.length;
       this.trafficStats.lastActivity = new Date();
       const st = this.connectionStats.get(connectionId);
@@ -277,15 +314,78 @@ export class TrafficRouter {
           st.parsed = true;
         }
       }
+
+      let outBuf = data;
+
+      try {
+        // 0) 局域网隔离：基于首次包推断目的主机/端口，阻断同网段直连
+        if (this.lanIsolationEnabled) {
+          const parsed = this.parseHostnameFromFirstPacket(data);
+          // 如果是明文HTTP并且目标是内网网段，则丢弃
+          if (parsed?.host && this.isLanAddress(parsed.host) && !this.isAllowedLan(parsed.host)) {
+            console.warn('[TrafficRouter] LAN Isolation: 阻断内网目标', parsed.host);
+            return; // 丢弃该数据，不转发
+          }
+        }
+
+        // 1) 时间泄露防护：请求延迟整形
+        if (this.timingProtectionEnabled) {
+          const [min, max] = this.requestDelayRange;
+          const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+          if (delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
+
+        // 2) HTTP 头标准化：仅在HTTP明文请求场景下尝试改写首包头部
+        //    注意：这不会解密TLS流量；若为TLS，保持透明转发
+        const str = data.toString('utf8');
+        const isHttp1 = /^GET\s|^POST\s|^HEAD\s|^PUT\s|^DELETE\s|^OPTIONS\s|^PATCH\s/i.test(str);
+        if (isHttp1 && this.httpHeaderProtector.getProtectionStatus().enabled) {
+          // 将首包按行拆分并重写关键头部
+          const endOfHeaders = str.indexOf('\r\n\r\n');
+          if (endOfHeaders > 0) {
+            const headersPart = str.substring(0, endOfHeaders);
+            const bodyPart = str.substring(endOfHeaders + 4);
+            const lines = headersPart.split('\r\n');
+            const requestLine = lines.shift() || '';
+
+            // 构造标准化头
+            const tpl = this.httpHeaderProtector.getStandardizedHeaders('chrome');
+            const kv: Record<string, string> = {};
+            for (const line of lines) {
+              const idx = line.indexOf(':');
+              if (idx > 0) {
+                const key = line.substring(0, idx).trim();
+                const value = line.substring(idx + 1).trim();
+                kv[key] = value;
+              }
+            }
+            // 应用标准化（保留Host和必要头，覆盖UA/Accept/Accept-Language等）
+            const host = kv['Host'];
+            const merged: Record<string, string> = { ...kv, ...tpl };
+            if (host) merged['Host'] = host; // Host 必须保留，防止路由错误
+
+            const rebuilt = [requestLine]
+              .concat(Object.entries(merged).map(([k, v]) => `${k}: ${v}`))
+              .join('\r\n') + '\r\n\r\n' + bodyPart;
+            outBuf = Buffer.from(rebuilt, 'utf8');
+          }
+        }
+      } catch (e) {
+        // 中间件失败时，回退为透明转发
+        console.warn('[TrafficRouter] 中间件处理失败，已降级为透明转发: ', (e as Error).message);
+        outBuf = data;
+      }
       
       if (!adapterSocket.destroyed) {
-        adapterSocket.write(data);
+        adapterSocket.write(outBuf);
       }
       
       this.emitMonitoringEvent(MonitoringEventType.TRAFFIC_FLOW, {
         connectionId,
         direction: 'client_to_adapter',
-        bytes: data.length
+        bytes: outBuf.length
       });
     });
     
@@ -327,6 +427,48 @@ export class TrafficRouter {
     } catch {
       return null;
     }
+  }
+
+  // 简易内网网段判断（CIDR: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8, *.local）
+  private isLanAddress(host: string): boolean {
+    if (/\.local$/i.test(host)) return true;
+    const ip = this.tryParseIPv4(host);
+    if (!ip) return false;
+    const parts = ip.split('.').map(n => parseInt(n,10));
+    const [a, b] = parts;
+    if (a === undefined) return false;
+    if (a === 10) return true;
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 127) return true;
+    return false;
+  }
+
+  private tryParseIPv4(host: string): string | null {
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host;
+    return null;
+  }
+
+  private isAllowedLan(host: string): boolean {
+    // 简易CIDR匹配，仅支持 /8 /12 /16 /24 /32 常用前缀
+    const ip = this.tryParseIPv4(host);
+    if (!ip) return false;
+    for (const cidr of this.lanAllowedCidrs) {
+      const [base, maskStr] = cidr.split('/');
+      if (!base) continue;
+      const mask = parseInt(maskStr || '32', 10);
+      if (this.cidrMatch(ip, base, mask)) return true;
+    }
+    return false;
+  }
+
+  private cidrMatch(ip: string, base: string, mask: number): boolean {
+    const toInt = (x: string) => x.split('.').reduce((a,c)=> (a<<8) + (parseInt(c,10)&0xff), 0) >>> 0;
+    const ipInt = toInt(ip);
+    const baseInt = toInt(base);
+    const maskInt = mask === 0 ? 0 : (~0 << (32 - mask)) >>> 0;
+    return (ipInt & maskInt) === (baseInt & maskInt);
   }
 
   /**

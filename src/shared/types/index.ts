@@ -116,6 +116,9 @@ export interface AppSettings {
   enableWebRTCLeakProtection: boolean;
   webRTCLeakProtectionMode: 'strict' | 'relaxed';
   webRTCAllowedDomains: string[];
+  // 局域网隔离
+  enableLanIsolation?: boolean;
+  lanAllowedCidrs?: string[];
   // 新增高级泄露防护配置
   enableTlsFingerprintProtection?: boolean;
   tlsFingerprintMode?: 'strict' | 'relaxed';

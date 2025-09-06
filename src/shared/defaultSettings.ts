@@ -219,6 +219,9 @@ export class DefaultSettings {
       enableWebRTCLeakProtection: true,
       webRTCLeakProtectionMode: 'strict',
       webRTCAllowedDomains: [],
+      // 局域网隔离默认关闭，仅允许网关/DNS时可开启
+      enableLanIsolation: false,
+      lanAllowedCidrs: ['127.0.0.1/32'],
       // 新增高级泄露防护配置
       enableTlsFingerprintProtection: true,
       tlsFingerprintMode: 'strict',

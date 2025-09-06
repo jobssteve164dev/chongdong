@@ -1142,6 +1142,7 @@ class ProxyChainConfigGenerator {
    * 为单个节点生成出站配置
    */
   generateNodeOutbound(node2) {
+    var _a2, _b2, _c2;
     const baseConfig = {
       tag: `proxy-${node2.id}`,
       server: node2.server,
@@ -1155,10 +1156,7 @@ class ProxyChainConfigGenerator {
           uuid: node2.uuid,
           security: node2.encryption || "auto",
           alter_id: node2.alterId ?? 0,
-          tls: {
-            enabled: false
-            // VMess通常不需要TLS
-          }
+          tls: { enabled: !!node2.tls }
         };
         if (node2.network === "ws") {
           vmessConfig.transport = {
@@ -1169,17 +1167,39 @@ class ProxyChainConfigGenerator {
             }
           };
         }
+        if (vmessConfig.tls.enabled) {
+          try {
+            const { settingsManager: settingsManager2 } = require("../main/settingsManager");
+            const settings = ((_a2 = settingsManager2.getSettings) == null ? void 0 : _a2.call(settingsManager2)) || {};
+            if (settings.enableTlsFingerprintProtection) {
+              const template = settings.tlsFingerprintTemplate || "chrome";
+              vmessConfig.tls = vmessConfig.tls || { enabled: true };
+              vmessConfig.tls.utls = { enabled: true, fingerprint: template };
+            }
+          } catch {
+          }
+        }
         return vmessConfig;
       case ProxyProtocol.VLESS:
-        return {
+        const vless = {
           type: "vless",
           ...baseConfig,
           uuid: node2.uuid,
-          tls: {
-            enabled: false
-            // VLESS可以不使用TLS
-          }
+          tls: { enabled: !!node2.tls }
         };
+        if (vless.tls.enabled) {
+          try {
+            const { settingsManager: settingsManager2 } = require("../main/settingsManager");
+            const settings = ((_b2 = settingsManager2.getSettings) == null ? void 0 : _b2.call(settingsManager2)) || {};
+            if (settings.enableTlsFingerprintProtection) {
+              const template = settings.tlsFingerprintTemplate || "chrome";
+              vless.tls = vless.tls || { enabled: true };
+              vless.tls.utls = { enabled: true, fingerprint: template };
+            }
+          } catch {
+          }
+        }
+        return vless;
       case ProxyProtocol.SHADOWSOCKS:
         return {
           type: "shadowsocks",
@@ -1192,16 +1212,26 @@ class ProxyChainConfigGenerator {
           }
         };
       case ProxyProtocol.TROJAN:
-        return {
+        const trojan = {
           type: "trojan",
           ...baseConfig,
           password: node2.password,
           tls: {
             enabled: true,
             insecure: true
-            // 允许不安全的证书
           }
         };
+        try {
+          const { settingsManager: settingsManager2 } = require("../main/settingsManager");
+          const settings = ((_c2 = settingsManager2.getSettings) == null ? void 0 : _c2.call(settingsManager2)) || {};
+          if (settings.enableTlsFingerprintProtection) {
+            const template = settings.tlsFingerprintTemplate || "chrome";
+            trojan.tls = trojan.tls || { enabled: true };
+            trojan.tls.utls = { enabled: true, fingerprint: template };
+          }
+        } catch {
+        }
+        return trojan;
       case ProxyProtocol.HTTP:
       case ProxyProtocol.SOCKS5:
         return {
@@ -1498,6 +1528,9 @@ class DefaultSettings {
       enableWebRTCLeakProtection: true,
       webRTCLeakProtectionMode: "strict",
       webRTCAllowedDomains: [],
+      // 局域网隔离默认关闭，仅允许网关/DNS时可开启
+      enableLanIsolation: false,
+      lanAllowedCidrs: ["127.0.0.1/32"],
       // 新增高级泄露防护配置
       enableTlsFingerprintProtection: true,
       tlsFingerprintMode: "strict",
@@ -1619,12 +1652,292 @@ var MonitoringEventType = /* @__PURE__ */ ((MonitoringEventType2) => {
   MonitoringEventType2["NODE_RECOVERY"] = "node_recovery";
   return MonitoringEventType2;
 })(MonitoringEventType || {});
+class HttpHeaderProtectionService {
+  constructor() {
+    this.enabled = true;
+    this.mode = "strict";
+    this.customUserAgent = "";
+    this.headerTemplates = {
+      chrome: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      firefox: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1"
+      },
+      safari: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      edge: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
+      }
+    };
+    this.sensitiveHeaders = [
+      "User-Agent",
+      "Accept-Language",
+      "Accept-Encoding",
+      "Referer",
+      "Origin",
+      "X-Forwarded-For",
+      "X-Real-IP",
+      "X-Client-IP",
+      "X-Forwarded-Host",
+      "X-Original-URL",
+      "X-Rewrite-URL",
+      "Via",
+      "X-Forwarded-Proto",
+      "X-Forwarded-Port"
+    ];
+    console.log("HTTP头防护服务初始化完成");
+  }
+  /**
+   * 配置HTTP头防护
+   */
+  configure(config) {
+    this.enabled = config.enabled;
+    this.mode = config.mode;
+    this.customUserAgent = config.customUserAgent || "";
+    console.log(`HTTP头防护配置更新: enabled=${this.enabled}, mode=${this.mode}`);
+  }
+  /**
+   * 检测HTTP头泄露
+   */
+  async checkHttpHeaderLeak() {
+    console.log("开始HTTP头泄露检测...");
+    const result = {
+      leaked: false,
+      details: [],
+      leakSources: [],
+      detectedHeaders: {},
+      suspiciousHeaders: []
+    };
+    try {
+      const currentHeaders = await this.getCurrentHttpHeaders();
+      result.detectedHeaders = currentHeaders;
+      const leakDetected = await this.detectHeaderLeak(currentHeaders);
+      if (leakDetected.leaked) {
+        result.leaked = true;
+        result.leakSources = leakDetected.sources;
+        result.suspiciousHeaders = leakDetected.suspiciousHeaders;
+        result.details.push(`检测到HTTP头泄露: ${leakDetected.sources.join(", ")}`);
+        if (this.mode === "strict") {
+          result.details.push("严格模式下检测到HTTP头泄露");
+        }
+      } else {
+        result.details.push("✅ HTTP头防护正常，未检测到泄露");
+      }
+      result.details.push(`检测到${Object.keys(currentHeaders).length}个HTTP头`);
+    } catch (error) {
+      console.error("HTTP头泄露检测失败:", error);
+      result.details.push(`检测失败: ${error instanceof Error ? error.message : "未知错误"}`);
+    }
+    console.log("HTTP头泄露检测完成:", result);
+    return result;
+  }
+  /**
+   * 获取当前HTTP头
+   */
+  async getCurrentHttpHeaders() {
+    try {
+      const headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1"
+      };
+      return headers;
+    } catch (error) {
+      console.error("获取HTTP头失败:", error);
+      return {};
+    }
+  }
+  /**
+   * 检测头部泄露
+   */
+  async detectHeaderLeak(headers) {
+    const sources = [];
+    const suspiciousHeaders = [];
+    try {
+      for (const header of this.sensitiveHeaders) {
+        if (headers[header]) {
+          suspiciousHeaders.push(header);
+          if (this.isHeaderValueTooSpecific(headers[header], header)) {
+            sources.push(`${header}值过于具体`);
+          }
+        }
+      }
+      if (headers["User-Agent"]) {
+        if (this.isUserAgentTooUnique(headers["User-Agent"])) {
+          sources.push("User-Agent过于独特");
+        }
+      }
+      if (headers["Accept-Language"]) {
+        if (this.doesAcceptLanguageLeakLocation(headers["Accept-Language"])) {
+          sources.push("Accept-Language暴露地理位置");
+        }
+      }
+      if (headers["Referer"]) {
+        if (this.doesRefererLeakSensitiveInfo(headers["Referer"])) {
+          sources.push("Referer暴露敏感信息");
+        }
+      }
+      const leaked = sources.length > 0;
+      if (leaked && this.mode === "strict") {
+        sources.push("严格模式检测到HTTP头泄露");
+      }
+      return { leaked, sources, suspiciousHeaders };
+    } catch (error) {
+      console.error("检测HTTP头泄露失败:", error);
+      return { leaked: false, sources: [], suspiciousHeaders: [] };
+    }
+  }
+  /**
+   * 检查头部值是否过于具体
+   */
+  isHeaderValueTooSpecific(value, headerName) {
+    switch (headerName) {
+      case "User-Agent":
+        return this.isUserAgentTooUnique(value);
+      case "Accept-Language":
+        return this.doesAcceptLanguageLeakLocation(value);
+      case "Accept-Encoding":
+        return value.includes("br") && value.includes("gzip");
+      default:
+        return value.length > 200;
+    }
+  }
+  /**
+   * 检查User-Agent是否过于独特
+   */
+  isUserAgentTooUnique(userAgent) {
+    const versionPattern = /\d+\.\d+\.\d+\.\d+/;
+    if (versionPattern.test(userAgent)) {
+      return true;
+    }
+    const devToolsPattern = /(Chrome-Lighthouse|HeadlessChrome|PhantomJS|Selenium)/i;
+    if (devToolsPattern.test(userAgent)) {
+      return true;
+    }
+    const customPattern = /(Custom|Test|Bot|Crawler)/i;
+    if (customPattern.test(userAgent)) {
+      return true;
+    }
+    return false;
+  }
+  /**
+   * 检查Accept-Language是否暴露地理位置
+   */
+  doesAcceptLanguageLeakLocation(acceptLanguage) {
+    const specificLanguagePattern = /(zh-CN|zh-TW|en-US|en-GB|ja-JP|ko-KR)/;
+    if (specificLanguagePattern.test(acceptLanguage)) {
+      return true;
+    }
+    const languages = acceptLanguage.split(",");
+    if (languages.length > 5) {
+      return true;
+    }
+    return false;
+  }
+  /**
+   * 检查Referer是否暴露敏感信息
+   */
+  doesRefererLeakSensitiveInfo(referer) {
+    const sensitiveDomains = [
+      "localhost",
+      "127.0.0.1",
+      "192.168.",
+      "10.",
+      "172.16.",
+      "admin",
+      "login",
+      "dashboard"
+    ];
+    for (const domain of sensitiveDomains) {
+      if (referer.includes(domain)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  /**
+   * 应用HTTP头防护
+   */
+  async applyProtection() {
+    if (!this.enabled) {
+      console.log("HTTP头防护已禁用");
+      return false;
+    }
+    try {
+      console.log(`应用HTTP头防护: mode=${this.mode}`);
+      return true;
+    } catch (error) {
+      console.error("应用HTTP头防护失败:", error);
+      return false;
+    }
+  }
+  /**
+   * 获取标准化的HTTP头
+   */
+  getStandardizedHeaders(template = "chrome") {
+    const baseHeaders = { ...this.headerTemplates[template] };
+    if (this.customUserAgent) {
+      baseHeaders["User-Agent"] = this.customUserAgent;
+    }
+    return baseHeaders;
+  }
+  /**
+   * 获取防护状态
+   */
+  getProtectionStatus() {
+    return {
+      enabled: this.enabled,
+      mode: this.mode,
+      customUserAgent: this.customUserAgent,
+      lastCheck: /* @__PURE__ */ new Date()
+    };
+  }
+}
 class TrafficRouter {
   constructor(entryPort, adapters2) {
+    var _a2;
     this.status = "idle";
     this.monitoringListeners = [];
     this.protectionRules = [];
     this.activeConnections = /* @__PURE__ */ new Map();
+    this.httpHeaderProtector = new HttpHeaderProtectionService();
+    this.requestDelayRange = [100, 500];
+    this.timingProtectionEnabled = true;
+    this.lanIsolationEnabled = false;
+    this.lanAllowedCidrs = ["127.0.0.1/32"];
     this.connectionStats = /* @__PURE__ */ new Map();
     this.entryPort = entryPort;
     this.adapters = adapters2;
@@ -1634,6 +1947,29 @@ class TrafficRouter {
       connections: 0,
       lastActivity: /* @__PURE__ */ new Date()
     };
+    try {
+      const settings = ((_a2 = settingsManager.getSettings) == null ? void 0 : _a2.call(settingsManager)) || DefaultSettings.getDefaultAppSettings();
+      if (typeof settings.enableTimingLeakProtection === "boolean") {
+        this.timingProtectionEnabled = settings.enableTimingLeakProtection;
+      }
+      if (Array.isArray(settings.requestDelayRange) && settings.requestDelayRange.length === 2) {
+        const [min2, max2] = settings.requestDelayRange;
+        if (Number.isFinite(min2) && Number.isFinite(max2) && min2 >= 0 && max2 >= min2) {
+          this.requestDelayRange = [min2, max2];
+        }
+      }
+      this.httpHeaderProtector.configure({
+        enabled: settings.enableHttpHeaderProtection ?? true,
+        mode: settings.httpHeaderProtectionMode || "strict",
+        customUserAgent: settings.customUserAgent || ""
+      });
+      this.lanIsolationEnabled = !!settings.enableLanIsolation;
+      if (Array.isArray(settings.lanAllowedCidrs)) {
+        this.lanAllowedCidrs = settings.lanAllowedCidrs.filter((s) => typeof s === "string");
+      }
+    } catch (e) {
+      console.warn("[TrafficRouter] 初始化中间件防护参数失败，使用默认值。", e);
+    }
   }
   /**
    * 启动流量路由器
@@ -1818,7 +2154,7 @@ class TrafficRouter {
    * 设置双向数据转发
    */
   setupDataForwarding(clientSocket, adapterSocket, connectionId) {
-    clientSocket.on("data", (data) => {
+    clientSocket.on("data", async (data) => {
       this.trafficStats.bytesReceived += data.length;
       this.trafficStats.lastActivity = /* @__PURE__ */ new Date();
       const st = this.connectionStats.get(connectionId);
@@ -1833,13 +2169,59 @@ class TrafficRouter {
           st.parsed = true;
         }
       }
+      let outBuf = data;
+      try {
+        if (this.lanIsolationEnabled) {
+          const parsed = this.parseHostnameFromFirstPacket(data);
+          if ((parsed == null ? void 0 : parsed.host) && this.isLanAddress(parsed.host) && !this.isAllowedLan(parsed.host)) {
+            console.warn("[TrafficRouter] LAN Isolation: 阻断内网目标", parsed.host);
+            return;
+          }
+        }
+        if (this.timingProtectionEnabled) {
+          const [min2, max2] = this.requestDelayRange;
+          const delay = Math.floor(Math.random() * (max2 - min2 + 1)) + min2;
+          if (delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
+        const str = data.toString("utf8");
+        const isHttp1 = /^GET\s|^POST\s|^HEAD\s|^PUT\s|^DELETE\s|^OPTIONS\s|^PATCH\s/i.test(str);
+        if (isHttp1 && this.httpHeaderProtector.getProtectionStatus().enabled) {
+          const endOfHeaders = str.indexOf("\r\n\r\n");
+          if (endOfHeaders > 0) {
+            const headersPart = str.substring(0, endOfHeaders);
+            const bodyPart = str.substring(endOfHeaders + 4);
+            const lines = headersPart.split("\r\n");
+            const requestLine = lines.shift() || "";
+            const tpl = this.httpHeaderProtector.getStandardizedHeaders("chrome");
+            const kv = {};
+            for (const line of lines) {
+              const idx = line.indexOf(":");
+              if (idx > 0) {
+                const key = line.substring(0, idx).trim();
+                const value = line.substring(idx + 1).trim();
+                kv[key] = value;
+              }
+            }
+            const host = kv["Host"];
+            const merged = { ...kv, ...tpl };
+            if (host) merged["Host"] = host;
+            const rebuilt = [requestLine].concat(Object.entries(merged).map(([k, v]) => `${k}: ${v}`)).join("\r\n") + "\r\n\r\n" + bodyPart;
+            outBuf = Buffer.from(rebuilt, "utf8");
+          }
+        }
+      } catch (e) {
+        console.warn("[TrafficRouter] 中间件处理失败，已降级为透明转发: ", e.message);
+        outBuf = data;
+      }
       if (!adapterSocket.destroyed) {
-        adapterSocket.write(data);
+        adapterSocket.write(outBuf);
       }
       this.emitMonitoringEvent(MonitoringEventType.TRAFFIC_FLOW, {
         connectionId,
         direction: "client_to_adapter",
-        bytes: data.length
+        bytes: outBuf.length
       });
     });
     adapterSocket.on("data", (data) => {
@@ -1874,6 +2256,43 @@ class TrafficRouter {
     } catch {
       return null;
     }
+  }
+  // 简易内网网段判断（CIDR: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8, *.local）
+  isLanAddress(host) {
+    if (/\.local$/i.test(host)) return true;
+    const ip = this.tryParseIPv4(host);
+    if (!ip) return false;
+    const parts = ip.split(".").map((n) => parseInt(n, 10));
+    const [a, b] = parts;
+    if (a === void 0) return false;
+    if (a === 10) return true;
+    if (a === 172 && b !== void 0 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 127) return true;
+    return false;
+  }
+  tryParseIPv4(host) {
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host;
+    return null;
+  }
+  isAllowedLan(host) {
+    const ip = this.tryParseIPv4(host);
+    if (!ip) return false;
+    for (const cidr of this.lanAllowedCidrs) {
+      const [base, maskStr] = cidr.split("/");
+      if (!base) continue;
+      const mask = parseInt(maskStr || "32", 10);
+      if (this.cidrMatch(ip, base, mask)) return true;
+    }
+    return false;
+  }
+  cidrMatch(ip, base, mask) {
+    const toInt = (x) => x.split(".").reduce((a, c) => (a << 8) + (parseInt(c, 10) & 255), 0) >>> 0;
+    const ipInt = toInt(ip);
+    const baseInt = toInt(base);
+    const maskInt = mask === 0 ? 0 : -1 << 32 - mask >>> 0;
+    return (ipInt & maskInt) === (baseInt & maskInt);
   }
   /**
    * 检查防护规则
@@ -27174,280 +27593,6 @@ class TlsFingerprintProtectionService {
       enabled: this.enabled,
       mode: this.mode,
       template: this.template,
-      lastCheck: /* @__PURE__ */ new Date()
-    };
-  }
-}
-class HttpHeaderProtectionService {
-  constructor() {
-    this.enabled = true;
-    this.mode = "strict";
-    this.customUserAgent = "";
-    this.headerTemplates = {
-      chrome: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1"
-      },
-      firefox: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1"
-      },
-      safari: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Upgrade-Insecure-Requests": "1"
-      },
-      edge: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1"
-      }
-    };
-    this.sensitiveHeaders = [
-      "User-Agent",
-      "Accept-Language",
-      "Accept-Encoding",
-      "Referer",
-      "Origin",
-      "X-Forwarded-For",
-      "X-Real-IP",
-      "X-Client-IP",
-      "X-Forwarded-Host",
-      "X-Original-URL",
-      "X-Rewrite-URL",
-      "Via",
-      "X-Forwarded-Proto",
-      "X-Forwarded-Port"
-    ];
-    console.log("HTTP头防护服务初始化完成");
-  }
-  /**
-   * 配置HTTP头防护
-   */
-  configure(config) {
-    this.enabled = config.enabled;
-    this.mode = config.mode;
-    this.customUserAgent = config.customUserAgent || "";
-    console.log(`HTTP头防护配置更新: enabled=${this.enabled}, mode=${this.mode}`);
-  }
-  /**
-   * 检测HTTP头泄露
-   */
-  async checkHttpHeaderLeak() {
-    console.log("开始HTTP头泄露检测...");
-    const result = {
-      leaked: false,
-      details: [],
-      leakSources: [],
-      detectedHeaders: {},
-      suspiciousHeaders: []
-    };
-    try {
-      const currentHeaders = await this.getCurrentHttpHeaders();
-      result.detectedHeaders = currentHeaders;
-      const leakDetected = await this.detectHeaderLeak(currentHeaders);
-      if (leakDetected.leaked) {
-        result.leaked = true;
-        result.leakSources = leakDetected.sources;
-        result.suspiciousHeaders = leakDetected.suspiciousHeaders;
-        result.details.push(`检测到HTTP头泄露: ${leakDetected.sources.join(", ")}`);
-        if (this.mode === "strict") {
-          result.details.push("严格模式下检测到HTTP头泄露");
-        }
-      } else {
-        result.details.push("✅ HTTP头防护正常，未检测到泄露");
-      }
-      result.details.push(`检测到${Object.keys(currentHeaders).length}个HTTP头`);
-    } catch (error) {
-      console.error("HTTP头泄露检测失败:", error);
-      result.details.push(`检测失败: ${error instanceof Error ? error.message : "未知错误"}`);
-    }
-    console.log("HTTP头泄露检测完成:", result);
-    return result;
-  }
-  /**
-   * 获取当前HTTP头
-   */
-  async getCurrentHttpHeaders() {
-    try {
-      const headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1"
-      };
-      return headers;
-    } catch (error) {
-      console.error("获取HTTP头失败:", error);
-      return {};
-    }
-  }
-  /**
-   * 检测头部泄露
-   */
-  async detectHeaderLeak(headers) {
-    const sources = [];
-    const suspiciousHeaders = [];
-    try {
-      for (const header of this.sensitiveHeaders) {
-        if (headers[header]) {
-          suspiciousHeaders.push(header);
-          if (this.isHeaderValueTooSpecific(headers[header], header)) {
-            sources.push(`${header}值过于具体`);
-          }
-        }
-      }
-      if (headers["User-Agent"]) {
-        if (this.isUserAgentTooUnique(headers["User-Agent"])) {
-          sources.push("User-Agent过于独特");
-        }
-      }
-      if (headers["Accept-Language"]) {
-        if (this.doesAcceptLanguageLeakLocation(headers["Accept-Language"])) {
-          sources.push("Accept-Language暴露地理位置");
-        }
-      }
-      if (headers["Referer"]) {
-        if (this.doesRefererLeakSensitiveInfo(headers["Referer"])) {
-          sources.push("Referer暴露敏感信息");
-        }
-      }
-      const leaked = sources.length > 0;
-      if (leaked && this.mode === "strict") {
-        sources.push("严格模式检测到HTTP头泄露");
-      }
-      return { leaked, sources, suspiciousHeaders };
-    } catch (error) {
-      console.error("检测HTTP头泄露失败:", error);
-      return { leaked: false, sources: [], suspiciousHeaders: [] };
-    }
-  }
-  /**
-   * 检查头部值是否过于具体
-   */
-  isHeaderValueTooSpecific(value, headerName) {
-    switch (headerName) {
-      case "User-Agent":
-        return this.isUserAgentTooUnique(value);
-      case "Accept-Language":
-        return this.doesAcceptLanguageLeakLocation(value);
-      case "Accept-Encoding":
-        return value.includes("br") && value.includes("gzip");
-      default:
-        return value.length > 200;
-    }
-  }
-  /**
-   * 检查User-Agent是否过于独特
-   */
-  isUserAgentTooUnique(userAgent) {
-    const versionPattern = /\d+\.\d+\.\d+\.\d+/;
-    if (versionPattern.test(userAgent)) {
-      return true;
-    }
-    const devToolsPattern = /(Chrome-Lighthouse|HeadlessChrome|PhantomJS|Selenium)/i;
-    if (devToolsPattern.test(userAgent)) {
-      return true;
-    }
-    const customPattern = /(Custom|Test|Bot|Crawler)/i;
-    if (customPattern.test(userAgent)) {
-      return true;
-    }
-    return false;
-  }
-  /**
-   * 检查Accept-Language是否暴露地理位置
-   */
-  doesAcceptLanguageLeakLocation(acceptLanguage) {
-    const specificLanguagePattern = /(zh-CN|zh-TW|en-US|en-GB|ja-JP|ko-KR)/;
-    if (specificLanguagePattern.test(acceptLanguage)) {
-      return true;
-    }
-    const languages = acceptLanguage.split(",");
-    if (languages.length > 5) {
-      return true;
-    }
-    return false;
-  }
-  /**
-   * 检查Referer是否暴露敏感信息
-   */
-  doesRefererLeakSensitiveInfo(referer) {
-    const sensitiveDomains = [
-      "localhost",
-      "127.0.0.1",
-      "192.168.",
-      "10.",
-      "172.16.",
-      "admin",
-      "login",
-      "dashboard"
-    ];
-    for (const domain of sensitiveDomains) {
-      if (referer.includes(domain)) {
-        return true;
-      }
-    }
-    return false;
-  }
-  /**
-   * 应用HTTP头防护
-   */
-  async applyProtection() {
-    if (!this.enabled) {
-      console.log("HTTP头防护已禁用");
-      return false;
-    }
-    try {
-      console.log(`应用HTTP头防护: mode=${this.mode}`);
-      return true;
-    } catch (error) {
-      console.error("应用HTTP头防护失败:", error);
-      return false;
-    }
-  }
-  /**
-   * 获取标准化的HTTP头
-   */
-  getStandardizedHeaders(template = "chrome") {
-    const baseHeaders = { ...this.headerTemplates[template] };
-    if (this.customUserAgent) {
-      baseHeaders["User-Agent"] = this.customUserAgent;
-    }
-    return baseHeaders;
-  }
-  /**
-   * 获取防护状态
-   */
-  getProtectionStatus() {
-    return {
-      enabled: this.enabled,
-      mode: this.mode,
-      customUserAgent: this.customUserAgent,
       lastCheck: /* @__PURE__ */ new Date()
     };
   }

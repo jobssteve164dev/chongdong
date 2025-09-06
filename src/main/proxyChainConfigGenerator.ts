@@ -257,9 +257,7 @@ export class ProxyChainConfigGenerator {
           uuid: node.uuid,
           security: node.encryption || 'auto',
           alter_id: node.alterId ?? 0,
-          tls: {
-            enabled: false  // VMess通常不需要TLS
-          }
+          tls: { enabled: !!(node as any).tls }
         };
         
         if (node.network === 'ws') {
@@ -271,19 +269,39 @@ export class ProxyChainConfigGenerator {
             },
           };
         }
-        
+        // 如果启用TLS则注入uTLS
+        if (vmessConfig.tls.enabled) {
+          try {
+            const { settingsManager } = require('../main/settingsManager');
+            const settings = settingsManager.getSettings?.() || {};
+            if (settings.enableTlsFingerprintProtection) {
+              const template = settings.tlsFingerprintTemplate || 'chrome';
+              vmessConfig.tls = vmessConfig.tls || { enabled: true };
+              (vmessConfig.tls as any).utls = { enabled: true, fingerprint: template };
+            }
+          } catch {}
+        }
         return vmessConfig;
         
       case ProxyProtocol.VLESS:
-        // vless 的实现需要更多字段，这里暂时保持简单
-        return {
+        const vless: any = {
           type: 'vless',
           ...baseConfig,
           uuid: node.uuid,
-          tls: {
-            enabled: false  // VLESS可以不使用TLS
-          }
+          tls: { enabled: !!(node as any).tls }
         };
+        if (vless.tls.enabled) {
+          try {
+            const { settingsManager } = require('../main/settingsManager');
+            const settings = settingsManager.getSettings?.() || {};
+            if (settings.enableTlsFingerprintProtection) {
+              const template = settings.tlsFingerprintTemplate || 'chrome';
+              vless.tls = vless.tls || { enabled: true };
+              (vless.tls as any).utls = { enabled: true, fingerprint: template };
+            }
+          } catch {}
+        }
+        return vless;
       case ProxyProtocol.SHADOWSOCKS:
         return {
           type: 'shadowsocks',
@@ -295,15 +313,26 @@ export class ProxyChainConfigGenerator {
           }
         };
       case ProxyProtocol.TROJAN:
-        return {
+        // 为启用TLS的出站注入 uTLS 指纹模板（与应用设置联动）
+        const trojan: any = {
           type: 'trojan',
           ...baseConfig,
           password: node.password,
           tls: {
             enabled: true,
-            insecure: true  // 允许不安全的证书
+            insecure: true
           }
         };
+        try {
+          const { settingsManager } = require('../main/settingsManager');
+          const settings = settingsManager.getSettings?.() || {};
+          if (settings.enableTlsFingerprintProtection) {
+            const template = settings.tlsFingerprintTemplate || 'chrome';
+            trojan.tls = trojan.tls || { enabled: true };
+            (trojan.tls as any).utls = { enabled: true, fingerprint: template };
+          }
+        } catch {}
+        return trojan;
       case ProxyProtocol.HTTP:
       case ProxyProtocol.SOCKS5:
         return {
