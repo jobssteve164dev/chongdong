@@ -31,6 +31,13 @@ export class DefaultSettings {
       tunDevice: 'utun0',
       enableFakeIp: true,
       fakeIpRange: '198.18.0.1/16',
+      // 新增IPv6泄露防护配置
+      enableIpv6LeakProtection: true,
+      ipv6LeakProtectionMode: 'relaxed',
+      // 新增WebRTC泄露防护配置
+      enableWebRTCLeakProtection: true,
+      webRTCLeakProtectionMode: 'strict',
+      webRTCAllowedDomains: [],
       enableDns: true,
       dnsServer: '8.8.8.8',
       enableDoh: false,
@@ -205,6 +212,25 @@ export class DefaultSettings {
       fakeIpRange: '198.18.0.1/16',
       enableUdp: true,
       enableIpv6: false,
+      // 新增IPv6泄露防护配置
+      enableIpv6LeakProtection: true,
+      ipv6LeakProtectionMode: 'relaxed',
+      // 新增WebRTC泄露防护配置
+      enableWebRTCLeakProtection: true,
+      webRTCLeakProtectionMode: 'strict',
+      webRTCAllowedDomains: [],
+      // 新增高级泄露防护配置
+      enableTlsFingerprintProtection: true,
+      tlsFingerprintMode: 'strict',
+      tlsFingerprintTemplate: 'chrome',
+      enableHttpHeaderProtection: true,
+      httpHeaderProtectionMode: 'strict',
+      customUserAgent: '',
+      enableTimingLeakProtection: true,
+      timingLeakProtectionMode: 'relaxed',
+      requestDelayRange: [100, 500] as [number, number],
+      enableMacAddressProtection: true,
+      macAddressProtectionMode: 'relaxed',
       logLevel: 'info' as const,
       enableLog: true,
       logFile: 'chongdong.log'

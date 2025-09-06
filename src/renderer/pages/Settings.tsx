@@ -18,6 +18,8 @@ import {
   Badge,
   Descriptions,
   Tabs,
+  Popconfirm,
+  Modal,
 } from 'antd';
 import {
   SettingOutlined,
@@ -33,6 +35,9 @@ import {
   CheckCircleOutlined,
   SecurityScanOutlined,
   DesktopOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
@@ -67,9 +72,15 @@ const Settings: React.FC = () => {
   // DNS测试相关状态
   const [dnsTestLoading, setDnsTestLoading] = useState(false);
   const [dnsLeakCheckLoading, setDnsLeakCheckLoading] = useState(false);
+  const [leakCheckLoading, setLeakCheckLoading] = useState(false);
   const [dnsTestResult, setDnsTestResult] = useState<string>('');
   const [dnsLeakResult, setDnsLeakResult] = useState<string>('');
   const [dnsLeakDetected, setDnsLeakDetected] = useState(false);
+  const [allLeakCheckResult, setAllLeakCheckResult] = useState<any>(null);
+  
+  // DNS规则编辑相关状态
+  const [editingRule, setEditingRule] = useState<any>(null);
+  const [isRuleModalVisible, setIsRuleModalVisible] = useState(false);
 
   // 代理模式相关状态
   const [proxyModeLoading, setProxyModeLoading] = useState(false);
@@ -179,6 +190,12 @@ const Settings: React.FC = () => {
           engineSettings: savedSettings.engineSettings 
             ? JSON.stringify(savedSettings.engineSettings, null, 2) 
             : ''
+        });
+        
+        // 调试日志
+        console.log('已加载DNS规则设置:', {
+          enableDnsRules: savedSettings.enableDnsRules,
+          dnsRules: savedSettings.dnsRules?.map(r => ({ name: r.name, enabled: r.enabled }))
         });
       }
 
@@ -358,6 +375,9 @@ const Settings: React.FC = () => {
         
         networkSettingsTimeoutRef.current = setTimeout(async () => {
           try {
+            // 立即保存到本地存储
+            Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
+            
             // 通知主进程网络设置已更新
             const result = await window.electron.ipcRenderer.invoke('settings:updated', {
               settings: newSettings,
@@ -440,6 +460,102 @@ const Settings: React.FC = () => {
     } catch (error) {
       message.error('清除DNS缓存失败');
     }
+  };
+
+  const handleCheckAllLeaks = async () => {
+    setLeakCheckLoading(true);
+    setAllLeakCheckResult(null);
+    try {
+      // 调用统一的泄露检测API
+      const result = await window.electron.ipcRenderer.invoke('leak-protection:check-all');
+      
+      if (result.success) {
+        const leakData = result.data;
+        setAllLeakCheckResult(leakData);
+        
+        // 检查是否有任何泄露
+        const hasAnyLeak = leakData.dns?.hasLeak || leakData.ipv6?.hasLeak || leakData.webRTC?.hasLeak ||
+                          leakData.tlsFingerprint?.hasLeak || leakData.httpHeader?.hasLeak ||
+                          leakData.timingLeak?.hasLeak || leakData.macAddress?.hasLeak;
+        
+        if (hasAnyLeak) {
+          message.warning('检测到网络泄露，请查看详细结果');
+        } else {
+          message.success('所有泄露检测通过，网络连接安全');
+        }
+      } else {
+        message.error('泄露检测失败: ' + result.error);
+      }
+    } catch (error) {
+      log.error('全面泄露检测失败:', error);
+      message.error('全面泄露检测失败');
+    } finally {
+      setLeakCheckLoading(false);
+    }
+  };
+
+  const handleAddDnsRule = () => {
+    const newRule = {
+      id: `rule-${Date.now()}`,
+      name: '新规则',
+      pattern: '',
+      patternType: 'domain' as const,
+      action: 'block' as const,
+      enabled: true,
+      priority: 100
+    };
+    
+    setEditingRule({ ...newRule, index: -1 });
+    setIsRuleModalVisible(true);
+  };
+
+  const handleEditDnsRule = (rule: any, index: number) => {
+    setEditingRule({ ...rule, index });
+    setIsRuleModalVisible(true);
+  };
+
+  const handleDeleteDnsRule = (index: number) => {
+    const newRules = settings.dnsRules.filter((_, i) => i !== index);
+    const newSettings = { ...settings, dnsRules: newRules };
+
+    // 更新本地渲染状态
+    setSettings(newSettings);
+
+    // 通过表单值变更统一持久化
+    networkForm.setFieldsValue({ dnsRules: newRules });
+    const allValues = networkForm.getFieldsValue(true);
+    handleNetworkSettingsChange({ dnsRules: newRules }, { ...settings, ...allValues });
+
+    message.success('DNS规则已删除');
+  };
+
+  const handleSaveDnsRule = () => {
+    if (!editingRule) return;
+    
+    const { index, ...ruleData } = editingRule;
+    const newRules = [...settings.dnsRules];
+    
+    if (index === -1) {
+      // 新增规则
+      newRules.push(ruleData);
+    } else {
+      // 编辑规则
+      newRules[index] = ruleData;
+    }
+    
+    const newSettings = { ...settings, dnsRules: newRules };
+
+    // 更新本地渲染状态
+    setSettings(newSettings);
+
+    // 通过表单值变更统一持久化
+    networkForm.setFieldsValue({ dnsRules: newRules });
+    const allValues = networkForm.getFieldsValue(true);
+    handleNetworkSettingsChange({ dnsRules: newRules }, { ...settings, ...allValues });
+    
+    setIsRuleModalVisible(false);
+    setEditingRule(null);
+    message.success(index === -1 ? 'DNS规则已添加' : 'DNS规则已更新');
   };
 
   // 清理定时器
@@ -873,10 +989,10 @@ const Settings: React.FC = () => {
                               <li>macOS 首次启用会弹出系统管理员授权，用于创建 utun 设备。</li>
                               <li>TUN 将在 IP 层劫持系统流量，无需在系统里新建 VPN 配置。</li>
                               <li>启用后会自动路由（auto_route），并清空系统代理以避免冲突。</li>
-                              <li>本应用已内置 tun2socks 实现，不再需要“网络设置”中的 TUN 相关选项。</li>
+                              <li>本应用已内置 tun2socks 实现，不再需要"网络设置"中的 TUN 相关选项。</li>
                               <li>若授权被拒绝，TUN 启动会失败，请重新启用并允许授权。</li>
                             </ul>
-                            <p>提示：切换到“直连/规则/全局模式”时，TUN 将被禁用并恢复常规代理。</p>
+                            <p>提示：切换到"直连/规则/全局模式"时，TUN 将被禁用并恢复常规代理。</p>
                           </div>
                         }
                         type="info"
@@ -1072,6 +1188,17 @@ const Settings: React.FC = () => {
 
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
+                  <Form.Item name="dnsLeakProtectionMode" label="DNS泄露防护模式">
+                    <Select>
+                      <Option value="relaxed">宽松模式</Option>
+                      <Option value="strict">严格模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="enableDnsRules" label="启用DNS规则" valuePropName="checked">
                     <Switch />
                   </Form.Item>
@@ -1095,6 +1222,92 @@ const Settings: React.FC = () => {
                 <Input placeholder="tls://1.1.1.1:853" />
               </Form.Item>
 
+              <Divider />
+
+              <Title level={5}>DNS规则管理</Title>
+              <Alert
+                message="DNS规则说明"
+                description="DNS规则允许您根据域名模式自定义DNS查询的处理方式。可以屏蔽广告、追踪域名，或为特定域名指定DNS服务器。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Form.Item name="dnsRules" label="DNS规则列表">
+                <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', padding: '16px' }}>
+                  {settings.dnsRules?.map((rule, index) => (
+                    <div key={rule.id} style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      marginBottom: index < settings.dnsRules.length - 1 ? '12px' : '0',
+                      padding: '8px',
+                      backgroundColor: '#fafafa',
+                      borderRadius: '4px'
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{rule.name}</div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>
+                          模式: {rule.patternType} | 匹配: {rule.pattern} | 动作: {rule.action}
+                          {rule.customServer && ` | 服务器: ${rule.customServer}`}
+                        </div>
+                      </div>
+                      <Space>
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          icon={<EditOutlined />}
+                          onClick={() => handleEditDnsRule(rule, index)}
+                        />
+                        <Popconfirm
+                          title="确定要删除这个DNS规则吗？"
+                          onConfirm={() => handleDeleteDnsRule(index)}
+                          okText="确定"
+                          cancelText="取消"
+                        >
+                          <Button 
+                            type="text" 
+                            size="small" 
+                            icon={<DeleteOutlined />}
+                            danger
+                          />
+                        </Popconfirm>
+                        <Switch 
+                          checked={rule.enabled}
+                          onChange={(checked) => {
+                            const newRules = [...settings.dnsRules];
+                            newRules[index].enabled = checked;
+
+                            // 更新本地渲染状态
+                            setSettings({ ...settings, dnsRules: newRules });
+
+                            // 通过表单值变更统一持久化（与其他开关一致）
+                            networkForm.setFieldsValue({ dnsRules: newRules });
+                            const allValues = networkForm.getFieldsValue(true);
+                            handleNetworkSettingsChange({ dnsRules: newRules }, { ...settings, ...allValues });
+
+                            // 调试日志
+                            console.log('DNS规则状态已更新:', {
+                              ruleName: rule.name,
+                              enabled: checked,
+                              allRules: newRules.map(r => ({ name: r.name, enabled: r.enabled }))
+                            });
+                          }}
+                          size="small"
+                        />
+                      </Space>
+                    </div>
+                  ))}
+                  <Button 
+                    type="dashed" 
+                    onClick={handleAddDnsRule}
+                    style={{ width: '100%', marginTop: '12px' }}
+                    icon={<PlusOutlined />}
+                  >
+                    添加DNS规则
+                  </Button>
+                </div>
+              </Form.Item>
+
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
                   <Form.Item name="dnsCacheSize" label="DNS缓存大小">
@@ -1108,12 +1321,163 @@ const Settings: React.FC = () => {
                 </Col>
               </Row>
 
-              <Form.Item name="dnsLeakProtectionMode" label="DNS泄露防护模式">
-                <Select>
-                  <Option value="strict">严格模式</Option>
-                  <Option value="relaxed">宽松模式</Option>
-                </Select>
+              <Divider />
+
+              <Title level={4}>泄露防护设置</Title>
+              <Alert
+                message="泄露防护安全提示"
+                description="启用泄露防护功能可以防止DNS、IPv6和WebRTC泄露，全面保护您的网络隐私。建议同时启用所有防护功能。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableIpv6LeakProtection" label="IPv6泄露防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableWebRTCLeakProtection" label="WebRTC泄露防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="ipv6LeakProtectionMode" label="IPv6泄露防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="webRTCLeakProtectionMode" label="WebRTC泄露防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Form.Item name="webRTCAllowedDomains" label="WebRTC允许域名">
+                <Input.TextArea 
+                  placeholder="输入允许WebRTC连接的域名，每行一个，例如：&#10;example.com&#10;trusted-site.com"
+                  rows={3}
+                />
               </Form.Item>
+
+              <Divider />
+
+              <Title level={4}>高级泄露防护设置</Title>
+              <Alert
+                message="高级泄露防护功能"
+                description="这些高级防护功能可以进一步保护您的网络隐私，防止通过TLS指纹、HTTP头、时间模式、MAC地址等方式泄露身份信息。建议根据您的安全需求选择合适的防护级别。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableTlsFingerprintProtection" label="TLS指纹防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableHttpHeaderProtection" label="HTTP头防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableTimingLeakProtection" label="时间泄露防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableMacAddressProtection" label="MAC地址防护" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="tlsFingerprintMode" label="TLS指纹防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="tlsFingerprintTemplate" label="TLS指纹模板">
+                    <Select>
+                      <Option value="chrome">Chrome</Option>
+                      <Option value="firefox">Firefox</Option>
+                      <Option value="safari">Safari</Option>
+                      <Option value="edge">Edge</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="httpHeaderProtectionMode" label="HTTP头防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="customUserAgent" label="自定义User-Agent">
+                    <Input placeholder="留空使用默认User-Agent" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="timingLeakProtectionMode" label="时间泄露防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="macAddressProtectionMode" label="MAC地址防护模式">
+                    <Select>
+                      <Option value="strict">严格模式</Option>
+                      <Option value="relaxed">宽松模式</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="requestDelayRange" label="请求延迟范围(毫秒)">
+                    <Input.Group compact>
+                      <Form.Item name={['requestDelayRange', 0]} noStyle>
+                        <InputNumber placeholder="最小延迟" min={0} max={5000} style={{ width: '50%' }} />
+                      </Form.Item>
+                      <Form.Item name={['requestDelayRange', 1]} noStyle>
+                        <InputNumber placeholder="最大延迟" min={0} max={5000} style={{ width: '50%' }} />
+                      </Form.Item>
+                    </Input.Group>
+                  </Form.Item>
+                </Col>
+              </Row>
 
               <Divider />
 
@@ -1130,6 +1494,14 @@ const Settings: React.FC = () => {
                   loading={dnsLeakCheckLoading}
                 >
                   检查DNS泄露
+                </Button>
+                <Button 
+                  type="primary"
+                  onClick={handleCheckAllLeaks}
+                  loading={leakCheckLoading}
+                  icon={<SecurityScanOutlined />}
+                >
+                  全面泄露检测
                 </Button>
                 <Button 
                   onClick={handleClearDnsCache}
@@ -1153,6 +1525,121 @@ const Settings: React.FC = () => {
                   message="DNS泄露检查结果"
                   description={<pre style={{ margin: 0 }}>{dnsLeakResult}</pre>}
                   type={dnsLeakDetected ? "error" : "success"}
+                  showIcon
+                  style={{ marginTop: 16 }}
+                />
+              )}
+
+              {allLeakCheckResult && (
+                <Alert
+                  message="全面泄露检测结果"
+                  description={
+                    <div>
+                      <div style={{ marginBottom: 12 }}>
+                        <strong>检测时间:</strong> {new Date().toLocaleString()}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>DNS泄露防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.dns?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.dns?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.dns?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.dns.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>IPv6泄露防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.ipv6?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.ipv6?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.ipv6?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.ipv6.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>WebRTC泄露防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.webRTC?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.webRTC?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.webRTC?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.webRTC.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>TLS指纹防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.tlsFingerprint?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.tlsFingerprint?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.tlsFingerprint?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.tlsFingerprint.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>HTTP头防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.httpHeader?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.httpHeader?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.httpHeader?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.httpHeader.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>时间泄露防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.timingLeak?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.timingLeak?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.timingLeak?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.timingLeak.details}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>MAC地址防护:</strong> 
+                        <Badge 
+                          status={allLeakCheckResult.macAddress?.hasLeak ? "error" : "success"} 
+                          text={allLeakCheckResult.macAddress?.hasLeak ? "检测到泄露" : "无泄露"}
+                          style={{ marginLeft: 8 }}
+                        />
+                        {allLeakCheckResult.macAddress?.details && (
+                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
+                            {allLeakCheckResult.macAddress.details}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  }
+                  type={
+                    allLeakCheckResult.dns?.hasLeak || 
+                    allLeakCheckResult.ipv6?.hasLeak || 
+                    allLeakCheckResult.webRTC?.hasLeak ||
+                    allLeakCheckResult.tlsFingerprint?.hasLeak ||
+                    allLeakCheckResult.httpHeader?.hasLeak ||
+                    allLeakCheckResult.timingLeak?.hasLeak ||
+                    allLeakCheckResult.macAddress?.hasLeak ? "error" : "success"
+                  }
                   showIcon
                   style={{ marginTop: 16 }}
                 />
@@ -1626,6 +2113,94 @@ const Settings: React.FC = () => {
           <ErrorMonitor />
         </TabPane>
       </Tabs>
+
+      {/* DNS规则编辑模态框 */}
+      <Modal
+        title={editingRule?.index === -1 ? "添加DNS规则" : "编辑DNS规则"}
+        open={isRuleModalVisible}
+        onOk={handleSaveDnsRule}
+        onCancel={() => {
+          setIsRuleModalVisible(false);
+          setEditingRule(null);
+        }}
+        width={600}
+      >
+        {editingRule && (
+          <Form layout="vertical">
+            <Form.Item label="规则名称" required>
+              <Input
+                value={editingRule.name}
+                onChange={(e) => setEditingRule({ ...editingRule, name: e.target.value })}
+                placeholder="请输入规则名称"
+              />
+            </Form.Item>
+            
+            <Form.Item label="匹配模式" required>
+              <Select
+                value={editingRule.patternType}
+                onChange={(value) => setEditingRule({ ...editingRule, patternType: value })}
+              >
+                <Option value="domain">精确域名</Option>
+                <Option value="suffix">域名后缀</Option>
+                <Option value="keyword">关键词</Option>
+                <Option value="regex">正则表达式</Option>
+              </Select>
+            </Form.Item>
+            
+            <Form.Item label="匹配内容" required>
+              <Input
+                value={editingRule.pattern}
+                onChange={(e) => setEditingRule({ ...editingRule, pattern: e.target.value })}
+                placeholder={
+                  editingRule.patternType === 'domain' ? 'example.com' :
+                  editingRule.patternType === 'suffix' ? 'example.com' :
+                  editingRule.patternType === 'keyword' ? 'keyword' :
+                  '^.*\\.example\\.com$'
+                }
+              />
+            </Form.Item>
+            
+            <Form.Item label="处理动作" required>
+              <Select
+                value={editingRule.action}
+                onChange={(value) => setEditingRule({ ...editingRule, action: value })}
+              >
+                <Option value="block">屏蔽</Option>
+                <Option value="direct">直连</Option>
+                <Option value="proxy">代理</Option>
+                <Option value="custom">自定义DNS服务器</Option>
+              </Select>
+            </Form.Item>
+            
+            {editingRule.action === 'custom' && (
+              <Form.Item label="自定义DNS服务器" required>
+                <Input
+                  value={editingRule.customServer || ''}
+                  onChange={(e) => setEditingRule({ ...editingRule, customServer: e.target.value })}
+                  placeholder="8.8.8.8"
+                />
+              </Form.Item>
+            )}
+            
+            <Form.Item label="优先级">
+              <InputNumber
+                value={editingRule.priority}
+                onChange={(value) => setEditingRule({ ...editingRule, priority: value || 100 })}
+                min={1}
+                max={1000}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            
+            <Form.Item label="启用状态">
+              <Switch
+                checked={editingRule.enabled}
+                onChange={(checked) => setEditingRule({ ...editingRule, enabled: checked })}
+              />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
     </div>
   );
 };

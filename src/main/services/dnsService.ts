@@ -29,6 +29,8 @@ class DnsService {
   private settings: AppSettings | null = null;
   private execAsync = promisify(exec);
   private dnsCache: LRUCache<string, string> = new LRUCache({ max: 100 });
+  private dnsQueryInterceptor: ((domain: string, server: string) => Promise<boolean>) | null = null;
+  private leakProtectionEnabled: boolean = false;
 
   constructor() {
     console.log('DnsService initialized');
@@ -36,6 +38,7 @@ class DnsService {
 
   public init(settings: AppSettings): void {
     this.settings = settings;
+    this.leakProtectionEnabled = settings.enableDnsLeakProtection || false;
     console.log('DnsService settings updated.');
     // 根据新设置初始化LRU缓存
     this.dnsCache = new LRUCache({ max: this.settings.dnsCacheSize || 100 });
@@ -382,40 +385,220 @@ class DnsService {
     }
   }
 
-  public async checkDnsLeak(): Promise<{ leaked: boolean; details: string[] }> {
+  public async checkDnsLeak(): Promise<{ leaked: boolean; details: string[]; leakSources: string[] }> {
     const details: string[] = [];
+    const leakSources: string[] = [];
     let leaked = false;
-    if (!this.settings) return { leaked: true, details: ['Settings not initialized'] };
+    
+    if (!this.settings) {
+      return { leaked: true, details: ['Settings not initialized'], leakSources: ['配置未初始化'] };
+    }
 
     try {
-      const testDomains = ['google.com', 'facebook.com', 'youtube.com'];
+      const testDomains = ['google.com', 'facebook.com', 'youtube.com', 'cloudflare.com'];
       const systemDns = await this.getSystemDnsServers();
       details.push(`系统DNS服务器: ${systemDns.join(', ')}`);
 
+      // 检查是否启用了DNS泄露防护
+      if (!this.settings.enableDnsLeakProtection) {
+        details.push('⚠️ DNS泄露防护未启用');
+        leakSources.push('DNS泄露防护未启用');
+        leaked = true;
+      }
+
+      // 测试多个DNS服务器以检测泄露
+      const testServers = [
+        { name: '配置的DNS服务器', server: this.settings.dnsServer || '8.8.8.8' },
+        { name: '系统DNS服务器', server: systemDns[0] || '8.8.8.8' },
+        { name: '公共DNS服务器', server: '1.1.1.1' }
+      ];
+
+      const domainResults = new Map<string, Map<string, string>>();
+
       for (const domain of testDomains) {
-        const result = await this.testDnsQuery(domain, this.settings.dnsServer || '8.8.8.8');
-        if (result.success && result.ip) {
-          details.push(`✅ ${domain} -> ${result.ip} (${result.responseTime}ms)`);
-        } else {
-          details.push(`❌ ${domain} 查询失败: ${result.error}`);
+        const domainMap = new Map<string, string>();
+        
+        for (const testServer of testServers) {
+          try {
+            const result = await this.testDnsQuery(domain, testServer.server);
+            if (result.success && result.ip) {
+              domainMap.set(testServer.name, result.ip);
+              details.push(`✅ ${domain} via ${testServer.name} -> ${result.ip} (${result.responseTime}ms)`);
+            } else {
+              details.push(`❌ ${domain} via ${testServer.name} 查询失败: ${result.error}`);
+              leakSources.push(`${domain} 通过 ${testServer.name} 查询失败`);
+            }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : '未知错误';
+            details.push(`❌ ${domain} via ${testServer.name} 异常: ${errorMessage}`);
+            leakSources.push(`${domain} 通过 ${testServer.name} 查询异常`);
+          }
+        }
+        
+        domainResults.set(domain, domainMap);
+      }
+
+      // 分析泄露情况
+      for (const [domain, results] of domainResults) {
+        const ips = Array.from(results.values());
+        const uniqueIps = [...new Set(ips)];
+        
+        if (uniqueIps.length > 1) {
+          leaked = true;
+          leakSources.push(`${domain} 返回了多个不同的IP地址: ${uniqueIps.join(', ')}`);
+          details.push(`🚨 ${domain} 检测到DNS泄露: ${uniqueIps.join(', ')}`);
+        } else if (uniqueIps.length === 1) {
+          details.push(`✅ ${domain} 所有DNS服务器返回一致: ${uniqueIps[0]}`);
         }
       }
-      if(details.some(d => d.includes('查询失败'))) {
-        leaked = true;
+
+      // 检查是否使用了不安全的DNS服务器
+      if (this.settings.dnsLeakProtectionMode === 'strict') {
+        const hasInsecureDns = this.settings.dnsServers?.some(server => 
+          !server.startsWith('https://') && !server.startsWith('tls://')
+        );
+        
+        if (hasInsecureDns) {
+          leaked = true;
+          leakSources.push('严格模式下使用了不安全的DNS服务器');
+          details.push('🚨 严格模式下检测到不安全的DNS服务器');
+        }
       }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       details.push(`DNS泄露检测执行失败: ${errorMessage}`);
+      leakSources.push(`检测执行失败: ${errorMessage}`);
       leaked = true;
     }
 
-    return { leaked, details };
+    return { leaked, details, leakSources };
   }
 
   public clearDnsCache(): void {
     this.dnsCache.clear();
     console.log('DNS cache cleared.');
+  }
+
+  /**
+   * 设置DNS查询拦截器
+   */
+  public setDnsQueryInterceptor(interceptor: (domain: string, server: string) => Promise<boolean>): void {
+    this.dnsQueryInterceptor = interceptor;
+    console.log('DNS查询拦截器已设置');
+  }
+
+  /**
+   * 启用/禁用DNS泄露防护
+   */
+  public setLeakProtectionEnabled(enabled: boolean): void {
+    this.leakProtectionEnabled = enabled;
+    console.log(`DNS泄露防护已${enabled ? '启用' : '禁用'}`);
+  }
+
+  /**
+   * 检查DNS查询是否被允许
+   */
+  private async isDnsQueryAllowed(domain: string, server: string): Promise<boolean> {
+    // 如果DNS泄露防护未启用，允许所有查询
+    if (!this.leakProtectionEnabled) {
+      return true;
+    }
+
+    // 如果有自定义拦截器，使用拦截器检查
+    if (this.dnsQueryInterceptor) {
+      try {
+        return await this.dnsQueryInterceptor(domain, server);
+      } catch (error) {
+        console.error('DNS查询拦截器执行失败:', error);
+        return false;
+      }
+    }
+
+    // 默认的泄露防护逻辑
+    if (this.settings?.dnsLeakProtectionMode === 'strict') {
+      // 严格模式：只允许通过DoH/DoT服务器查询
+      return server.startsWith('https://') || server.startsWith('tls://');
+    } else {
+      // 宽松模式：允许通过配置的DNS服务器查询
+      const allowedServers = this.settings?.dnsServers || [this.settings?.dnsServer || '8.8.8.8'];
+      return allowedServers.includes(server);
+    }
+  }
+
+  /**
+   * 增强的DNS查询方法，包含泄露防护检查
+   */
+  public async secureDnsQuery(domain: string, server: string): Promise<{ success: boolean; ip?: string; error?: string; responseTime?: number; blocked?: boolean }> {
+    const startTime = Date.now();
+    
+    // 检查查询是否被允许
+    const isAllowed = await this.isDnsQueryAllowed(domain, server);
+    if (!isAllowed) {
+      console.warn(`DNS查询被阻止: ${domain} via ${server} (泄露防护)`);
+      return { 
+        success: false, 
+        error: 'DNS查询被泄露防护阻止', 
+        responseTime: Date.now() - startTime,
+        blocked: true 
+      };
+    }
+
+    // 执行正常的DNS查询
+    try {
+      const result = await this.testDnsQuery(domain, server);
+      return { ...result, blocked: false };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'DNS查询执行失败', 
+        responseTime: Date.now() - startTime,
+        blocked: false 
+      };
+    }
+  }
+
+  /**
+   * 获取DNS泄露防护状态
+   */
+  public getLeakProtectionStatus(): { enabled: boolean; mode: string; strictMode: boolean } {
+    return {
+      enabled: this.leakProtectionEnabled,
+      mode: this.settings?.dnsLeakProtectionMode || 'relaxed',
+      strictMode: this.settings?.dnsLeakProtectionMode === 'strict'
+    };
+  }
+
+  /**
+   * 实时DNS泄露监控
+   */
+  public async startLeakMonitoring(intervalMs: number = 30000): Promise<void> {
+    if (!this.leakProtectionEnabled) {
+      console.log('DNS泄露防护未启用，跳过监控');
+      return;
+    }
+
+    console.log(`开始DNS泄露监控，间隔: ${intervalMs}ms`);
+    
+    const monitor = async () => {
+      try {
+        const leakResult = await this.checkDnsLeak();
+        if (leakResult.leaked) {
+          console.warn('🚨 DNS泄露检测到:', leakResult.leakSources);
+          // 这里可以添加通知逻辑
+        } else {
+          console.log('✅ DNS泄露检查通过');
+        }
+      } catch (error) {
+        console.error('DNS泄露监控执行失败:', error);
+      }
+    };
+
+    // 立即执行一次
+    await monitor();
+    
+    // 设置定时监控
+    setInterval(monitor, intervalMs);
   }
 }
 

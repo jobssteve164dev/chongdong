@@ -15,6 +15,7 @@ import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
 import { systemMonitor } from './systemMonitor';
 import { dnsService } from './services/dnsService';
+import { leakProtectionManager } from './services/leakProtectionManager';
 import { dynamicChainManager } from './dynamicChainManager';
 import { chainStatusManager } from './chainStatusManager';
 import { AppSettings, ChainConfig } from '../shared/types';
@@ -34,6 +35,26 @@ try {
   console.log('已设置GPU禁用标志');
 } catch (err) {
   console.warn('禁用硬件加速失败(可忽略):', err);
+}
+
+// WebRTC泄露防护配置
+try {
+  // 禁用WebRTC相关功能以防止IP泄露
+  app.commandLine.appendSwitch('--disable-webrtc-hw-decoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-encoding');
+  app.commandLine.appendSwitch('--disable-webrtc-multiple-routes');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-vp8-encoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-vp9-encoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-h264-encoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-h264-decoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-vp8-decoding');
+  app.commandLine.appendSwitch('--disable-webrtc-hw-vp9-decoding');
+  // 禁用WebRTC的STUN/TURN服务器
+  app.commandLine.appendSwitch('--disable-webrtc-stun-origin');
+  app.commandLine.appendSwitch('--disable-webrtc-turn-origin');
+  console.log('已设置WebRTC泄露防护标志');
+} catch (err) {
+  console.warn('设置WebRTC泄露防护失败(可忽略):', err);
 }
 
 // 全局主窗口引用
@@ -594,7 +615,14 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      // WebRTC安全配置
+      contextIsolation: true,
+      nodeIntegration: false,
+      // 禁用WebRTC相关功能以防止IP泄露
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false
     },
   };
 
@@ -765,6 +793,15 @@ app.whenReady().then(async () => {
     console.log('DNS服务已初始化');
   } catch (error) {
     console.error('初始化DNS服务失败:', error);
+  }
+
+  // 初始化泄露防护管理器
+  try {
+    const settings = settingsManager.getSettings();
+    leakProtectionManager.init(settings);
+    console.log('泄露防护管理器已初始化');
+  } catch (error) {
+    console.error('初始化泄露防护管理器失败:', error);
   }
 
   // 应用启动时自动应用默认代理模式
@@ -2089,6 +2126,47 @@ ipcMain.handle('dns:clearDnsCache', () => {
     dnsService.clearDnsCache();
     return { success: true };
   } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 泄露防护相关IPC处理程序
+ipcMain.handle('leak-protection:check-all', async () => {
+  try {
+    const result = await leakProtectionManager.checkAllLeaks();
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('全面泄露检测失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('leak-protection:get-status', async () => {
+  try {
+    const status = await leakProtectionManager.getLeakProtectionStatus();
+    return { success: true, data: status };
+  } catch (error) {
+    console.error('获取泄露防护状态失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('leak-protection:start-monitoring', async (_, intervalMs: number = 60000) => {
+  try {
+    leakProtectionManager.startMonitoring(intervalMs);
+    return { success: true };
+  } catch (error) {
+    console.error('启动泄露监控失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('leak-protection:stop-monitoring', async () => {
+  try {
+    leakProtectionManager.stopMonitoring();
+    return { success: true };
+  } catch (error) {
+    console.error('停止泄露监控失败:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

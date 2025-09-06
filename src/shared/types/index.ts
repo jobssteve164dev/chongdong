@@ -109,6 +109,25 @@ export interface AppSettings {
   enableDnsLeakProtection: boolean;
   dnsLeakProtectionMode: 'strict' | 'relaxed';
   dnsLeakStrict: boolean; // 新增：严格模式开关
+  // IPv6泄露防护
+  enableIpv6LeakProtection: boolean;
+  ipv6LeakProtectionMode: 'strict' | 'relaxed';
+  // WebRTC泄露防护
+  enableWebRTCLeakProtection: boolean;
+  webRTCLeakProtectionMode: 'strict' | 'relaxed';
+  webRTCAllowedDomains: string[];
+  // 新增高级泄露防护配置
+  enableTlsFingerprintProtection?: boolean;
+  tlsFingerprintMode?: 'strict' | 'relaxed';
+  tlsFingerprintTemplate?: 'chrome' | 'firefox' | 'safari' | 'edge' | 'custom';
+  enableHttpHeaderProtection?: boolean;
+  httpHeaderProtectionMode?: 'strict' | 'relaxed';
+  customUserAgent?: string;
+  enableTimingLeakProtection?: boolean;
+  timingLeakProtectionMode?: 'strict' | 'relaxed';
+  requestDelayRange?: [number, number]; // [min, max] milliseconds
+  enableMacAddressProtection?: boolean;
+  macAddressProtectionMode?: 'strict' | 'relaxed';
   enableDnsRules: boolean;
   dnsRules: DnsRule[];
   enableDnsFallback: boolean;
@@ -161,6 +180,25 @@ export interface NetworkSettings {
   fakeIpRange?: string;
   enableUdp?: boolean;
   enableIpv6?: boolean;
+  // 新增IPv6泄露防护配置
+  enableIpv6LeakProtection?: boolean;
+  ipv6LeakProtectionMode?: 'strict' | 'relaxed';
+  // 新增WebRTC泄露防护配置
+  enableWebRTCLeakProtection?: boolean;
+  webRTCLeakProtectionMode?: 'strict' | 'relaxed';
+  webRTCAllowedDomains?: string[];
+  // 新增高级泄露防护配置
+  enableTlsFingerprintProtection?: boolean;
+  tlsFingerprintMode?: 'strict' | 'relaxed';
+  tlsFingerprintTemplate?: 'chrome' | 'firefox' | 'safari' | 'edge' | 'custom';
+  enableHttpHeaderProtection?: boolean;
+  httpHeaderProtectionMode?: 'strict' | 'relaxed';
+  customUserAgent?: string;
+  enableTimingLeakProtection?: boolean;
+  timingLeakProtectionMode?: 'strict' | 'relaxed';
+  requestDelayRange?: [number, number]; // [min, max] milliseconds
+  enableMacAddressProtection?: boolean;
+  macAddressProtectionMode?: 'strict' | 'relaxed';
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
   enableLog?: boolean;
   logFile?: string;
@@ -176,6 +214,112 @@ export interface DnsRule {
   customServer?: string;
   enabled: boolean;
   priority: number;
+}
+
+// DNS泄露检测结果接口
+export interface DnsLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+}
+
+// IPv6泄露检测结果接口
+export interface Ipv6LeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  detectedIpv6Addresses: string[];
+}
+
+// WebRTC泄露检测结果接口
+export interface WebRTCLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  detectedIPs: string[];
+  stunServers: string[];
+}
+
+// TLS指纹泄露检测结果接口
+export interface TlsFingerprintLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  detectedFingerprints: string[];
+  currentFingerprint: string;
+}
+
+// HTTP头泄露检测结果接口
+export interface HttpHeaderLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  detectedHeaders: { [key: string]: string };
+  suspiciousHeaders: string[];
+}
+
+// 时间泄露检测结果接口
+export interface TimingLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  timingPatterns: string[];
+  requestIntervals: number[];
+}
+
+// MAC地址泄露检测结果接口
+export interface MacAddressLeakResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  detectedMacAddresses: string[];
+  networkInterfaces: string[];
+}
+
+// 统一泄露防护状态接口
+export interface LeakProtectionStatus {
+  dns: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: DnsLeakResult;
+  };
+  ipv6: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: Ipv6LeakResult;
+  };
+  webrtc: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: WebRTCLeakResult;
+  };
+  tlsFingerprint: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: TlsFingerprintLeakResult;
+  };
+  httpHeader: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: HttpHeaderLeakResult;
+  };
+  timingLeak: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: TimingLeakResult;
+  };
+  macAddress: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: MacAddressLeakResult;
+  };
 }
 
 // 用户偏好设置

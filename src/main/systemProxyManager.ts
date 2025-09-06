@@ -746,6 +746,67 @@ export class SystemProxyManager {
   }
 
   /**
+   * 获取IPv6网络接口信息
+   */
+  public getIPv6NetworkInterfaces(): Array<{
+    name: string;
+    address: string;
+    netmask: string;
+    family: string;
+    internal: boolean;
+    scopeid?: number;
+  }> {
+    const interfaces = networkInterfaces();
+    const result: Array<{
+      name: string;
+      address: string;
+      netmask: string;
+      family: string;
+      internal: boolean;
+      scopeid?: number;
+    }> = [];
+
+    for (const [name, nets] of Object.entries(interfaces)) {
+      if (nets) {
+        for (const net of nets) {
+          if (net.family === 'IPv6') {
+            result.push({
+              name,
+              address: net.address,
+              netmask: net.netmask || '',
+              family: 'IPv6',
+              internal: net.internal,
+              scopeid: net.scopeid
+            });
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 获取所有网络接口信息（IPv4 + IPv6）
+   */
+  public getAllNetworkInterfaces(): Array<{
+    name: string;
+    address: string;
+    netmask: string;
+    family: string;
+    internal: boolean;
+    scopeid?: number;
+  }> {
+    const ipv4Interfaces = this.getNetworkInterfaces();
+    const ipv6Interfaces = this.getIPv6NetworkInterfaces();
+    
+    return [
+      ...ipv4Interfaces.map(iface => ({ ...iface, scopeid: undefined })),
+      ...ipv6Interfaces
+    ] as Array<{ name: string; address: string; netmask: string; family: string; internal: boolean; scopeid?: number; }>;
+  }
+
+  /**
    * 获取VPN状态
    */
   public async getVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
