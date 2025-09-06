@@ -13,6 +13,7 @@ export interface LatencyTestConfig {
   timeout: number;
   retries: number;
   testInterval: number;
+  concurrency: number;
 }
 
 export class LatencyTester {
@@ -21,7 +22,8 @@ export class LatencyTester {
     testUrl: 'http://connectivitycheck.gstatic.com/generate_204',
     timeout: 10000, // 10秒超时
     retries: 3,
-    testInterval: 600000 // 10分钟
+    testInterval: 600000, // 10分钟
+    concurrency: 3
   };
 
   private constructor() {}
@@ -96,19 +98,23 @@ export class LatencyTester {
   /**
    * 批量测试节点延迟
    */
-  public async testNodesLatency(nodes: ProxyServer[], config?: Partial<LatencyTestConfig>): Promise<Map<string, LatencyTestResult>> {
+  public async testNodesLatency(
+    nodes: ProxyServer[],
+    config?: Partial<LatencyTestConfig>,
+    onProgress?: (nodeId: string, result: LatencyTestResult) => void
+  ): Promise<Map<string, LatencyTestResult>> {
     const results = new Map<string, LatencyTestResult>();
     const testConfig = { ...this.defaultConfig, ...config };
     
     log.info(`开始批量延迟测试`, { nodeCount: nodes.length }, 'LatencyTester');
     
     // 并发测试，但限制并发数量避免过载
-    const concurrency = 5;
-    const chunks = this.chunkArray(nodes, concurrency);
+    const chunks = this.chunkArray(nodes, Math.max(1, testConfig.concurrency || 5));
     
     for (const chunk of chunks) {
       const chunkPromises = chunk.map(async (node) => {
         const result = await this.testNodeLatency(node, testConfig);
+        try { onProgress && onProgress(node.id, result); } catch {}
         return { nodeId: node.id, result };
       });
       
@@ -179,19 +185,27 @@ export class LatencyTester {
   /**
    * 批量通过主进程测试代理延迟
    */
-  public async testNodesLatencyViaMainProcess(nodes: ProxyServer[], config?: Partial<LatencyTestConfig>): Promise<Map<string, LatencyTestResult>> {
+  public async testNodesLatencyViaMainProcess(
+    nodes: ProxyServer[],
+    config?: Partial<LatencyTestConfig>,
+    onProgress?: (nodeId: string, result: LatencyTestResult) => void
+  ): Promise<Map<string, LatencyTestResult>> {
     const results = new Map<string, LatencyTestResult>();
     const testConfig = { ...this.defaultConfig, ...config };
     
     log.info(`通过主进程开始批量延迟测试`, { nodeCount: nodes.length }, 'LatencyTester');
     
     // 并发测试，但限制并发数量
-    const concurrency = 3; // 主进程测试并发数更少
-    const chunks = this.chunkArray(nodes, concurrency);
+    const chunks = this.chunkArray(nodes, Math.max(1, testConfig.concurrency || 3));
     
     for (const chunk of chunks) {
       const chunkPromises = chunk.map(async (node) => {
         const result = await this.testNodeLatencyViaMainProcess(node, testConfig);
+        try {
+          onProgress && onProgress(node.id, result);
+          // 触发主进程刷新托盘菜单，并携带单个更新以写入缓存
+          try { window.electron.ipcRenderer.invoke('tray:latencyUpdated', { nodeId: node.id, latency: result.latency, timestamp: result.timestamp }).catch(() => {}); } catch {}
+        } catch {}
         return { nodeId: node.id, result };
       });
       

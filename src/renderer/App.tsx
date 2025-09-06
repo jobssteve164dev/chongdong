@@ -22,6 +22,7 @@ import Monitor from '@/pages/Monitor';
 import Settings from '@/pages/Settings';
 import { proxyEngine } from './utils/proxyEngine';
 import { useNodeStore } from './utils/stores';
+import { autoLatency } from './utils/autoLatency';
 import { useNavigationStore, type PageKey } from './utils/navigationManager';
 import './App.css';
 
@@ -138,6 +139,54 @@ const AppContent: React.FC = () => {
       } catch {}
     })();
   }, [setProxyConnected]);
+
+  // 启动/重启自动延迟测试计划
+  useEffect(() => {
+    try { autoLatency.start(); } catch {}
+    return () => { try { autoLatency.stop(); } catch {} };
+  }, []);
+
+  // 监听主进程请求延迟数据的IPC事件
+  useEffect(() => {
+    const handleRequestLatencies = () => {
+      try {
+        const nodeLatencies = useNodeStore.getState().nodeLatencies;
+        const latenciesData: Record<string, { latency: number; timestamp: number }> = {};
+        
+        // 兼容 Map 或 普通对象
+        if (nodeLatencies instanceof Map) {
+          nodeLatencies.forEach((value, key) => { latenciesData[key] = value as any; });
+        } else if (Array.isArray(nodeLatencies)) {
+          try { (nodeLatencies as any[]).forEach((entry: any) => { if (entry && entry[0]) { latenciesData[entry[0]] = entry[1]; } }); } catch {}
+        } else if (nodeLatencies && typeof nodeLatencies === 'object') {
+          try { Object.entries(nodeLatencies as any).forEach(([k, v]) => { latenciesData[k] = v as any; }); } catch {}
+        }
+        
+        // 发送延迟数据回主进程
+        window.electron.ipcRenderer.send('nodes:latencies-response', {
+          success: true,
+          data: latenciesData
+        });
+      } catch (error) {
+        console.error('获取延迟数据失败:', error);
+        window.electron.ipcRenderer.send('nodes:latencies-response', {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    };
+
+    window.electron.ipcRenderer.on('nodes:request-latencies', handleRequestLatencies);
+
+    return () => {
+      // 清理IPC监听器
+      try {
+        window.electron.ipcRenderer.removeListener('nodes:request-latencies', handleRequestLatencies);
+      } catch (error) {
+        console.warn('清理延迟数据请求监听器失败:', error);
+      }
+    };
+  }, []);
 
   const menuItems = [
     {

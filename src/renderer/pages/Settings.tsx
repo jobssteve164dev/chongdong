@@ -345,8 +345,10 @@ const Settings: React.FC = () => {
             testUrl: allValues.latencyTestUrl || 'http://connectivitycheck.gstatic.com/generate_204',
             timeout: allValues.latencyTestTimeout || 10000,
             retries: allValues.latencyTestRetries || 3,
-            testInterval: (allValues.latencyTestInterval || 10) * 60 * 1000 // 转换为毫秒
+            testInterval: (allValues.latencyTestInterval || 10) * 60 * 1000, // 转换为毫秒
+            concurrency: allValues.latencyTestConcurrency || 3
           });
+          try { (window as any).electron?.ipcRenderer?.invoke('settings:autoLatency:restart'); } catch {}
         }
         
         // 使用防抖机制，避免频繁调用

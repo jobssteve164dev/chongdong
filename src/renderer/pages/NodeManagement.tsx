@@ -405,29 +405,25 @@ const NodeManagement: React.FC = () => {
 
       message.info(`开始测试 ${nodesToTest.length} 个节点的延迟...`);
       
-      // 使用真实的延迟测试功能
-      const results = await latencyTester.testNodesLatencyViaMainProcess(nodesToTest);
-      
-      // 更新store中的延迟信息
-      results.forEach((result, nodeId) => {
-        const latency = result.success ? result.latency : 0;
-        setNodeLatency(nodeId, latency, result.timestamp);
-      });
-      
-      // 更新节点延迟信息（用于显示）
-      const updatedNodes = [...allNodes];
-      results.forEach((result, nodeId) => {
-        const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
-        if (nodeIndex !== -1) {
-          updatedNodes[nodeIndex] = {
-            ...updatedNodes[nodeIndex],
-            latency: result.success ? result.latency : undefined,
-            lastTest: result.timestamp
-          };
+      // 实时更新的延迟测试
+      const interimNodes = [...allNodes];
+      const results = await latencyTester.testNodesLatencyViaMainProcess(
+        nodesToTest,
+        undefined,
+        (nodeId, result) => {
+          const latency = result.success ? result.latency : 0;
+          setNodeLatency(nodeId, latency, result.timestamp);
+          const idx = interimNodes.findIndex(n => n.id === nodeId);
+          if (idx !== -1) {
+            interimNodes[idx] = {
+              ...interimNodes[idx],
+              latency: result.success ? result.latency : undefined,
+              lastTest: result.timestamp
+            };
+            setAllNodes([...interimNodes]);
+          }
         }
-      });
-
-      setAllNodes(updatedNodes);
+      );
       
       // 保存到存储
       const updatedSubscriptions = subscriptions.map(sub => {

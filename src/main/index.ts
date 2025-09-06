@@ -39,7 +39,9 @@ try {
 // 全局主窗口引用
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let rebuildTrayMenu: (() => void) | null = null;
+let rebuildTrayMenu: (() => Promise<void>) | null = null;
+// 缓存节点延迟（主进程内存），用于托盘菜单直接读取
+const nodeLatencyCache: Map<string, { latency: number; timestamp: number }> = new Map();
 // 渲染层上报的已保存代理链缓存（优先用于托盘展示）
 let savedChainsCache: ChainConfig[] = [];
 let isQuitting = false;
@@ -218,7 +220,7 @@ function getUserPreferences() {
 }
 
 // 创建系统托盘
-function createTray(): void {
+async function createTray(): Promise<void> {
   try {
     console.log('开始创建系统托盘...');
     // 防重复创建
@@ -260,15 +262,15 @@ function createTray(): void {
     console.log('托盘图标已创建');
     
     // 高级托盘菜单构建器（节点显示全部，不限 20）
-    const buildTrayMenu = (): Electron.Menu => {
+    const buildTrayMenu = async (): Promise<Electron.Menu> => {
       const settings = settingsManager.getSettings();
       const mode = proxyModeManager.getCurrentMode();
 
       const modeItems: Electron.MenuItemConstructorOptions[] = [
-        { label: '规则模式', type: 'radio', checked: mode === 'rule', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'rule', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
-        { label: '全局模式', type: 'radio', checked: mode === 'global', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'global', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
-        { label: '直连模式', type: 'radio', checked: mode === 'direct', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'direct', settings }); rebuildTrayMenu && rebuildTrayMenu(); } },
-        { label: 'VPN 模式 (TUN)', type: 'radio', checked: mode === 'vpn', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'vpn', settings, networkSettings: { enableTun: true, tunDevice: settings.tunDevice } }); rebuildTrayMenu && rebuildTrayMenu(); } },
+        { label: '规则模式', type: 'radio', checked: mode === 'rule', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'rule', settings }); rebuildTrayMenu && await rebuildTrayMenu(); } },
+        { label: '全局模式', type: 'radio', checked: mode === 'global', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'global', settings }); rebuildTrayMenu && await rebuildTrayMenu(); } },
+        { label: '直连模式', type: 'radio', checked: mode === 'direct', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'direct', settings }); rebuildTrayMenu && await rebuildTrayMenu(); } },
+        { label: 'VPN 模式 (TUN)', type: 'radio', checked: mode === 'vpn', click: async () => { await proxyModeManager.applyProxyMode({ mode: 'vpn', settings, networkSettings: { enableTun: true, tunDevice: settings.tunDevice } }); rebuildTrayMenu && await rebuildTrayMenu(); } },
       ];
 
       // 读取全部节点
@@ -279,9 +281,58 @@ function createTray(): void {
           allNodes.push({ id: n.id, name: n.name });
         }
       }
-      const nodeItems: Electron.MenuItemConstructorOptions[] = allNodes.length > 0 ? allNodes.map(n => ({
-        label: n.name,
+
+      // 从缓存读取延迟（渲染层有更新会写入该缓存）
+      const latenciesData: Record<string, { latency: number; timestamp: number }> = {};
+      nodeLatencyCache.forEach((v, k) => { latenciesData[k] = v; });
+
+      // 托盘“自动择优节点”放在“选择节点”子菜单顶部
+      const nodeItems: Electron.MenuItemConstructorOptions[] = [];
+      nodeItems.push({
+        label: '启动（自动择优节点）',
         click: async () => {
+          try {
+            await cleanupProxyState().catch(() => {});
+            const settingsNow = settingsManager.getSettings();
+            const subsNow = settingsNow.subscriptions || [];
+            const all: any[] = [];
+            for (const s of subsNow) { for (const n of (s.servers || [])) all.push(n); }
+            if (all.length === 0) return;
+            let best: any | null = null; let bestLatency = Number.MAX_SAFE_INTEGER;
+            for (const n of all) {
+              const info = nodeLatencyCache.get(n.id);
+              const lat = info?.latency || 0;
+              if (lat > 0 && lat < bestLatency) { bestLatency = lat; best = n; }
+            }
+            if (!best) { console.warn('无可用延迟数据，无法自动择优'); return; }
+            const proto = ((best.protocol || '') as string).toLowerCase();
+            const normalizedType = proto === 'ss' ? 'shadowsocks' : proto;
+            const outbound: any = { type: normalizedType, tag: best.name || `proxy-${best.id}`, server: best.host, server_port: best.port };
+            if (normalizedType === 'vmess') {
+              outbound.uuid = best.uuid; outbound.security = (best as any).security || 'auto';
+              if (best.network === 'ws') {
+                outbound.transport = { type: 'ws', path: best.wsPath || '/', headers: (best.wsHeaders || {}) };
+                if ((best as any).wsHost && !outbound.transport.headers.Host) { outbound.transport.headers.Host = (best as any).wsHost; }
+              }
+            } else if (normalizedType === 'shadowsocks') { outbound.method = (best as any).method || (best as any).encryption; outbound.password = best.password; }
+            else if (normalizedType === 'trojan') { outbound.password = best.password; const serverName = (best as any).sni || best.host; outbound.tls = { enabled: true, server_name: serverName, insecure: (best as any).allowInsecure ?? true }; }
+            const cfg = { log: { level: settingsNow.logLevel || 'info', output: settingsNow.enableLog ? (settingsNow.logFile || 'chongdong.log') : 'console' }, experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: '' } }, dns: { servers: [{ tag: 'default', address: settingsNow.dnsServer || '8.8.8.8', detour: 'direct' }], final: 'default' }, inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: settingsNow.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: settingsNow.proxyPort || 7897 } ], outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ], route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
+            await proxyManager.startSingbox(cfg);
+            broadcastProxyStatus(true, { source: 'tray-node', nodeId: best.id, nodeName: best.name });
+            try { await systemProxyManager.setSystemProxy('127.0.0.1', settingsNow.socksPort || 7896, settingsNow.proxyPort || 7897); } catch (err) { console.warn('设置系统代理失败:', err); }
+          } catch (e) { console.error('托盘自动择优节点启动失败:', e); }
+        }
+      });
+
+      if (allNodes.length > 0) nodeItems.push(...allNodes.map(n => {
+        // 获取延迟信息
+        const latencyInfo = latenciesData[n.id];
+        const latency = latencyInfo?.latency || 0;
+        const latencyText = latency > 0 ? ` (${latency}ms)` : '';
+        
+        return {
+          label: `${n.name}${latencyText}`,
+          click: async () => {
           try {
             const appSettings = settingsManager.getSettings();
             const found = (() => {
@@ -344,7 +395,9 @@ function createTray(): void {
             }
           } catch (e) { console.error('通过托盘启动节点失败:', e); }
         }
-      })) : [{ label: '无可用节点', enabled: false }];
+        }
+      }));
+      if (nodeItems.length === 1) nodeItems.push({ label: '无可用节点', enabled: false });
 
       const dynamicChainItems: Electron.MenuItemConstructorOptions[] = [{
         label: '启动（从全部订阅自动择优）',
@@ -370,6 +423,8 @@ function createTray(): void {
           } catch (e) { console.error('通过托盘启动动态链失败:', e); }
         }
       }];
+
+      // 注：自动择优节点已移至“选择节点”子菜单顶部
 
       // 显示所有已保存的代理链：优先渲染层上报缓存，其次磁盘 chains.json，再其次 settings.chains
       try {
@@ -426,7 +481,7 @@ function createTray(): void {
         { label: '代理链', submenu: dynamicChainItems },
         { type: 'separator' },
         { label: '停止代理', click: async () => { try { await proxyManager.stopAll(); await systemProxyManager.clearSystemProxy(); broadcastProxyStatus(false, { source: 'tray-stop' }); } catch (e) { console.warn(e); } } },
-        { label: '刷新菜单', click: () => { rebuildTrayMenu && rebuildTrayMenu(); } },
+        { label: '刷新菜单', click: async () => { rebuildTrayMenu && await rebuildTrayMenu(); } },
         { type: 'separator' },
         { label: '隐藏', click: () => { if (mainWindow) mainWindow.hide(); } },
         { label: '退出', click: async () => { await quitApp(); } },
@@ -435,10 +490,10 @@ function createTray(): void {
     };
 
     // 刷新函数 + 初始菜单
-    rebuildTrayMenu = () => {
-      try { if (!tray) return; tray.setContextMenu(buildTrayMenu()); } catch (e) { console.error('刷新托盘菜单失败:', e); }
+    rebuildTrayMenu = async () => {
+      try { if (!tray) return; tray.setContextMenu(await buildTrayMenu()); } catch (e) { console.error('刷新托盘菜单失败:', e); }
     };
-    tray.setContextMenu(buildTrayMenu());
+    tray.setContextMenu(await buildTrayMenu());
     tray.setToolTip('虫洞代理');
     console.log('托盘菜单已设置');
     
@@ -462,6 +517,23 @@ function createTray(): void {
       showMainWindow();
     });
     
+    // 接收渲染层的测速更新事件，自动刷新托盘延迟显示
+    try {
+      ipcMain.handle('tray:latencyUpdated', async (_evt, payload?: any) => {
+        try {
+          if (payload && payload.nodeId) {
+            nodeLatencyCache.set(payload.nodeId, { latency: payload.latency || 0, timestamp: payload.timestamp || Date.now() });
+          }
+          if (rebuildTrayMenu) await rebuildTrayMenu();
+        } catch (e) {
+          console.warn('自动刷新托盘菜单失败:', e);
+        }
+        return { success: true };
+      });
+    } catch (e) {
+      console.warn('注册 tray:latencyUpdated 失败:', e);
+    }
+
     console.log('系统托盘已创建完成');
   } catch (error) {
     console.error('创建系统托盘失败:', error);
@@ -775,7 +847,7 @@ ipcMain.handle('chains:updateSaved', async (_e, chains: ChainConfig[]) => {
       savedChainsCache = chains;
       console.log(`已更新保存的代理链(${chains.length})`);
       // 刷新托盘
-      try { rebuildTrayMenu && rebuildTrayMenu(); } catch {}
+      try { rebuildTrayMenu && await rebuildTrayMenu(); } catch {}
       return { success: true };
     }
     return { success: false, error: 'Invalid chains payload' };
@@ -791,7 +863,7 @@ ipcMain.handle('chains:save', async (_e, chains: ChainConfig[]) => {
     const p = join(app.getPath('userData'), 'chains.json');
     fs.writeFileSync(p, JSON.stringify(chains, null, 2), 'utf8');
     savedChainsCache = chains;
-    try { rebuildTrayMenu && rebuildTrayMenu(); } catch {}
+    try { rebuildTrayMenu && await rebuildTrayMenu(); } catch {}
     return { success: true, path: p };
   } catch (err) {
     return { success: false, error: (err as any)?.message || String(err) };
@@ -1478,6 +1550,18 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
   }
 });
 
+// 供渲染层在设置改变后请求重启自动延迟任务
+ipcMain.handle('settings:autoLatency:restart', async () => {
+  try {
+    if (rebuildTrayMenu) {
+      try { await rebuildTrayMenu(); } catch {}
+    }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as any)?.message || String(e) };
+  }
+});
+
 ipcMain.handle('subscription:update', async (_event, _subscription: any) => {
   try {
     // 这里应该调用订阅管理器的更新功能
@@ -1784,6 +1868,48 @@ ipcMain.handle('chain:getConfig', async (_, chainId: string) => {
     return { 
       success: false, 
       error: error instanceof Error ? error.message : String(error) 
+    };
+  }
+});
+
+// 获取节点延迟数据IPC处理程序
+ipcMain.handle('nodes:getLatencies', async () => {
+  try {
+    // 向渲染进程请求延迟数据
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length === 0) {
+      return { success: false, error: '没有可用的渲染进程窗口' };
+    }
+
+    // 向第一个窗口发送请求获取延迟数据
+    const mainWin = windows[0];
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false, error: '主窗口已销毁' };
+    }
+
+    // 使用IPC通信获取延迟数据
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve({ success: false, error: '获取延迟数据超时' });
+      }, 5000);
+
+      // 监听响应
+      const handleResponse = (_event: any, result: any) => {
+        clearTimeout(timeout);
+        ipcMain.removeListener('nodes:latencies-response', handleResponse);
+        resolve(result);
+      };
+
+      ipcMain.once('nodes:latencies-response', handleResponse);
+      
+      // 发送请求
+      mainWin.webContents.send('nodes:request-latencies');
+    });
+  } catch (error) {
+    console.error('获取节点延迟数据失败:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     };
   }
 });
