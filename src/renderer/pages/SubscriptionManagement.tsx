@@ -71,15 +71,116 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
 } from '@ant-design/icons';
-import { Subscription } from '../../shared/types/index';
+import { Subscription, ProxyServer, ProxyProtocol } from '../../shared/types/index';
 import { log } from '../utils/logger';
 import { subscriptionManager } from '../utils/subscriptionManager';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
+import { customServerManager } from '../utils/customServerManager';
 import './SubscriptionManagement.css';
 import { AppSettings } from '../../shared/types/index';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+// 自定义服务器列表组件
+interface CustomServerListProps {
+  onEdit: (server: ProxyServer) => void;
+  onDelete: (id: string) => void;
+}
+
+const CustomServerList: React.FC<CustomServerListProps> = ({ onEdit, onDelete }) => {
+  const [customServers, setCustomServers] = useState<ProxyServer[]>([]);
+
+  useEffect(() => {
+    const servers = customServerManager.getCustomServers();
+    setCustomServers(servers);
+  }, []);
+
+  const columns = [
+    {
+      title: '服务器名称',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: '协议',
+      dataIndex: 'protocol',
+      key: 'protocol',
+      render: (protocol: ProxyProtocol) => (
+        <Tag color="blue">{protocol.toUpperCase()}</Tag>
+      ),
+    },
+    {
+      title: '地址',
+      dataIndex: 'host',
+      key: 'host',
+    },
+    {
+      title: '端口',
+      dataIndex: 'port',
+      key: 'port',
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (enabled: boolean) => (
+        <Tag color={enabled ? 'green' : 'red'}>
+          {enabled ? '启用' : '禁用'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: ProxyServer) => (
+        <Space size="middle">
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => onEdit(record)}
+          >
+            编辑
+          </Button>
+          <Popconfirm
+            title="确定要删除这个自定义服务器吗？"
+            onConfirm={() => onDelete(record.id)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  if (customServers.length === 0) {
+    return (
+      <Empty
+        description="暂无自定义服务器"
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+      />
+    );
+  }
+
+  return (
+    <Table
+      columns={columns}
+      dataSource={customServers}
+      rowKey="id"
+      pagination={{
+        pageSize: 10,
+        showSizeChanger: true,
+        showQuickJumper: true,
+        showTotal: (total, range) =>
+          `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+      }}
+    />
+  );
+};
 
 // 新增辅助函数，用于通知主进程设置已更新
 const notifyMainProcessOfSettingsChange = async () => {
@@ -102,6 +203,11 @@ const SubscriptionManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [form] = Form.useForm();
+  
+  // 自定义服务器相关状态
+  const [customServerModalVisible, setCustomServerModalVisible] = useState(false);
+  const [editingCustomServer, setEditingCustomServer] = useState<ProxyServer | null>(null);
+  const [customServerForm] = Form.useForm();
 
   // 加载订阅配置
   useEffect(() => {
@@ -270,6 +376,62 @@ const SubscriptionManagement: React.FC = () => {
     }
   };
 
+  // 自定义服务器相关处理函数
+  const handleAddCustomServer = () => {
+    setEditingCustomServer(null);
+    customServerForm.resetFields();
+    setCustomServerModalVisible(true);
+  };
+
+  const handleEditCustomServer = (server: ProxyServer) => {
+    setEditingCustomServer(server);
+    customServerForm.setFieldsValue(server);
+    setCustomServerModalVisible(true);
+  };
+
+  const handleDeleteCustomServer = (id: string) => {
+    const success = customServerManager.deleteCustomServer(id);
+    if (success) {
+      message.success('自定义服务器已删除');
+      log.info('删除自定义服务器', { id }, 'SubscriptionManagement');
+    } else {
+      message.error('删除失败');
+    }
+  };
+
+  const handleSaveCustomServer = async (values: any) => {
+    try {
+      // 验证服务器配置
+      const validation = customServerManager.validateServerConfig(values);
+      if (!validation.valid) {
+        message.error(`配置验证失败: ${validation.errors.join(', ')}`);
+        return;
+      }
+
+      if (editingCustomServer) {
+        // 编辑现有自定义服务器
+        const success = customServerManager.updateCustomServer(editingCustomServer.id, values);
+        if (success) {
+          message.success('自定义服务器已更新');
+          log.info('更新自定义服务器', { server: editingCustomServer.name }, 'SubscriptionManagement');
+        } else {
+          message.error('更新失败');
+        }
+      } else {
+        // 添加新的自定义服务器
+        const newServer = customServerManager.addCustomServer(values);
+        message.success('自定义服务器已添加');
+        log.info('添加自定义服务器', { server: newServer.name }, 'SubscriptionManagement');
+      }
+      
+      setCustomServerModalVisible(false);
+      customServerForm.resetFields();
+    } catch (error: unknown) {
+      message.error('保存失败');
+      log.error('保存自定义服务器失败', error, 'SubscriptionManagement');
+    }
+  };
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleString('zh-CN');
@@ -388,19 +550,26 @@ const SubscriptionManagement: React.FC = () => {
   const enabledSubscriptions = subscriptions.filter(s => s.enabled);
   const totalSubscriptions = subscriptions.length;
   const totalServers = subscriptions.reduce((sum, sub) => sum + sub.servers.length, 0);
+  const customServers = customServerManager.getCustomServers();
+  const totalCustomServers = customServers.length;
 
   return (
     <div className="subscription-management-page">
       <div className="page-header">
         <Title level={2}>订阅管理</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSubscription}>
-          添加订阅
-        </Button>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSubscription}>
+            添加订阅
+          </Button>
+          <Button icon={<ImportOutlined />} onClick={handleAddCustomServer}>
+            自定义导入
+          </Button>
+        </Space>
       </div>
 
       {/* 统计信息 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={6}>
           <Card>
             <Statistic
               title="总订阅数"
@@ -410,7 +579,7 @@ const SubscriptionManagement: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={6}>
           <Card>
             <Statistic
               title="启用订阅"
@@ -420,13 +589,23 @@ const SubscriptionManagement: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={6}>
           <Card>
             <Statistic
-              title="总节点数"
+              title="订阅节点数"
               value={totalServers}
               prefix={<CloudOutlined />}
               valueStyle={{ color: '#faad14' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={6}>
+          <Card>
+            <Statistic
+              title="自定义服务器"
+              value={totalCustomServers}
+              prefix={<ImportOutlined />}
+              valueStyle={{ color: '#722ed1' }}
             />
           </Card>
         </Col>
@@ -445,6 +624,14 @@ const SubscriptionManagement: React.FC = () => {
             showTotal: (total, range) =>
               `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
           }}
+        />
+      </Card>
+
+      {/* 自定义服务器列表 */}
+      <Card title="自定义服务器" style={{ marginTop: 16 }}>
+        <CustomServerList
+          onEdit={handleEditCustomServer}
+          onDelete={handleDeleteCustomServer}
         />
       </Card>
 
@@ -517,6 +704,160 @@ const SubscriptionManagement: React.FC = () => {
                 {editingSubscription ? '更新' : '添加'}
               </Button>
               <Button onClick={() => setModalVisible(false)}>
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 自定义服务器模态框 */}
+      <Modal
+        title={editingCustomServer ? '编辑自定义服务器' : '添加自定义服务器'}
+        open={customServerModalVisible}
+        onCancel={() => setCustomServerModalVisible(false)}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={customServerForm}
+          layout="vertical"
+          onFinish={handleSaveCustomServer}
+        >
+          <Form.Item
+            name="name"
+            label="服务器名称"
+            rules={[{ required: true, message: '请输入服务器名称' }]}
+          >
+            <Input placeholder="请输入服务器名称" />
+          </Form.Item>
+
+          <Form.Item
+            name="protocol"
+            label="代理协议"
+            rules={[{ required: true, message: '请选择代理协议' }]}
+          >
+            <Select placeholder="请选择代理协议">
+              <Select.Option value={ProxyProtocol.VMESS}>VMess</Select.Option>
+              <Select.Option value={ProxyProtocol.VLESS}>VLESS</Select.Option>
+              <Select.Option value={ProxyProtocol.TROJAN}>Trojan</Select.Option>
+              <Select.Option value={ProxyProtocol.SOCKS5}>SOCKS5</Select.Option>
+              <Select.Option value={ProxyProtocol.HTTP}>HTTP</Select.Option>
+              <Select.Option value={ProxyProtocol.HTTPS}>HTTPS</Select.Option>
+              <Select.Option value={ProxyProtocol.SHADOWSOCKS}>Shadowsocks</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="host"
+            label="服务器地址"
+            rules={[{ required: true, message: '请输入服务器地址' }]}
+          >
+            <Input placeholder="请输入服务器地址" />
+          </Form.Item>
+
+          <Form.Item
+            name="port"
+            label="端口"
+            rules={[{ required: true, message: '请输入端口号' }]}
+          >
+            <InputNumber
+              placeholder="请输入端口号"
+              min={1}
+              max={65535}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="uuid"
+            label="UUID"
+            rules={[
+              ({ getFieldValue }) => ({
+                required: ['vmess', 'vless'].includes(getFieldValue('protocol')),
+                message: 'VMess/VLESS协议需要UUID',
+              }),
+            ]}
+          >
+            <Input placeholder="请输入UUID" />
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              ({ getFieldValue }) => ({
+                required: getFieldValue('protocol') === 'trojan',
+                message: 'Trojan协议需要密码',
+              }),
+            ]}
+          >
+            <Input.Password placeholder="请输入密码" />
+          </Form.Item>
+
+          <Form.Item
+            name="username"
+            label="用户名"
+          >
+            <Input placeholder="请输入用户名（可选）" />
+          </Form.Item>
+
+          <Form.Item
+            name="encryption"
+            label="加密方式"
+          >
+            <Input placeholder="请输入加密方式（可选）" />
+          </Form.Item>
+
+          <Form.Item
+            name="network"
+            label="传输协议"
+          >
+            <Select placeholder="请选择传输协议（可选）">
+              <Select.Option value="tcp">TCP</Select.Option>
+              <Select.Option value="ws">WebSocket</Select.Option>
+              <Select.Option value="grpc">gRPC</Select.Option>
+              <Select.Option value="h2">HTTP/2</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="wsPath"
+            label="WebSocket路径"
+          >
+            <Input placeholder="请输入WebSocket路径（可选）" />
+          </Form.Item>
+
+          <Form.Item
+            name="tls"
+            label="启用TLS"
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="sni"
+            label="SNI"
+          >
+            <Input placeholder="请输入SNI（可选）" />
+          </Form.Item>
+
+          <Form.Item
+            name="enabled"
+            label="启用"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit">
+                {editingCustomServer ? '更新' : '添加'}
+              </Button>
+              <Button onClick={() => setCustomServerModalVisible(false)}>
                 取消
               </Button>
             </Space>

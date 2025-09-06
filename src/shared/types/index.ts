@@ -38,6 +38,7 @@ export interface ProxyServer {
   enabled: boolean;
   latency?: number;
   lastTest?: number;
+  isCustom?: boolean; // 标识是否为自定义服务器
 }
 
 // 代理组配置

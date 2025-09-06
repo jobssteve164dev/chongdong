@@ -32,6 +32,7 @@ import { latencyTester } from '../utils/latencyTester';
 import { useNodeStore } from '../utils/stores'; // 导入 Zustand store
 import { ProxyNode } from '../../shared/types';
 import { DefaultSettings } from '../utils/defaultSettings';
+import { customServerManager } from '../utils/customServerManager';
 import './NodeManagement.css';
 
 const { Title, Text } = Typography;
@@ -132,6 +133,16 @@ const NodeManagement: React.FC = () => {
         });
       });
 
+      // 添加自定义服务器
+      const customServers = customServerManager.getCustomServers();
+      customServers.forEach(server => {
+        nodesWithSubscription.push({
+          ...server,
+          subscriptionName: '自定义服务器',
+          subscriptionId: 'custom',
+        });
+      });
+
       setAllNodes(nodesWithSubscription);
 
       // 将节点数据更新到 Zustand store
@@ -141,9 +152,10 @@ const NodeManagement: React.FC = () => {
         type: n.protocol,
         server: n.host,
         port: n.port,
+        subscriptionId: n.subscriptionId,
         uuid: n.uuid,
         password: n.password,
-        security: n.encryption,
+        encryption: n.encryption,
         network: n.network,
         wsPath: n.wsPath,
         wsHost: n.wsHeaders?.Host,
@@ -427,7 +439,7 @@ const NodeManagement: React.FC = () => {
       
       // 保存到存储
       const updatedSubscriptions = subscriptions.map(sub => {
-        const subscriptionNodes = updatedNodes.filter(node => node.subscriptionId === sub.id);
+        const subscriptionNodes = interimNodes.filter((node: any) => node.subscriptionId === sub.id);
         return {
           ...sub,
           servers: subscriptionNodes

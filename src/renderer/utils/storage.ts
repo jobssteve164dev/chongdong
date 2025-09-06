@@ -99,4 +99,6 @@ export const STORAGE_KEYS = {
   RULE_TEMPLATES: 'rule_templates',
   RULE_STATS: 'rule_stats',
   RULE_BACKUP: 'rule_backup',
+  // 自定义服务器
+  CUSTOM_SERVERS: 'custom_servers',
 } as const;

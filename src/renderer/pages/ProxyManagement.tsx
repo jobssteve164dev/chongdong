@@ -20,6 +20,7 @@ import NodeSelector from '../components/NodeSelector';
 import { useNodeStore, NodeStore } from '../utils/stores';
 import { DefaultSettings } from '../utils/defaultSettings';
 import ChainStatusDisplay from '../components/ChainStatusDisplay';
+import { customServerManager } from '../utils/customServerManager';
 import './ProxyManagement.css';
 import * as _ from 'lodash';
 
@@ -85,7 +86,9 @@ const ProxyManagement: React.FC = () => {
     subscriptions.forEach(sub => {
       subMap[sub.id] = sub.name;
     });
-    // 添加一个用于“未分组”节点的特殊条目
+    // 添加自定义服务器分组
+    subMap['custom'] = '自定义服务器';
+    // 添加一个用于"未分组"节点的特殊条目
     subMap['ungrouped'] = '手动添加/未分组';
     setSubscriptionMap(subMap);
 
@@ -115,9 +118,26 @@ const ProxyManagement: React.FC = () => {
       }
     });
 
-    // 合并从订阅生成的节点和现有的手动添加的节点
-    const manualNodes = nodes.filter(node => !node.subscriptionId);
-    const allNodes = [...nodesFromSubscriptions, ...manualNodes];
+    // 添加自定义服务器
+    const customServers = customServerManager.getCustomServers();
+    const customNodes: ProxyNode[] = customServers.map(server => ({
+      id: server.id,
+      name: server.name,
+      type: server.protocol as any,
+      server: server.host,
+      port: server.port,
+      subscriptionId: 'custom', // 设置为自定义分组
+      uuid: server.uuid,
+      password: server.password,
+      encryption: server.encryption,
+      network: server.network,
+      wsPath: server.wsPath,
+      wsHost: server.wsHost,
+    }));
+
+    // 合并从订阅生成的节点、自定义服务器和现有的手动添加的节点
+    const manualNodes = nodes.filter(node => !node.subscriptionId && node.subscriptionId !== 'custom');
+    const allNodes = [...nodesFromSubscriptions, ...customNodes, ...manualNodes];
 
     // 按订阅ID分组
     const grouped = _.groupBy(allNodes, (node: ProxyNode) => node.subscriptionId || 'ungrouped');
