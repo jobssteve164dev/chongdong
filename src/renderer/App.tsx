@@ -91,8 +91,8 @@ const AppContent: React.FC = () => {
           } else if (payload?.nodeId) {
             // 节点模式
             try {
-              // 从节点存储中获取节点信息
-              const nodes = Storage.get('nodes', []) || [];
+              // 从Zustand store中获取节点信息
+              const nodes = useNodeStore.getState().nodes;
               const node = nodes.find((n: any) => n.id === payload.nodeId);
               if (node) {
                 setCurrentProxyNode(node);

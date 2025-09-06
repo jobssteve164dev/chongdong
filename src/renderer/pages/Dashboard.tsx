@@ -400,6 +400,18 @@ const Dashboard: React.FC = () => {
         setCurrentProxyNode(selectedNode);
         setCurrentProxyChain(null);
         
+        // 广播状态变化到主进程，通知其他组件刷新
+        try {
+          await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+            running: true,
+            source: 'dashboard-node',
+            nodeId: selectedNode.id,
+            nodeName: selectedNode.name
+          });
+        } catch (error) {
+          console.warn('广播代理状态失败:', error);
+        }
+        
         // 启动监控管理器
         console.log('代理启动成功，开始启动监控管理器...');
         console.log('监控管理器对象:', monitorManager);
@@ -536,6 +548,19 @@ const Dashboard: React.FC = () => {
       setCurrentProxyNode(null);
       setCurrentProxyChain(selectedChain);
       
+      // 广播状态变化到主进程，通知其他组件刷新
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+          running: true,
+          source: 'dashboard-chain',
+          chainId: selectedChain.id,
+          chainName: selectedChain.name,
+          chainType: selectedChain.type
+        });
+      } catch (error) {
+        console.warn('广播代理状态失败:', error);
+      }
+      
       log.info('代理链服务已启动', null, 'Dashboard');
     } catch (error) {
       message.error(`代理链启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -557,6 +582,16 @@ const Dashboard: React.FC = () => {
         setProxyStartTime(null);
         setCurrentProxyNode(null);
         setCurrentProxyChain(null);
+        
+        // 广播状态变化到主进程，通知其他组件刷新
+        try {
+          await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+            running: false,
+            source: 'dashboard-stop'
+          });
+        } catch (error) {
+          console.warn('广播代理状态失败:', error);
+        }
         
         log.info('代理服务已停止', null, 'Dashboard');
       } catch (error) {
