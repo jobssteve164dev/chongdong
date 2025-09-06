@@ -65,30 +65,62 @@ const AppContent: React.FC = () => {
     // 监听主进程广播的状态变化（托盘启动/停止等）
     const offStatusChanged = window.electron.ipcRenderer.on('proxy:statusChanged', async (payload: any) => {
       try {
+        console.log('收到代理状态变化广播:', payload);
         setProxyConnected(!!payload?.running);
         
-        // 如果包含代理链信息，更新代理链状态
-        if (payload?.chainId && payload?.running) {
-          // 从主进程获取完整的代理链配置信息
-          try {
-            const chainConfig = await chainIPDetector.getChainConfig(payload.chainId);
-            setCurrentProxyChain(chainConfig);
-          } catch (error) {
-            console.warn('获取代理链配置失败:', error);
-            // 设置基本信息作为备选
-            const chainInfo = {
-              id: payload.chainId,
-              name: `Chain-${payload.chainId}`,
-              type: payload.source === 'tray-dynamic' ? 'dynamic' : 'static',
-              proxies: []
-            };
-            setCurrentProxyChain(chainInfo);
+        if (payload?.running) {
+          // 处理代理启动的情况
+          if (payload?.chainId) {
+            // 代理链模式
+            try {
+              const chainConfig = await chainIPDetector.getChainConfig(payload.chainId);
+              setCurrentProxyChain(chainConfig);
+              setCurrentProxyNode(null); // 清空节点信息
+            } catch (error) {
+              console.warn('获取代理链配置失败:', error);
+              // 设置基本信息作为备选
+              const chainInfo = {
+                id: payload.chainId,
+                name: payload.chainName || `Chain-${payload.chainId}`,
+                type: payload.chainType || (payload.source === 'tray-dynamic' ? 'dynamic' : 'static'),
+                proxies: []
+              };
+              setCurrentProxyChain(chainInfo);
+              setCurrentProxyNode(null);
+            }
+          } else if (payload?.nodeId) {
+            // 节点模式
+            try {
+              // 从节点存储中获取节点信息
+              const nodes = Storage.get('nodes', []) || [];
+              const node = nodes.find((n: any) => n.id === payload.nodeId);
+              if (node) {
+                setCurrentProxyNode(node);
+                setCurrentProxyChain(null); // 清空代理链信息
+              } else {
+                // 如果找不到节点信息，创建一个基本信息
+                const nodeInfo = {
+                  id: payload.nodeId,
+                  name: payload.nodeName || `Node-${payload.nodeId}`,
+                  type: 'unknown',
+                  server: 'unknown',
+                  port: 0
+                };
+                setCurrentProxyNode(nodeInfo);
+                setCurrentProxyChain(null);
+              }
+            } catch (error) {
+              console.warn('获取节点信息失败:', error);
+            }
           }
-        } else if (!payload?.running) {
-          // 如果代理停止，清空代理链信息
+        } else {
+          // 代理停止，清空所有信息
           setCurrentProxyChain(null);
+          setCurrentProxyNode(null);
         }
-      } catch {}
+      } catch (error) {
+        console.error('处理代理状态变化失败:', error);
+      }
     });
 
     return () => {

@@ -216,6 +216,18 @@ const ProxyManagement: React.FC = () => {
       setCurrentProxyNode(selectedNode);
       setCurrentProxyChain(null);
       
+      // 广播状态变化到主进程，通知Dashboard刷新
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+          running: true,
+          source: 'proxy-management-node',
+          nodeId: selectedNode.id,
+          nodeName: selectedNode.name
+        });
+      } catch (error) {
+        console.warn('广播代理状态失败:', error);
+      }
+      
       loadSystemProxy();
     } catch (error) {
       message.error(`代理启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -271,6 +283,19 @@ const ProxyManagement: React.FC = () => {
       setProxyConnected(true);
       setCurrentProxyNode(null);
       setCurrentProxyChain(chain);
+      
+      // 广播状态变化到主进程，通知Dashboard刷新
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+          running: true,
+          source: 'proxy-management-chain',
+          chainId: chain.id,
+          chainName: chain.name,
+          chainType: chain.type
+        });
+      } catch (error) {
+        console.warn('广播代理状态失败:', error);
+      }
       
       loadSystemProxy();
     } catch (error) {

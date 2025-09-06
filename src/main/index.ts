@@ -903,6 +903,18 @@ ipcMain.handle('proxy:cleanup', async () => {
   }
 });
 
+// 广播代理状态IPC处理程序
+ipcMain.handle('proxy:broadcastStatus', async (_, payload) => {
+  try {
+    console.log('收到代理状态广播请求:', payload);
+    broadcastProxyStatus(payload.running, payload);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to broadcast proxy status:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 ipcMain.handle('proxy:getStats', async () => {
   try {
     return await proxyManager.getStats();
