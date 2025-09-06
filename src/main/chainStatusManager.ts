@@ -47,7 +47,7 @@ export class ChainStatusManager {
       const nodeStatuses: ChainNodeStatus[] = nodes.map((node) => {
         const adapter = adapters.find(adapter => adapter.node.id === node.id);
         
-        return {
+        const nodeStatus: ChainNodeStatus = {
           nodeId: node.id,
           nodeName: node.name,
           nodeType: node.type,
@@ -59,10 +59,18 @@ export class ChainStatusManager {
             upload: adapter?.trafficStats?.bytesSent || 0,
             download: adapter?.trafficStats?.bytesReceived || 0,
             connections: adapter?.trafficStats?.connections || 0
-          },
-          error: adapter?.error || undefined,
-          connectTime: adapter?.startTime || undefined
+          }
         };
+        
+        // 只在有值时才添加可选属性
+        if (adapter?.error) {
+          nodeStatus.error = adapter.error;
+        }
+        if (adapter?.startTime) {
+          nodeStatus.connectTime = adapter.startTime;
+        }
+        
+        return nodeStatus;
       });
 
       // 计算总流量
@@ -79,10 +87,16 @@ export class ChainStatusManager {
         status: middlewareStatus.status === 'running' ? 'running' : 'stopped',
         nodes: nodeStatuses,
         entryPort: middlewareStatus.entryPort,
-        totalTraffic,
-        startTime: middlewareStatus.startTime || undefined,
-        error: middlewareStatus.error || undefined
+        totalTraffic
       };
+      
+      // 只在有值时才添加可选属性
+      if (middlewareStatus.startTime) {
+        chainStatus.startTime = middlewareStatus.startTime;
+      }
+      if (middlewareStatus.error) {
+        chainStatus.error = middlewareStatus.error;
+      }
 
       this.chainStatuses.set(chainId, chainStatus);
       
@@ -512,37 +526,7 @@ export class ChainStatusManager {
     });
   }
 
-  /**
-   * 启动定期检测
-   */
-  private startPeriodicDetection(): void {
-    // 每5分钟检测一次活跃的代理链
-    this.detectionInterval = setInterval(() => {
-      this.performPeriodicDetection();
-    }, 5 * 60 * 1000);
-  }
 
-  /**
-   * 执行定期检测
-   */
-  private async performPeriodicDetection(): Promise<void> {
-    try {
-      const activeChains = Array.from(this.chainStatuses.values())
-        .filter(chain => chain.status === 'running');
-      
-      for (const chain of activeChains) {
-        // 只检测最终出口节点的IP
-        if (chain.nodes.length > 0) {
-          const lastNode = chain.nodes[chain.nodes.length - 1];
-          if (lastNode && lastNode.status === 'connected') {
-            await this.detectNodeIP(lastNode, chain.nodes.length - 1);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[ChainStatusManager] 定期IP检测失败', error);
-    }
-  }
 
   /**
    * 清理资源
