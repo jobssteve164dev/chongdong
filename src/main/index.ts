@@ -329,7 +329,11 @@ function createTray(): void {
               outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ],
               route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
             await proxyManager.startSingbox(cfg);
-            broadcastProxyStatus(true, { source: 'tray-node' });
+            broadcastProxyStatus(true, { 
+              source: 'tray-node',
+              nodeId: n.id,
+              nodeName: n.name
+            });
             // 启动成功后设置系统代理
             try {
               const socksPort = appSettings.socksPort || 7896;
@@ -354,7 +358,13 @@ function createTray(): void {
             const chain: ChainConfig = { id: 'tray_dynamic_all', name: '托盘·自动链', description: '从全部订阅自动选择最佳节点', type: 'dynamic', proxies: subs.map((s: any) => s.id), rules: [], enabled: true, createdAt: new Date(), updatedAt: new Date() } as any;
             const port = settings.proxyPort || 7897;
             const result = await dynamicChainManager.startChain(chain, port);
-            broadcastProxyStatus(true, { source: 'tray-dynamic-all', port: result.port || port });
+            broadcastProxyStatus(true, { 
+              source: 'tray-dynamic-all', 
+              chainId: chain.id,
+              chainName: chain.name,
+              chainType: chain.type,
+              port: result.port || port 
+            });
             // 设置系统代理到返回端口（HTTP/SOCKS 同端口）
             try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
           } catch (e) { console.error('通过托盘启动动态链失败:', e); }
@@ -380,11 +390,23 @@ function createTray(): void {
                   const port = settings.proxyPort || 7897;
                   if (c.type === 'dynamic') {
                     const result = await dynamicChainManager.startChain(c, port);
-                    broadcastProxyStatus(true, { source: 'tray-dynamic', chainId: c.id, port: result.port || port });
+                    broadcastProxyStatus(true, { 
+                      source: 'tray-dynamic', 
+                      chainId: c.id,
+                      chainName: c.name,
+                      chainType: c.type,
+                      port: result.port || port 
+                    });
                     try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   } else {
                     await proxyManager.startChain(c, { listenPort: port } as any);
-                    broadcastProxyStatus(true, { source: 'tray-static', chainId: c.id, port });
+                    broadcastProxyStatus(true, { 
+                      source: 'tray-static', 
+                      chainId: c.id,
+                      chainName: c.name,
+                      chainType: c.type,
+                      port 
+                    });
                     try { await systemProxyManager.setSystemProxy('127.0.0.1', port, port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   }
                 } catch (e) { console.error('启动已保存代理链失败:', e); }
