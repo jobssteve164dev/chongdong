@@ -119,6 +119,12 @@ export interface AppSettings {
   // 局域网隔离
   enableLanIsolation?: boolean;
   lanAllowedCidrs?: string[];
+  // 行为混淆与分析
+  enableTrafficDecoy?: boolean;
+  decoyIntensity?: 'low' | 'medium' | 'high';
+  customDecoyDomains?: string[];
+  enableBehaviorAnalytics?: boolean;
+  behaviorSamplingIntervalSec?: number;
   // 新增高级泄露防护配置
   enableTlsFingerprintProtection?: boolean;
   tlsFingerprintMode?: 'strict' | 'relaxed';

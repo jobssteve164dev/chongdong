@@ -5,6 +5,8 @@ import { TlsFingerprintProtectionService } from './tlsFingerprintProtectionServi
 import { HttpHeaderProtectionService } from './httpHeaderProtectionService';
 import { TimingLeakProtectionService } from './timingLeakProtectionService';
 import { MacAddressProtectionService } from './macAddressProtectionService';
+import { TrafficDecoyService } from './trafficDecoyService';
+import { BehaviorAnalyticsService } from './behaviorAnalyticsService';
 import { 
   LeakProtectionStatus, 
   DnsLeakResult, 
@@ -32,6 +34,8 @@ export class LeakProtectionManager {
   private httpHeaderService: HttpHeaderProtectionService;
   private timingLeakService: TimingLeakProtectionService;
   private macAddressService: MacAddressProtectionService;
+  private trafficDecoyService: TrafficDecoyService;
+  private behaviorAnalyticsService: BehaviorAnalyticsService;
 
   private constructor() {
     console.log('LeakProtectionManager initialized');
@@ -41,6 +45,8 @@ export class LeakProtectionManager {
     this.httpHeaderService = new HttpHeaderProtectionService();
     this.timingLeakService = new TimingLeakProtectionService();
     this.macAddressService = new MacAddressProtectionService();
+    this.trafficDecoyService = new TrafficDecoyService();
+    this.behaviorAnalyticsService = new BehaviorAnalyticsService();
   }
 
   public static getInstance(): LeakProtectionManager {
@@ -85,6 +91,11 @@ export class LeakProtectionManager {
       enabled: settings.enableMacAddressProtection || true,
       mode: settings.macAddressProtectionMode || 'relaxed'
     });
+
+    // 行为混淆与分析
+    this.trafficDecoyService.configure();
+    this.behaviorAnalyticsService.configure();
+    this.behaviorAnalyticsService.start();
   }
 
   /**
@@ -351,6 +362,9 @@ export class LeakProtectionManager {
     await ipv6LeakProtectionService.startLeakMonitoring(intervalMs);
     await webRTCLeakProtectionService.startLeakMonitoring(intervalMs);
 
+    // 启动混淆与分析
+    this.trafficDecoyService.start();
+
     // 启动统一监控
     this.monitoringInterval = setInterval(async () => {
       try {
@@ -382,6 +396,8 @@ export class LeakProtectionManager {
     // 停止各个服务的监控
     ipv6LeakProtectionService.stopLeakMonitoring();
     webRTCLeakProtectionService.stopLeakMonitoring();
+    this.trafficDecoyService.stop();
+    this.behaviorAnalyticsService.stop();
 
     // 停止统一监控
     if (this.monitoringInterval) {

@@ -222,6 +222,12 @@ export class DefaultSettings {
       // 局域网隔离默认关闭，仅允许网关/DNS时可开启
       enableLanIsolation: false,
       lanAllowedCidrs: ['127.0.0.1/32'],
+      // 行为混淆与分析默认配置
+      enableTrafficDecoy: false,
+      decoyIntensity: 'low',
+      customDecoyDomains: [],
+      enableBehaviorAnalytics: true,
+      behaviorSamplingIntervalSec: 30,
       // 新增高级泄露防护配置
       enableTlsFingerprintProtection: true,
       tlsFingerprintMode: 'strict',

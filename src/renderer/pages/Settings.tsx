@@ -38,6 +38,7 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { AppSettings, UserPreferences } from '../../shared/types/index';
@@ -48,6 +49,7 @@ import CoreManager from '../components/CoreManager';
 import { windowManager } from '../utils/windowManager';
 import { DefaultSettings } from '../utils/defaultSettings';
 import ErrorMonitor from '../components/ErrorMonitor';
+import BehaviorAnalytics from '../components/BehaviorAnalytics';
 import { proxyModeManager } from '../utils/proxyModeManager';
 import './Settings.css';
 
@@ -181,12 +183,19 @@ const Settings: React.FC = () => {
       
       if (savedSettings) {
         setSettings(prev => ({ ...prev, ...savedSettings }));
-        form.setFieldsValue(savedSettings);
-        networkForm.setFieldsValue(savedSettings);
-        securityForm.setFieldsValue(savedSettings);
+        
+        // 处理自定义域名池格式转换（数组转文本）
+        const settingsForForms = { ...savedSettings };
+        if (Array.isArray(savedSettings.customDecoyDomains)) {
+          settingsForForms.customDecoyDomains = savedSettings.customDecoyDomains.join('\n');
+        }
+        
+        form.setFieldsValue(settingsForForms);
+        networkForm.setFieldsValue(settingsForForms);
+        securityForm.setFieldsValue(settingsForForms);
         // Special handling for engineForm to stringify engineSettings
         engineForm.setFieldsValue({
-          ...savedSettings,
+          ...settingsForForms,
           engineSettings: savedSettings.engineSettings 
             ? JSON.stringify(savedSettings.engineSettings, null, 2) 
             : ''
@@ -327,6 +336,16 @@ const Settings: React.FC = () => {
   // 网络设置变更处理
   const handleNetworkSettingsChange = async (changedValues: any, allValues: any) => {
     try {
+      // 处理自定义域名池格式转换
+      if (changedValues.customDecoyDomains !== undefined) {
+        if (typeof changedValues.customDecoyDomains === 'string') {
+          changedValues.customDecoyDomains = changedValues.customDecoyDomains
+            .split('\n')
+            .map((domain: string) => domain.trim())
+            .filter((domain: string) => domain.length > 0);
+        }
+      }
+
       // 检查是否是网络相关的设置变更
       const networkKeys = [
         'enableDns', 'dnsServer', 'enableDoh', 'dohServer', 'enableDot', 'dotServer',
@@ -339,7 +358,9 @@ const Settings: React.FC = () => {
         'enableCompatProxy', 'compatHttpPort', 'compatSocksPort',
         // 延迟测试相关设置
         'latencyTestUrl', 'latencyTestTimeout', 'latencyTestRetries', 
-        'latencyTestInterval', 'enableAutoLatencyTest', 'latencyTestConcurrency', 'latencyTestUrls'
+        'latencyTestInterval', 'enableAutoLatencyTest', 'latencyTestConcurrency', 'latencyTestUrls',
+        // 行为混淆与分析设置
+        'enableTrafficDecoy', 'decoyIntensity', 'customDecoyDomains', 'enableBehaviorAnalytics', 'behaviorSamplingIntervalSec'
       ];
       
       const hasNetworkChanges = Object.keys(changedValues).some(key => networkKeys.includes(key));
@@ -1402,6 +1423,44 @@ const Settings: React.FC = () => {
                 </Col>
               </Row>
 
+              {/* 行为混淆与分析 */}
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableTrafficDecoy" label="启用混淆流量" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="decoyIntensity" label="混淆强度">
+                    <Select>
+                      <Option value="low">低</Option>
+                      <Option value="medium">中</Option>
+                      <Option value="high">高</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="enableBehaviorAnalytics" label="启用行为分析" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="customDecoyDomains" label="自定义混淆域名池(每行一个)">
+                    <Input.TextArea 
+                      rows={3}
+                      placeholder="例如：&#10;www.google.com&#10;www.github.com&#10;www.stackoverflow.com"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="behaviorSamplingIntervalSec" label="行为采样间隔(秒)">
+                    <InputNumber min={5} max={600} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={8}>
                   <Form.Item name="enableTlsFingerprintProtection" label="TLS指纹防护" valuePropName="checked">
@@ -2119,6 +2178,18 @@ const Settings: React.FC = () => {
           key="core"
         >
           <CoreManager />
+        </TabPane>
+
+        <TabPane
+          tab={
+            <span>
+              <BarChartOutlined />
+              行为分析
+            </span>
+          }
+          key="analytics"
+        >
+          <BehaviorAnalytics />
         </TabPane>
 
         <TabPane
