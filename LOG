@@ -1,25 +1,91 @@
-node:electron/js2c/renderer_init:2 Unable to load preload script: /Users/walker/Documents/Qsync/00.AI_PROJECT/chongdong/dist/preload/index.js
-(anonymous) @ node:electron/js2c/renderer_init:2
-node:electron/js2c/renderer_init:2 Error: contextBridge API can only be used when contextIsolation is enabled
-    at checkContextIsolationEnabled (node:electron/js2c/renderer_init:2:5071)
-    at Object.exposeInMainWorld (node:electron/js2c/renderer_init:2:5182)
-    at Object.<anonymous> (index.ts:27:15)
-    at Object.<anonymous> (index.ts:52:44)
-    at Module._compile (node:internal/modules/cjs/loader:1271:14)
-    at Module._extensions..js (node:internal/modules/cjs/loader:1326:10)
-    at Module.load (node:internal/modules/cjs/loader:1126:32)
-    at Module._load (node:internal/modules/cjs/loader:967:12)
-    at c._load (node:electron/js2c/node_init:2:13672)
-    at s._load (node:electron/js2c/renderer_init:2:30758)
-(anonymous) @ node:electron/js2c/renderer_init:2
-index-BEsH5dcs.js:456 [2025-08-21T04:29:54.690Z] [INFO] [default] 日志系统已初始化 Object
-index-BEsH5dcs.js:463 Uncaught TypeError: Cannot destructure property 'ipcRenderer' of 'window.electron' as it is undefined.
-    at index-BEsH5dcs.js:463:583
-node:electron/js2c/renderer_init:2 Electron Security Warning (Insecure Content-Security-Policy) This renderer process has either no Content Security
-  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
-  this app to unnecessary security risks.
-
-For more information and help, consult
-https://electronjs.org/docs/tutorial/security.
-This warning will not show up
-once the app is packaged.
+更新后的连接状态: Object
+index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at c (index-BJYm7SjW.js:721:20517)
+    at index-BJYm7SjW.js:721:21682
+    at ub (index-BJYm7SjW.js:40:24283)
+    at sf (index-BJYm7SjW.js:40:42409)
+    at jX (index-BJYm7SjW.js:40:41231)
+    at Yc (index-BJYm7SjW.js:40:40278)
+    at B6 (index-BJYm7SjW.js:40:36886)
+    at Ec (index-BJYm7SjW.js:38:3279)
+    at index-BJYm7SjW.js:40:34263
+c @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at u (index-BJYm7SjW.js:721:21348)
+    at index-BJYm7SjW.js:721:21686
+    at ub (index-BJYm7SjW.js:40:24283)
+    at sf (index-BJYm7SjW.js:40:42409)
+    at jX (index-BJYm7SjW.js:40:41231)
+    at Yc (index-BJYm7SjW.js:40:40278)
+    at B6 (index-BJYm7SjW.js:40:36886)
+    at Ec (index-BJYm7SjW.js:38:3279)
+    at index-BJYm7SjW.js:40:34263
+u @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:613 代理运行状态: true
+index-BJYm7SjW.js:613 代理详细状态: Object
+index-BJYm7SjW.js:613 开始获取代理统计信息...
+index-BJYm7SjW.js:613 获取到的统计信息: Object
+index-BJYm7SjW.js:613 计算的速度: Object
+index-BJYm7SjW.js:613 更新后的流量统计: Object
+index-BJYm7SjW.js:613 更新后的连接状态: Object
+index-BJYm7SjW.js:613 代理运行状态: true
+index-BJYm7SjW.js:613 代理详细状态: Object
+index-BJYm7SjW.js:613 开始获取代理统计信息...
+index-BJYm7SjW.js:613 获取到的统计信息: Object
+index-BJYm7SjW.js:613 计算的速度: Object
+index-BJYm7SjW.js:613 更新后的流量统计: Object
+index-BJYm7SjW.js:613 更新后的连接状态: Object
+index-BJYm7SjW.js:613 代理运行状态: true
+index-BJYm7SjW.js:613 代理详细状态: Object
+index-BJYm7SjW.js:613 开始获取代理统计信息...
+index-BJYm7SjW.js:613 获取到的统计信息: Object
+index-BJYm7SjW.js:613 计算的速度: Object
+index-BJYm7SjW.js:613 更新后的流量统计: Object
+index-BJYm7SjW.js:613 更新后的连接状态: Object
+index-BJYm7SjW.js:613 代理运行状态: true
+index-BJYm7SjW.js:613 代理详细状态: Object
+index-BJYm7SjW.js:613 开始获取代理统计信息...
+index-BJYm7SjW.js:613 获取到的统计信息: Object
+index-BJYm7SjW.js:613 计算的速度: Object
+index-BJYm7SjW.js:613 更新后的流量统计: Object
+index-BJYm7SjW.js:613 更新后的连接状态: Object
+index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at c (index-BJYm7SjW.js:721:20517)
+    at Object.onClick (index-BJYm7SjW.js:721:22572)
+    at index-BJYm7SjW.js:205:18569
+    at Object.JG (index-BJYm7SjW.js:37:9864)
+    at eq (index-BJYm7SjW.js:37:10018)
+    at tq (index-BJYm7SjW.js:37:10075)
+    at c6 (index-BJYm7SjW.js:37:31462)
+    at oD (index-BJYm7SjW.js:37:31879)
+    at index-BJYm7SjW.js:37:36792
+    at WE (index-BJYm7SjW.js:40:36957)
+c @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at u (index-BJYm7SjW.js:721:21348)
+    at Object.onClick (index-BJYm7SjW.js:721:22582)
+u @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:613 代理运行状态: true
+index-BJYm7SjW.js:613 代理详细状态: Object
+index-BJYm7SjW.js:613 开始获取代理统计信息...
+index-BJYm7SjW.js:613 获取到的统计信息: Object
+index-BJYm7SjW.js:613 计算的速度: Object
+index-BJYm7SjW.js:613 更新后的流量统计: Object
+index-BJYm7SjW.js:613 更新后的连接状态: Object
+index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at c (index-BJYm7SjW.js:721:20517)
+    at Object.onClick (index-BJYm7SjW.js:721:22572)
+    at index-BJYm7SjW.js:205:18569
+    at Object.JG (index-BJYm7SjW.js:37:9864)
+    at eq (index-BJYm7SjW.js:37:10018)
+    at tq (index-BJYm7SjW.js:37:10075)
+    at c6 (index-BJYm7SjW.js:37:31462)
+    at oD (index-BJYm7SjW.js:37:31879)
+    at index-BJYm7SjW.js:37:36792
+    at WE (index-BJYm7SjW.js:40:36957)
+c @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
+    at u (index-BJYm7SjW.js:721:21348)
+    at Object.onClick (index-BJYm7SjW.js:721:22582)
+u @ index-BJYm7SjW.js:721
+index-BJYm7SjW.js:613 

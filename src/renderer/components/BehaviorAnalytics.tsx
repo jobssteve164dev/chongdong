@@ -58,7 +58,7 @@ const BehaviorAnalytics: React.FC = () => {
     setLoading(true);
     try {
       // 从主进程获取真实的行为分析数据
-      const result = await window.electronAPI.invoke('behavior-analytics:get-data');
+      const result = await window.electron.ipcRenderer.invoke('behavior-analytics:get-data');
       
       if (result.success && result.data) {
         setAnalyticsData(result.data);
@@ -115,7 +115,7 @@ const BehaviorAnalytics: React.FC = () => {
 
   const loadDataStats = async () => {
     try {
-      const result = await window.electronAPI.invoke('behavior-analytics:get-stats');
+      const result = await window.electron.ipcRenderer.invoke('behavior-analytics:get-stats');
       if (result.success) {
         setDataStats(result.data);
       }
@@ -126,7 +126,7 @@ const BehaviorAnalytics: React.FC = () => {
 
   const clearAllData = async () => {
     try {
-      const result = await window.electronAPI.invoke('behavior-analytics:clear-data');
+      const result = await window.electron.ipcRenderer.invoke('behavior-analytics:clear-data');
       if (result.success) {
         // 重新加载数据
         await loadAnalyticsData();
