@@ -182,12 +182,15 @@ const Settings: React.FC = () => {
       }
       
       if (savedSettings) {
+        console.log('[Settings] 加载的savedSettings.customDecoyDomains:', savedSettings.customDecoyDomains);
         setSettings(prev => ({ ...prev, ...savedSettings }));
         
         // 处理自定义域名池格式转换（数组转文本）
         const settingsForForms = { ...savedSettings };
         if (Array.isArray(savedSettings.customDecoyDomains)) {
-          settingsForForms.customDecoyDomains = savedSettings.customDecoyDomains.join('\n');
+          const convertedText = savedSettings.customDecoyDomains.join('\n');
+          console.log('[Settings] 转换后的customDecoyDomains文本:', convertedText);
+          settingsForForms.customDecoyDomains = convertedText;
         }
         
         form.setFieldsValue(settingsForForms);
@@ -338,11 +341,14 @@ const Settings: React.FC = () => {
     try {
       // 处理自定义域名池格式转换
       if (changedValues.customDecoyDomains !== undefined) {
+        console.log('[Settings] 原始customDecoyDomains值:', changedValues.customDecoyDomains);
         if (typeof changedValues.customDecoyDomains === 'string') {
-          changedValues.customDecoyDomains = changedValues.customDecoyDomains
+          const convertedArray = changedValues.customDecoyDomains
             .split('\n')
             .map((domain: string) => domain.trim())
             .filter((domain: string) => domain.length > 0);
+          console.log('[Settings] 转换后的customDecoyDomains数组:', convertedArray);
+          changedValues.customDecoyDomains = convertedArray;
         }
       }
 
@@ -367,7 +373,9 @@ const Settings: React.FC = () => {
       
       if (hasNetworkChanges) {
         // 更新本地设置
-        const newSettings = { ...settings, ...allValues };
+        console.log('[Settings] 准备保存的changedValues:', changedValues);
+        const newSettings = { ...settings, ...allValues, ...changedValues };
+        console.log('[Settings] 准备保存的newSettings.customDecoyDomains:', newSettings.customDecoyDomains);
         setSettings(newSettings);
         
         // 如果是延迟测试配置变更，更新延迟测试器配置
@@ -396,14 +404,17 @@ const Settings: React.FC = () => {
         
         networkSettingsTimeoutRef.current = setTimeout(async () => {
           try {
+            console.log('[Settings] 防抖保存 - newSettings.customDecoyDomains:', newSettings.customDecoyDomains);
             // 立即保存到本地存储
             Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
+            console.log('[Settings] 已保存到本地存储');
             
             // 通知主进程网络设置已更新
             const result = await window.electron.ipcRenderer.invoke('settings:updated', {
               settings: newSettings,
               preferences: preferences
             });
+            console.log('[Settings] IPC保存结果:', result);
             
             if (result.success) {
               log.info('网络设置已实时应用', changedValues, 'Settings');
