@@ -63,6 +63,33 @@ function broadcastProxyStatus(running: boolean, payload: any = {}): void {
 let globalShortcutManager: ReturnType<typeof createGlobalShortcutManager> | null = null;
 let notificationManager: ReturnType<typeof createNotificationManager> | null = null;
 
+// 统一的代理状态清理函数
+async function cleanupProxyState(): Promise<void> {
+  try {
+    console.log('开始清理代理状态...');
+    
+    // 1. 停止中间件管理器
+    await proxyManager.stopMiddleware();
+    
+    // 2. 停止所有代理进程
+    await proxyManager.stopAll();
+    
+    // 3. 清理系统代理设置
+    await systemProxyManager.clearSystemProxy();
+    
+    // 4. 等待一段时间确保进程完全退出
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    console.log('代理状态清理完成');
+  } catch (error) {
+    console.error('清理代理状态失败:', error);
+    throw error;
+  }
+}
+
+// 导出清理函数供IPC调用
+export { cleanupProxyState };
+
 // 统一的退出应用函数
 async function quitApp(): Promise<void> {
   try {
@@ -78,22 +105,11 @@ async function quitApp(): Promise<void> {
       console.error('停止崩溃监控失败:', error);
     }
     
-    // 2. 停止所有代理进程
+    // 2. 清理代理状态
     try {
-      console.log('停止所有代理进程...');
-      await proxyManager.stopAll();
-      console.log('代理进程已停止');
+      await cleanupProxyState();
     } catch (error) {
-      console.error('停止代理进程失败:', error);
-    }
-    
-    // 2. 清理系统代理设置
-    try {
-      console.log('清理系统代理设置...');
-      await systemProxyManager.clearSystemProxy();
-      console.log('系统代理设置已清理');
-    } catch (error) {
-      console.error('清理系统代理设置失败:', error);
+      console.error('清理代理状态失败:', error);
     }
     
     // 3. 注销全局快捷键
@@ -274,7 +290,8 @@ function createTray(): void {
                 if (f) return f; }
               return null; })();
             if (!found) return;
-            await proxyManager.stopMiddleware().catch(() => {});
+            // 清理现有代理状态
+            await cleanupProxyState().catch(() => {});
             const proto = ((found.protocol || '') as string).toLowerCase();
             const normalizedType = proto === 'ss' ? 'shadowsocks' : proto;
             const outbound: any = {
@@ -329,6 +346,9 @@ function createTray(): void {
         label: '启动（从全部订阅自动择优）',
         click: async () => {
           try {
+            // 清理现有代理状态
+            await cleanupProxyState().catch(() => {});
+            
             const subs = settingsManager.getSettings().subscriptions || [];
             if (subs.length === 0) return;
             const chain: ChainConfig = { id: 'tray_dynamic_all', name: '托盘·自动链', description: '从全部订阅自动选择最佳节点', type: 'dynamic', proxies: subs.map((s: any) => s.id), rules: [], enabled: true, createdAt: new Date(), updatedAt: new Date() } as any;
@@ -354,6 +374,9 @@ function createTray(): void {
               label: `启动：${c.name}`,
               click: async () => {
                 try {
+                  // 清理现有代理状态
+                  await cleanupProxyState().catch(() => {});
+                  
                   const port = settings.proxyPort || 7897;
                   if (c.type === 'dynamic') {
                     const result = await dynamicChainManager.startChain(c, port);
@@ -865,6 +888,17 @@ ipcMain.handle('proxy:stop', async () => {
     return { success: true };
   } catch (error) {
     console.error('Failed to stop proxy:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+// 清理代理状态IPC处理程序
+ipcMain.handle('proxy:cleanup', async () => {
+  try {
+    await cleanupProxyState();
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to cleanup proxy state:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

@@ -154,6 +154,14 @@ const ProxyManagement: React.FC = () => {
   const handleStartProxy = async (selectedNodeId: string) => {
     setLoading(true);
     try {
+      // 清理现有代理状态
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        console.log('代理状态清理完成');
+      } catch (cleanupError) {
+        console.warn('清理代理状态时出现警告:', cleanupError);
+      }
+      
       const selectedNode = nodes.find((n: ProxyNode) => n.id === selectedNodeId);
       if (!selectedNode) {
         throw new Error('未找到所选节点');
@@ -223,6 +231,14 @@ const ProxyManagement: React.FC = () => {
   const handleStartChainProxy = async (chain: ChainConfig) => {
     setLoading(true);
     try {
+      // 清理现有代理状态
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        console.log('代理状态清理完成');
+      } catch (cleanupError) {
+        console.warn('清理代理状态时出现警告:', cleanupError);
+      }
+      
       // 最终修复：从存储中获取用户设置，找到指定的端口号
       const userSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
       const listenPort = userSettings.mixedPort || 7897; // 使用用户设置的混合端口，如果没有则使用默认值

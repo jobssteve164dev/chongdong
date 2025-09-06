@@ -170,11 +170,10 @@ const Dashboard: React.FC = () => {
         // 如果代理已连接，通过代理测试
         // 使用正确的代理端口配置
         const settings = Storage.get(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
-        const proxyPort = settings?.proxyPort || 7897; // 修复HTTP端口
-        // const socksPort = settings?.socksPort || 7896; // SOCKS端口
-        // 优先使用HTTP代理端口，如果不可用则使用SOCKS端口
-        const proxyUrl = `http://127.0.0.1:${proxyPort}`;
-        console.log('🔍 通过代理测试，代理URL:', proxyUrl);
+        // 修复：使用SOCKS端口而不是HTTP端口，因为主进程IPC处理器期望SOCKS端口
+        const socksPort = settings?.socksPort || 7896; // SOCKS端口
+        const proxyUrl = `http://127.0.0.1:${socksPort}`;
+        console.log('🔍 通过代理测试，代理URL (SOCKS端口):', proxyUrl);
         result = await geolocationTester.testIPLocationViaProxy(proxyUrl);
       } else {
         // 如果代理未连接，直接测试
