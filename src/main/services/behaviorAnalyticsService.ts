@@ -11,6 +11,7 @@ export class BehaviorAnalyticsService {
   private intervalSec: number = 30;
   private timer: NodeJS.Timeout | null = null;
   private history: BehaviorSnapshot[] = [];
+  private trafficRouter: any = null; // 将在初始化时注入
 
   configure(): void {
     try {
@@ -18,6 +19,10 @@ export class BehaviorAnalyticsService {
       this.enabled = s.enableBehaviorAnalytics !== false;
       this.intervalSec = Math.max(5, s.behaviorSamplingIntervalSec || 30);
     } catch {}
+  }
+
+  setTrafficRouter(router: any): void {
+    this.trafficRouter = router;
   }
 
   start(): void {
@@ -35,6 +40,13 @@ export class BehaviorAnalyticsService {
     return this.history.slice(-limit);
   }
 
+  getAnalyticsData(): any {
+    if (!this.trafficRouter) {
+      return null;
+    }
+    return this.trafficRouter.getBehaviorAnalytics();
+  }
+
   private sampleOnce(): void {
     const snapshot: BehaviorSnapshot = {
       timestamp: Date.now(),
@@ -46,12 +58,18 @@ export class BehaviorAnalyticsService {
   }
 
   private getActiveConnectionsEstimate(): number {
-    // 这里可与 TrafficRouter 集成真实统计；先返回占位估计
+    if (this.trafficRouter) {
+      const analytics = this.trafficRouter.getBehaviorAnalytics();
+      return analytics?.currentActiveConnections || 0;
+    }
     return Math.floor(Math.random() * 5);
   }
 
   private getThroughputEstimate(): number {
-    // 这里可由 TrafficRouter 的字节计数器推导；先返回占位估计
+    if (this.trafficRouter) {
+      const analytics = this.trafficRouter.getBehaviorAnalytics();
+      return analytics?.currentBytesPerSecond || 0;
+    }
     return Math.floor(1000 + Math.random() * 5000);
   }
 }

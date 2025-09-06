@@ -31,6 +31,21 @@ export class TrafficRouter {
   private lanAllowedCidrs: string[] = ['127.0.0.1/32'];
   // 新增：按连接统计上传/下载与起始时间，并尽力解析远端主机/端口
   private connectionStats: Map<string, { upload: number; download: number; start: number; chains: string[]; clientAddress: string; host?: string; port?: number; parsed?: boolean } > = new Map();
+  
+  // 行为分析数据收集
+  private behaviorData: {
+    totalConnections: number;
+    totalBytes: number;
+    hourlyConnections: Map<number, number>;
+    hourlyBytes: Map<number, number>;
+    lastReset: number;
+  } = {
+    totalConnections: 0,
+    totalBytes: 0,
+    hourlyConnections: new Map(),
+    hourlyBytes: new Map(),
+    lastReset: Date.now()
+  };
 
   constructor(entryPort: number, adapters: IAdapter[]) {
     this.entryPort = entryPort;
@@ -187,6 +202,9 @@ export class TrafficRouter {
       clientAddress,
       parsed: false
     });
+    
+    // 记录连接活动用于行为分析
+    this.recordConnectionActivity();
     
     try {
       // 创建到第一个适配器的连接
@@ -578,5 +596,111 @@ export class TrafficRouter {
         console.error(`[TrafficRouter] 监控监听器错误:`, error);
       }
     });
+  }
+
+  /**
+   * 获取行为分析数据
+   */
+  getBehaviorAnalytics(): {
+    totalConnections: number;
+    totalBytes: number;
+    averageConnections: number;
+    peakConnections: number;
+    averageBytesPerSecond: number;
+    peakBytesPerSecond: number;
+    activeHours: number[];
+    connectionPatterns: { hour: number; connections: number }[];
+    trafficPatterns: { hour: number; bytes: number }[];
+    currentActiveConnections: number;
+    currentBytesPerSecond: number;
+  } {
+    
+    // 计算平均连接数（基于最近24小时）
+    const recentConnections = Array.from(this.behaviorData.hourlyConnections.values());
+    const averageConnections = recentConnections.length > 0 
+      ? recentConnections.reduce((sum, count) => sum + count, 0) / recentConnections.length 
+      : 0;
+    
+    // 计算峰值连接数
+    const peakConnections = Math.max(...recentConnections, 0);
+    
+    // 计算平均和峰值流量
+    const recentBytes = Array.from(this.behaviorData.hourlyBytes.values());
+    const averageBytesPerSecond = recentBytes.length > 0 
+      ? recentBytes.reduce((sum, bytes) => sum + bytes, 0) / recentBytes.length / 3600 
+      : 0;
+    const peakBytesPerSecond = Math.max(...recentBytes, 0) / 3600;
+    
+    // 找出活跃时段（连接数超过平均值的时段）
+    const activeHours: number[] = [];
+    for (let hour = 0; hour < 24; hour++) {
+      const hourConnections = this.behaviorData.hourlyConnections.get(hour) || 0;
+      if (hourConnections > averageConnections * 0.5) {
+        activeHours.push(hour);
+      }
+    }
+    
+    // 生成24小时模式数据
+    const connectionPatterns = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      connections: this.behaviorData.hourlyConnections.get(hour) || 0
+    }));
+    
+    const trafficPatterns = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      bytes: this.behaviorData.hourlyBytes.get(hour) || 0
+    }));
+    
+    // 当前活跃连接数
+    const currentActiveConnections = this.activeConnections.size;
+    
+    // 当前流量速度（基于最近1分钟的统计）
+    const currentBytesPerSecond = this.calculateCurrentThroughput();
+    
+    return {
+      totalConnections: this.behaviorData.totalConnections,
+      totalBytes: this.behaviorData.totalBytes,
+      averageConnections,
+      peakConnections,
+      averageBytesPerSecond,
+      peakBytesPerSecond,
+      activeHours,
+      connectionPatterns,
+      trafficPatterns,
+      currentActiveConnections,
+      currentBytesPerSecond
+    };
+  }
+
+  private calculateCurrentThroughput(): number {
+    // 计算最近1分钟内的流量速度
+    const oneMinuteAgo = Date.now() - 60000;
+    let recentBytes = 0;
+    
+    for (const [, stats] of this.connectionStats.entries()) {
+      if (stats.start > oneMinuteAgo) {
+        recentBytes += stats.upload + stats.download;
+      }
+    }
+    
+    return recentBytes / 60; // 字节/秒
+  }
+
+  private recordConnectionActivity(): void {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // 记录当前小时的连接数
+    const currentHourConnections = this.behaviorData.hourlyConnections.get(currentHour) || 0;
+    this.behaviorData.hourlyConnections.set(currentHour, currentHourConnections + 1);
+    
+    // 记录当前小时的流量
+    const currentHourBytes = this.behaviorData.hourlyBytes.get(currentHour) || 0;
+    const currentBytes = this.calculateCurrentThroughput() * 60; // 转换为小时流量
+    this.behaviorData.hourlyBytes.set(currentHour, currentHourBytes + currentBytes);
+    
+    // 更新总计数
+    this.behaviorData.totalConnections++;
+    this.behaviorData.totalBytes += currentBytes;
   }
 }

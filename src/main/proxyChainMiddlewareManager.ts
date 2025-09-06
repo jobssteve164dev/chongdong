@@ -478,6 +478,10 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     // 聚合监控事件
     this.router.addMonitoringListener((event) => this.handleMonitoringEvent(event));
     
+    // 注入TrafficRouter到LeakProtectionManager用于行为分析
+    const { leakProtectionManager } = await import('./services/leakProtectionManager');
+    leakProtectionManager.setTrafficRouter(this.router);
+    
     // 添加防护规则
     for (const rule of this.protectionRules) {
       this.router.addProtectionRule(rule);

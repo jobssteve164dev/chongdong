@@ -28,6 +28,7 @@ export class LeakProtectionManager {
   private monitoringEnabled: boolean = false;
   private monitoringInterval: NodeJS.Timeout | null = null;
   private lastStatus: LeakProtectionStatus | null = null;
+  // private trafficRouter: any = null; // 已通过setTrafficRouter方法注入到behaviorAnalyticsService
   
   // 新增高级防护服务实例
   private tlsFingerprintService: TlsFingerprintProtectionService;
@@ -54,6 +55,10 @@ export class LeakProtectionManager {
       LeakProtectionManager.instance = new LeakProtectionManager();
     }
     return LeakProtectionManager.instance;
+  }
+
+  public setTrafficRouter(router: any): void {
+    this.behaviorAnalyticsService.setTrafficRouter(router);
   }
 
   /**
@@ -455,6 +460,13 @@ export class LeakProtectionManager {
     ];
 
     return report.join('\n');
+  }
+
+  /**
+   * 获取行为分析数据
+   */
+  public getBehaviorAnalytics(): any {
+    return this.behaviorAnalyticsService.getAnalyticsData();
   }
 
   /**

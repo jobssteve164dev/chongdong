@@ -51,30 +51,57 @@ const BehaviorAnalytics: React.FC = () => {
   const loadAnalyticsData = async () => {
     setLoading(true);
     try {
-      // 模拟获取行为分析数据
-      // 实际实现中应该从主进程获取真实数据
-      const mockData: AnalyticsData = {
-        totalConnections: 1247,
-        averageConnections: 3.2,
-        peakConnections: 12,
-        totalBytes: 1024 * 1024 * 1024 * 2.5, // 2.5GB
-        averageBytesPerSecond: 1024 * 512, // 512KB/s
-        peakBytesPerSecond: 1024 * 1024 * 5, // 5MB/s
-        activeHours: [9, 10, 11, 14, 15, 16, 20, 21],
+      // 从主进程获取真实的行为分析数据
+      const result = await window.electronAPI.invoke('behavior-analytics:get-data');
+      
+      if (result.success && result.data) {
+        setAnalyticsData(result.data);
+        setLastUpdate(new Date());
+      } else {
+        // 如果获取失败，使用模拟数据作为后备
+        console.warn('获取真实数据失败，使用模拟数据:', result.error);
+        const mockData: AnalyticsData = {
+          totalConnections: 0,
+          averageConnections: 0,
+          peakConnections: 0,
+          totalBytes: 0,
+          averageBytesPerSecond: 0,
+          peakBytesPerSecond: 0,
+          activeHours: [],
+          connectionPatterns: Array.from({ length: 24 }, (_, i) => ({
+            hour: i,
+            connections: 0
+          })),
+          trafficPatterns: Array.from({ length: 24 }, (_, i) => ({
+            hour: i,
+            bytes: 0
+          }))
+        };
+        setAnalyticsData(mockData);
+        setLastUpdate(new Date());
+      }
+    } catch (error) {
+      console.error('加载行为分析数据失败:', error);
+      // 使用空数据作为后备
+      const emptyData: AnalyticsData = {
+        totalConnections: 0,
+        averageConnections: 0,
+        peakConnections: 0,
+        totalBytes: 0,
+        averageBytesPerSecond: 0,
+        peakBytesPerSecond: 0,
+        activeHours: [],
         connectionPatterns: Array.from({ length: 24 }, (_, i) => ({
           hour: i,
-          connections: Math.floor(Math.random() * 10) + (i >= 9 && i <= 17 ? 3 : 0)
+          connections: 0
         })),
         trafficPatterns: Array.from({ length: 24 }, (_, i) => ({
           hour: i,
-          bytes: Math.floor(Math.random() * 1024 * 1024 * 2) + (i >= 9 && i <= 17 ? 1024 * 1024 : 0)
+          bytes: 0
         }))
       };
-      
-      setAnalyticsData(mockData);
+      setAnalyticsData(emptyData);
       setLastUpdate(new Date());
-    } catch (error) {
-      console.error('加载行为分析数据失败:', error);
     } finally {
       setLoading(false);
     }

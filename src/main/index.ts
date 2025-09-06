@@ -2171,6 +2171,16 @@ ipcMain.handle('leak-protection:stop-monitoring', async () => {
   }
 });
 
+ipcMain.handle('behavior-analytics:get-data', async () => {
+  try {
+    const data = leakProtectionManager.getBehaviorAnalytics();
+    return { success: true, data };
+  } catch (error) {
+    console.error('获取行为分析数据失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 // 启动动态代理链
 ipcMain.handle('proxy:start-dynamic-chain', async (_event, { chain, listenPort }: { chain: ChainConfig, listenPort: number }) => {
   try {
