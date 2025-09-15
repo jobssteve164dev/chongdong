@@ -41,10 +41,45 @@ export class BehaviorAnalyticsService {
   }
 
   async getAnalyticsData(): Promise<any> {
-    if (!this.trafficRouter) {
-      return null;
+    // 若已注入路由器，则返回实时聚合数据
+    if (this.trafficRouter) {
+      return await this.trafficRouter.getBehaviorAnalytics();
     }
-    return await this.trafficRouter.getBehaviorAnalytics();
+
+    // 否则回退到持久化的历史聚合数据，避免返回 null 造成渲染端回退为模拟数据
+    try {
+      const { behaviorDataManager } = await import('./behaviorDataManager');
+      const historical = await behaviorDataManager.getAggregatedData();
+
+      return {
+        totalConnections: historical.totalConnections,
+        totalBytes: historical.totalBytes,
+        averageConnections: historical.averageConnections,
+        peakConnections: historical.peakConnections,
+        averageBytesPerSecond: historical.averageBytesPerSecond,
+        peakBytesPerSecond: historical.peakBytesPerSecond,
+        activeHours: historical.activeHours,
+        connectionPatterns: historical.connectionPatterns,
+        trafficPatterns: historical.trafficPatterns,
+        currentActiveConnections: 0,
+        currentBytesPerSecond: 0
+      };
+    } catch (_e) {
+      // 最后兜底返回空数据结构，保证前端不触发异常
+      return {
+        totalConnections: 0,
+        totalBytes: 0,
+        averageConnections: 0,
+        peakConnections: 0,
+        averageBytesPerSecond: 0,
+        peakBytesPerSecond: 0,
+        activeHours: [],
+        connectionPatterns: Array.from({ length: 24 }, (_, hour) => ({ hour, connections: 0 })),
+        trafficPatterns: Array.from({ length: 24 }, (_, hour) => ({ hour, bytes: 0 })),
+        currentActiveConnections: 0,
+        currentBytesPerSecond: 0
+      };
+    }
   }
 
   private sampleOnce(): void {

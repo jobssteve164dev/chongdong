@@ -7,6 +7,8 @@ import {
   IAdapter,
   AdapterStatus
 } from '../shared/types/middleware';
+import { cfEdgeEgressService } from './services/cfEdgeEgressService';
+import { cfEdgeClient } from './services/cfEdgeClient';
 import { settingsManager } from './settingsManager';
 import { DefaultSettings } from '../shared/defaultSettings';
 import { HttpHeaderProtectionService } from './services/httpHeaderProtectionService';
@@ -356,11 +358,16 @@ export class TrafficRouter {
           }
         }
 
-        // 2) HTTP 头标准化：仅在HTTP明文请求场景下尝试改写首包头部
+        // 2) 可选：若匹配 CF Edge 走向，则标记路径（此处仅决定是否继续做首包标准化；真正封装在后续迭代加入）
+        const parsedMeta = this.parseHostnameFromFirstPacket(data);
+        const targetHost = parsedMeta?.host;
+        const useCfEdge = await cfEdgeEgressService.shouldUseForHostAsync(targetHost);
+
+        // 3) HTTP 头标准化：仅在HTTP明文请求场景下尝试改写首包头部
         //    注意：这不会解密TLS流量；若为TLS，保持透明转发
         const str = data.toString('utf8');
         const isHttp1 = /^GET\s|^POST\s|^HEAD\s|^PUT\s|^DELETE\s|^OPTIONS\s|^PATCH\s/i.test(str);
-        if (isHttp1 && this.httpHeaderProtector.getProtectionStatus().enabled) {
+        if (!useCfEdge && isHttp1 && this.httpHeaderProtector.getProtectionStatus().enabled) {
           // 将首包按行拆分并重写关键头部
           const endOfHeaders = str.indexOf('\r\n\r\n');
           if (endOfHeaders > 0) {
@@ -389,6 +396,39 @@ export class TrafficRouter {
               .concat(Object.entries(merged).map(([k, v]) => `${k}: ${v}`))
               .join('\r\n') + '\r\n\r\n' + bodyPart;
             outBuf = Buffer.from(rebuilt, 'utf8');
+          }
+        }
+        // 若命中Edge策略且是HTTP明文GET首包，直接走Edge通道（简化首包转发）
+        if (useCfEdge && isHttp1 && parsedMeta?.host) {
+          const endOfHeaders = str.indexOf('\r\n\r\n');
+          const headersPart = endOfHeaders > 0 ? str.substring(0, endOfHeaders) : str;
+          const lines = headersPart.split('\r\n');
+          const requestLine = lines.shift() || '';
+          const [reqMethod, reqPath] = requestLine.split(' ');
+          const hdr: Record<string,string> = {};
+          for (const line of lines) {
+            const idx = line.indexOf(':');
+            if (idx > 0) {
+              const k = line.substring(0, idx).trim();
+              const v = line.substring(idx + 1).trim();
+              hdr[k] = v;
+            }
+          }
+          const url = `http://${hdr['Host'] || parsedMeta.host}${reqPath || '/'}`;
+          try {
+            const res = await cfEdgeClient.send({ url, method: reqMethod || 'GET', headers: hdr });
+            // 回写响应到客户端
+            const statusLine = `HTTP/1.1 ${res.status}\r\n`;
+            const respHeaders: string[] = [];
+            Object.entries(res.headers).forEach(([k,v]) => respHeaders.push(`${k}: ${v}`));
+            const head = statusLine + respHeaders.join('\r\n') + '\r\n\r\n';
+            if (!clientSocket.destroyed) {
+              clientSocket.write(Buffer.from(head, 'utf8'));
+              if (res.data && (res.data as any).byteLength > 0) clientSocket.write(Buffer.from(res.data));
+            }
+            return; // 已处理该首包
+          } catch (e) {
+            console.warn('[TrafficRouter] Edge egress failed, fallback local chain:', (e as Error)?.message || e);
           }
         }
       } catch (e) {

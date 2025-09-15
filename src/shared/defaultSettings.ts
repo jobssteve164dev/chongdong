@@ -110,6 +110,16 @@ export class DefaultSettings {
       databaseUpdateInterval: 24, // 默认24小时
       databaseUpdateCheckOnStartup: true
       // databaseLastUpdateCheck 是可选的，不需要在默认设置中定义
+      ,
+      // CF Edge 默认关闭，端点留空，白名单为空
+      enableCfEdgeEgress: false,
+      cfEdgeMode: 'pages',
+      cfEdgeEndpoint: '',
+      cfEdgePSKId: '',
+      cfEdgePSK: '',
+      cfEdgePolicy: 'allowlist',
+      cfEdgeDomainAllowlist: [],
+      cfEdgeDomainDenylist: []
     };
   }
 

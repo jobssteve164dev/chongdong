@@ -1,91 +1,35 @@
-更新后的连接状态: Object
-index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at c (index-BJYm7SjW.js:721:20517)
-    at index-BJYm7SjW.js:721:21682
-    at ub (index-BJYm7SjW.js:40:24283)
-    at sf (index-BJYm7SjW.js:40:42409)
-    at jX (index-BJYm7SjW.js:40:41231)
-    at Yc (index-BJYm7SjW.js:40:40278)
-    at B6 (index-BJYm7SjW.js:40:36886)
-    at Ec (index-BJYm7SjW.js:38:3279)
-    at index-BJYm7SjW.js:40:34263
-c @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at u (index-BJYm7SjW.js:721:21348)
-    at index-BJYm7SjW.js:721:21686
-    at ub (index-BJYm7SjW.js:40:24283)
-    at sf (index-BJYm7SjW.js:40:42409)
-    at jX (index-BJYm7SjW.js:40:41231)
-    at Yc (index-BJYm7SjW.js:40:40278)
-    at B6 (index-BJYm7SjW.js:40:36886)
-    at Ec (index-BJYm7SjW.js:38:3279)
-    at index-BJYm7SjW.js:40:34263
-u @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:613 代理运行状态: true
-index-BJYm7SjW.js:613 代理详细状态: Object
-index-BJYm7SjW.js:613 开始获取代理统计信息...
-index-BJYm7SjW.js:613 获取到的统计信息: Object
-index-BJYm7SjW.js:613 计算的速度: Object
-index-BJYm7SjW.js:613 更新后的流量统计: Object
-index-BJYm7SjW.js:613 更新后的连接状态: Object
-index-BJYm7SjW.js:613 代理运行状态: true
-index-BJYm7SjW.js:613 代理详细状态: Object
-index-BJYm7SjW.js:613 开始获取代理统计信息...
-index-BJYm7SjW.js:613 获取到的统计信息: Object
-index-BJYm7SjW.js:613 计算的速度: Object
-index-BJYm7SjW.js:613 更新后的流量统计: Object
-index-BJYm7SjW.js:613 更新后的连接状态: Object
-index-BJYm7SjW.js:613 代理运行状态: true
-index-BJYm7SjW.js:613 代理详细状态: Object
-index-BJYm7SjW.js:613 开始获取代理统计信息...
-index-BJYm7SjW.js:613 获取到的统计信息: Object
-index-BJYm7SjW.js:613 计算的速度: Object
-index-BJYm7SjW.js:613 更新后的流量统计: Object
-index-BJYm7SjW.js:613 更新后的连接状态: Object
-index-BJYm7SjW.js:613 代理运行状态: true
-index-BJYm7SjW.js:613 代理详细状态: Object
-index-BJYm7SjW.js:613 开始获取代理统计信息...
-index-BJYm7SjW.js:613 获取到的统计信息: Object
-index-BJYm7SjW.js:613 计算的速度: Object
-index-BJYm7SjW.js:613 更新后的流量统计: Object
-index-BJYm7SjW.js:613 更新后的连接状态: Object
-index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at c (index-BJYm7SjW.js:721:20517)
-    at Object.onClick (index-BJYm7SjW.js:721:22572)
-    at index-BJYm7SjW.js:205:18569
-    at Object.JG (index-BJYm7SjW.js:37:9864)
-    at eq (index-BJYm7SjW.js:37:10018)
-    at tq (index-BJYm7SjW.js:37:10075)
-    at c6 (index-BJYm7SjW.js:37:31462)
-    at oD (index-BJYm7SjW.js:37:31879)
-    at index-BJYm7SjW.js:37:36792
-    at WE (index-BJYm7SjW.js:40:36957)
-c @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at u (index-BJYm7SjW.js:721:21348)
-    at Object.onClick (index-BJYm7SjW.js:721:22582)
-u @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:613 代理运行状态: true
-index-BJYm7SjW.js:613 代理详细状态: Object
-index-BJYm7SjW.js:613 开始获取代理统计信息...
-index-BJYm7SjW.js:613 获取到的统计信息: Object
-index-BJYm7SjW.js:613 计算的速度: Object
-index-BJYm7SjW.js:613 更新后的流量统计: Object
-index-BJYm7SjW.js:613 更新后的连接状态: Object
-index-BJYm7SjW.js:721 加载行为分析数据失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at c (index-BJYm7SjW.js:721:20517)
-    at Object.onClick (index-BJYm7SjW.js:721:22572)
-    at index-BJYm7SjW.js:205:18569
-    at Object.JG (index-BJYm7SjW.js:37:9864)
-    at eq (index-BJYm7SjW.js:37:10018)
-    at tq (index-BJYm7SjW.js:37:10075)
-    at c6 (index-BJYm7SjW.js:37:31462)
-    at oD (index-BJYm7SjW.js:37:31879)
-    at index-BJYm7SjW.js:37:36792
-    at WE (index-BJYm7SjW.js:40:36957)
-c @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:721 加载数据统计失败: TypeError: Cannot read properties of undefined (reading 'invoke')
-    at u (index-BJYm7SjW.js:721:21348)
-    at Object.onClick (index-BJYm7SjW.js:721:22582)
-u @ index-BJYm7SjW.js:721
-index-BJYm7SjW.js:613 
+调用窗口置顶API: false
+index-Ba6DKhWv.js:40 [Violation] 'click' handler took 765ms
+index-Ba6DKhWv.js:721 窗口置顶API结果: {success: true}
+index-Ba6DKhWv.js:472 [2025-09-06T12:13:56.002Z] [INFO] [Settings] 窗口置顶设置已应用 {alwaysOnTop: false}
+index-Ba6DKhWv.js:721 调用菜单栏隐藏API: false
+index-Ba6DKhWv.js:721 菜单栏隐藏API结果: {success: true}
+index-Ba6DKhWv.js:472 [2025-09-06T12:13:56.505Z] [INFO] [Settings] 菜单栏自动隐藏设置已应用 {autoHideMenuBar: false}
+index-Ba6DKhWv.js:472 [2025-09-06T12:13:56.672Z] [INFO] [Settings] 加载已保存的设置 {settings: {…}, preferences: {…}}
+index-Ba6DKhWv.js:721 获取真实数据失败，使用模拟数据: undefined
+c @ index-Ba6DKhWv.js:721
+await in c（异步）
+（匿名） @ index-Ba6DKhWv.js:721
+ub @ index-Ba6DKhWv.js:40
+sf @ index-Ba6DKhWv.js:40
+jX @ index-Ba6DKhWv.js:40
+Yc @ index-Ba6DKhWv.js:40
+B6 @ index-Ba6DKhWv.js:40
+Ec @ index-Ba6DKhWv.js:38
+（匿名） @ index-Ba6DKhWv.js:40
+index-Ba6DKhWv.js:721 获取真实数据失败，使用模拟数据: undefined
+c @ index-Ba6DKhWv.js:721
+await in c（异步）
+onClick @ index-Ba6DKhWv.js:721
+（匿名） @ index-Ba6DKhWv.js:205
+JG @ index-Ba6DKhWv.js:37
+eq @ index-Ba6DKhWv.js:37
+tq @ index-Ba6DKhWv.js:37
+c6 @ index-Ba6DKhWv.js:37
+oD @ index-Ba6DKhWv.js:37
+（匿名） @ index-Ba6DKhWv.js:37
+WE @ index-Ba6DKhWv.js:40
+Pj @ index-Ba6DKhWv.js:37
+wx @ index-Ba6DKhWv.js:37
+yE @ index-Ba6DKhWv.js:37
+vq @ index-Ba6DKhWv.js:37

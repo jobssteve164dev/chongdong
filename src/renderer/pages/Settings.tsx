@@ -64,6 +64,7 @@ const Settings: React.FC = () => {
   const [networkForm] = Form.useForm();
   const [securityForm] = Form.useForm();
   const [engineForm] = Form.useForm();
+  const [edgeForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const networkSettingsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -190,7 +191,7 @@ const Settings: React.FC = () => {
         if (Array.isArray(savedSettings.customDecoyDomains)) {
           const convertedText = savedSettings.customDecoyDomains.join('\n');
           console.log('[Settings] 转换后的customDecoyDomains文本:', convertedText);
-          settingsForForms.customDecoyDomains = convertedText;
+          (settingsForForms as any).customDecoyDomains = convertedText;
         }
         
         form.setFieldsValue(settingsForForms);
@@ -202,6 +203,18 @@ const Settings: React.FC = () => {
           engineSettings: savedSettings.engineSettings 
             ? JSON.stringify(savedSettings.engineSettings, null, 2) 
             : ''
+        });
+
+        // Edge settings 表单赋值
+        edgeForm.setFieldsValue({
+          enableCfEdgeEgress: savedSettings.enableCfEdgeEgress,
+          cfEdgeMode: savedSettings.cfEdgeMode,
+          cfEdgeEndpoint: savedSettings.cfEdgeEndpoint,
+          cfEdgePSKId: savedSettings.cfEdgePSKId,
+          cfEdgePSK: savedSettings.cfEdgePSK,
+          cfEdgePolicy: savedSettings.cfEdgePolicy,
+          cfEdgeDomainAllowlist: Array.isArray(savedSettings.cfEdgeDomainAllowlist) ? savedSettings.cfEdgeDomainAllowlist.join('\n') : '',
+          cfEdgeDomainDenylist: Array.isArray(savedSettings.cfEdgeDomainDenylist) ? savedSettings.cfEdgeDomainDenylist.join('\n') : ''
         });
         
         // 调试日志
@@ -276,6 +289,7 @@ const Settings: React.FC = () => {
       const networkValues = await networkForm.validateFields().catch(() => ({}));
       const securityValues = await securityForm.validateFields().catch(() => ({}));
       const engineValues = await engineForm.validateFields().catch(() => ({}));
+      const edgeValues = await edgeForm.validateFields().catch(() => ({}));
       
       // 在这里转换 engineSettings
       if (engineValues.engineSettings && typeof engineValues.engineSettings === 'string') {
@@ -291,8 +305,18 @@ const Settings: React.FC = () => {
         engineValues.engineSettings = {}; // 确保它是一个对象
       }
 
+      // 规范化Edge多行输入
+      if (edgeValues.cfEdgeDomainAllowlist && typeof edgeValues.cfEdgeDomainAllowlist === 'string') {
+        edgeValues.cfEdgeDomainAllowlist = edgeValues.cfEdgeDomainAllowlist
+          .split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      }
+      if (edgeValues.cfEdgeDomainDenylist && typeof edgeValues.cfEdgeDomainDenylist === 'string') {
+        edgeValues.cfEdgeDomainDenylist = edgeValues.cfEdgeDomainDenylist
+          .split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      }
+
       // 保存应用设置
-      const newSettings = { ...settings, ...settingsValues };
+      const newSettings = { ...settings, ...settingsValues, ...edgeValues };
       Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
       setSettings(newSettings);
       
@@ -1058,6 +1082,78 @@ const Settings: React.FC = () => {
               </Row>
 
               {/* 移除外部控制器地址和API密钥，这些在TUN模式下不需要 */}
+            </Form>
+          </Card>
+        </TabPane>
+
+        <TabPane
+          tab={
+            <span>
+              <CloudOutlined />
+              边缘网络
+            </span>
+          }
+          key="edge"
+        >
+          <Card title="Cloudflare 边缘网络">
+            <Form form={edgeForm} layout="vertical" initialValues={settings}>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="enableCfEdgeEgress" label="启用CF边缘出站" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgeMode" label="运行模式">
+                    <Select options={[{ value: 'pages', label: 'Pages Functions' }, { value: 'workers', label: 'Workers' }]} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24}>
+                  <Form.Item name="cfEdgeEndpoint" label="边缘端点(https://edge.example.com)">
+                    <Input placeholder="https://edge.example.com" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgePSKId" label="密钥ID(可选)">
+                    <Input placeholder="key-2025-09" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgePSK" label="预共享密钥(PSK)">
+                    <Input.Password placeholder="********" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider />
+              <Title level={4}>出站策略</Title>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgePolicy" label="策略">
+                    <Select
+                      options={[
+                        { value: 'allowlist', label: '白名单' },
+                        { value: 'denylist', label: '黑名单' },
+                        { value: 'global', label: '全局' },
+                        { value: 'non_mainland', label: '非大陆' }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgeDomainAllowlist" label="白名单域(一行一个)">
+                    <Input.TextArea rows={6} placeholder="example.com\n*.google.com" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="cfEdgeDomainDenylist" label="黑名单域(一行一个)">
+                    <Input.TextArea rows={6} placeholder="internal.example.com\n*.corp.local" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Alert type="info" showIcon message="说明" description="非大陆策略需地理解析支持，当前为占位实现，后续将引入离线IP库或权威前缀表。" />
             </Form>
           </Card>
         </TabPane>

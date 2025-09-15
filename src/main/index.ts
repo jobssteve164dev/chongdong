@@ -21,6 +21,7 @@ import { chainStatusManager } from './chainStatusManager';
 import { AppSettings, ChainConfig } from '../shared/types';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
+import { cfEdgeEgressService } from './services/cfEdgeEgressService';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -307,7 +308,7 @@ async function createTray(): Promise<void> {
       const latenciesData: Record<string, { latency: number; timestamp: number }> = {};
       nodeLatencyCache.forEach((v, k) => { latenciesData[k] = v; });
 
-      // 托盘“自动择优节点”放在“选择节点”子菜单顶部
+      // 托盘"自动择优节点"放在"选择节点"子菜单顶部
       const nodeItems: Electron.MenuItemConstructorOptions[] = [];
       nodeItems.push({
         label: '启动（自动择优节点）',
@@ -445,7 +446,7 @@ async function createTray(): Promise<void> {
         }
       }];
 
-      // 注：自动择优节点已移至“选择节点”子菜单顶部
+      // 注：自动择优节点已移至"选择节点"子菜单顶部
 
       // 显示所有已保存的代理链：优先渲染层上报缓存，其次磁盘 chains.json，再其次 settings.chains
       try {
@@ -802,6 +803,21 @@ app.whenReady().then(async () => {
     console.log('泄露防护管理器已初始化');
   } catch (error) {
     console.error('初始化泄露防护管理器失败:', error);
+  }
+
+  // 初始化离线Geo解析器并触发数据库更新（若开启）
+  try {
+    const s = settingsManager.getSettings();
+    if (s.enableDatabaseAutoUpdate) {
+      try { await databaseUpdateManager.manualUpdateCheck(s); } catch {}
+    }
+    try {
+      const { offlineGeoResolver } = await import('./services/geoResolver');
+      cfEdgeEgressService.setGeoResolver(offlineGeoResolver);
+    } catch {}
+    console.log('离线Geo解析器准备完成');
+  } catch (e) {
+    console.warn('初始化离线Geo解析器失败(可忽略):', e);
   }
 
   // 应用启动时自动应用默认代理模式

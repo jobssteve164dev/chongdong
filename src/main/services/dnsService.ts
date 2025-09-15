@@ -600,6 +600,25 @@ class DnsService {
     // 设置定时监控
     setInterval(monitor, intervalMs);
   }
+
+  /**
+   * 单次域名解析（支持 standard/DoH/DoT，返回首个A记录）
+   */
+  public async resolveDomainOnce(domain: string, server: string): Promise<string | null> {
+    try {
+      let resolver: (domain: string, server: string, request: any) => Promise<string | null>;
+      if (server.startsWith('https://')) {
+        resolver = this.resolveSingleDoH.bind(this) as any;
+      } else if (server.startsWith('tls://')) {
+        resolver = this.resolveSingleDoT.bind(this) as any;
+      } else {
+        resolver = this.resolveSingleStandard.bind(this) as any;
+      }
+      return await resolver(domain, server, null);
+    } catch (e) {
+      return null;
+    }
+  }
 }
 
 export const dnsService = new DnsService();

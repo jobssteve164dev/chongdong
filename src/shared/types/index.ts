@@ -161,6 +161,15 @@ export interface AppSettings {
   databaseUpdateInterval?: number; // 更新间隔（小时），默认24小时
   databaseUpdateCheckOnStartup?: boolean; // 启动时检查更新
   databaseLastUpdateCheck?: number; // 最后检查时间戳
+  // CF Edge 中间加密出站（按需启用）
+  enableCfEdgeEgress?: boolean;
+  cfEdgeMode?: 'pages' | 'workers';
+  cfEdgeEndpoint?: string; // 例如 https://edge.example.com
+  cfEdgePSKId?: string; // 预共享密钥ID（便于轮换）
+  cfEdgePSK?: string; // 预共享密钥（加密传输用）
+  cfEdgePolicy?: 'global' | 'non_mainland' | 'allowlist' | 'denylist';
+  cfEdgeDomainAllowlist?: string[]; // 命中才走Edge
+  cfEdgeDomainDenylist?: string[]; // 命中则不走Edge
 }
 
 export interface NetworkSettings {
