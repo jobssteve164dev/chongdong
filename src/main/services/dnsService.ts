@@ -137,7 +137,8 @@ class DnsService {
 
     let serversToUse = [...servers];
     // 实现严格DNS泄露防护模式
-    if (this.settings?.dnsLeakStrict) {
+    // 统一严格模式判断：以 dnsLeakProtectionMode === 'strict' 为准
+    if (this.settings?.dnsLeakProtectionMode === 'strict') {
         serversToUse = serversToUse.filter(s => s.startsWith('https://') || s.startsWith('tls://'));
         if (serversToUse.length === 0) {
             console.error('[DNS Strict Mode] No secure (DoH/DoT) DNS servers configured. Blocking query.');

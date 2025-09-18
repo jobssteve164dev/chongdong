@@ -22,6 +22,7 @@ import { AppSettings, ChainConfig } from '../shared/types';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
 import { cfEdgeEgressService } from './services/cfEdgeEgressService';
+import { killSwitchService } from './services/killSwitchService';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -53,6 +54,10 @@ try {
   // 禁用WebRTC的STUN/TURN服务器
   app.commandLine.appendSwitch('--disable-webrtc-stun-origin');
   app.commandLine.appendSwitch('--disable-webrtc-turn-origin');
+  // 关键策略：禁止非代理UDP与隐藏本地IP（Chromium 标准开关）
+  app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+  app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+  app.commandLine.appendSwitch('enable-features', 'WebRtcHideLocalIpsWithMdns');
   console.log('已设置WebRTC泄露防护标志');
 } catch (err) {
   console.warn('设置WebRTC泄露防护失败(可忽略):', err);
@@ -792,6 +797,15 @@ app.whenReady().then(async () => {
     const settings = settingsManager.getSettings();
     dnsService.init(settings);
     console.log('DNS服务已初始化');
+    // 若启用了DNS功能，启动本地DNS服务
+    try {
+      if (settings.enableDns) {
+        await dnsService.startDnsService();
+        console.log('DNS服务已启动');
+      }
+    } catch (e) {
+      console.error('启动DNS服务失败:', e);
+    }
   } catch (error) {
     console.error('初始化DNS服务失败:', error);
   }
@@ -945,6 +959,49 @@ ipcMain.handle('get-app-name', () => {
 
 ipcMain.handle('get-app-path', () => {
   return app.getAppPath();
+});
+
+// 提供给 Preload 的 WebRTC 策略查询（用于域名白名单拦截）
+ipcMain.handle('settings:getWebRTCPolicy', async () => {
+  try {
+    const s = settingsManager.getSettings();
+    return {
+      success: true,
+      enabled: !!s.enableWebRTCLeakProtection,
+      mode: s.webRTCLeakProtectionMode || 'relaxed',
+      allowedDomains: Array.isArray(s.webRTCAllowedDomains) ? s.webRTCAllowedDomains : []
+    };
+  } catch (error) {
+    return { success: false, error: (error as any)?.message || String(error) };
+  }
+});
+
+// Kill Switch IPC
+ipcMain.handle('killswitch:enable', async (_e, opts: { allowedLocalPorts: number[]; tunInterface?: string }) => {
+  try {
+    const result = await killSwitchService.enable({ enabled: true, allowedLocalPorts: opts?.allowedLocalPorts || [], tunInterface: opts?.tunInterface });
+    return result;
+  } catch (error) {
+    return { success: false, message: (error as any)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('killswitch:disable', async () => {
+  try {
+    const result = await killSwitchService.disable();
+    return result;
+  } catch (error) {
+    return { success: false, message: (error as any)?.message || String(error) };
+  }
+});
+
+ipcMain.handle('killswitch:status', async () => {
+  try {
+    const s = await killSwitchService.status();
+    return s;
+  } catch (error) {
+    return { supported: false, enabled: false, usingChongdongRules: false, details: (error as any)?.message || String(error) };
+  }
 });
 
 // 核心下载IPC处理程序

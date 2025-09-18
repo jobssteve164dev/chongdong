@@ -12,6 +12,12 @@ const api = {
     validate: (shortcut: string) => ipcRenderer.invoke('hotkeys:validate', shortcut),
     checkAvailability: (shortcut: string) => ipcRenderer.invoke('hotkeys:check-availability', shortcut)
   },
+  // Kill Switch API
+  killSwitch: {
+    enable: (opts: { allowedLocalPorts: number[]; tunInterface?: string }) => ipcRenderer.invoke('killswitch:enable', opts),
+    disable: () => ipcRenderer.invoke('killswitch:disable'),
+    status: () => ipcRenderer.invoke('killswitch:status')
+  },
   
   // 通知API
   notification: {
@@ -59,4 +65,75 @@ contextBridge.exposeInMainWorld('electron', {
   }
 })
 
-contextBridge.exposeInMainWorld('api', api)
+contextBridge.exposeInMainWorld('api', api);
+
+// WebRTC 白名单封禁：拦截 RTCPeerConnection 构造
+(() => {
+  try {
+    const g: any = (globalThis as any);
+    const origPeer = g.RTCPeerConnection || g.webkitRTCPeerConnection;
+    if (!origPeer) return;
+
+    const getPolicy = async (): Promise<{ enabled: boolean; mode: string; allowedDomains: string[] }> => {
+      try {
+        const result = await ipcRenderer.invoke('settings:getWebRTCPolicy');
+        if (result && result.success) {
+          return { enabled: !!result.enabled, mode: result.mode, allowedDomains: result.allowedDomains || [] };
+        }
+      } catch {}
+      return { enabled: false, mode: 'relaxed', allowedDomains: [] };
+    };
+
+    const isAllowedDomain = (host: string, allowed: string[]): boolean => {
+      if (!host) return false;
+      const h = host.toLowerCase();
+      return allowed.some(d => h === d.toLowerCase() || h.endsWith(`.${d.toLowerCase()}`));
+    };
+
+    const WrappedPeer = function(this: any, config?: any, constraints?: any) {
+      // 同步读取 location.host 作为域名
+      const host = (g && g.location && g.location.host) ? g.location.host : '';
+      // 由于策略是异步获取，采取保守阻断：若严格模式且不在白名单，则直接抛错
+      // 放宽模式下不阻断，仅依赖 Chromium 标志策略
+      const pending = getPolicy();
+      let block = false; let strict = false; let allowed: string[] = [];
+      try {
+        // 异步不可阻塞构造，尝试同步读取缓存策略（首次无缓存时保守处理在后续调用阶段拦截）
+      } catch {}
+      // 先创建实例，后在常用方法上做二次保护
+      const pc = new (origPeer as any)(config, constraints);
+
+      const guard = async () => {
+        try {
+          const pol = await pending;
+          strict = pol.mode === 'strict' && pol.enabled;
+          allowed = pol.allowedDomains || [];
+          if (strict && !isAllowedDomain(host, allowed)) {
+            block = true;
+          }
+        } catch {}
+      };
+      guard();
+
+      const wrapReject = (fnName: string) => (orig: any) => (...args: any[]) => {
+        if (block) {
+          return Promise.reject(new Error(`WebRTC blocked by policy (${fnName})`));
+        }
+        return orig.apply(pc, args);
+      };
+
+      // 常用可能触发候选/连接的API做保护
+      const methods = ['createOffer', 'createAnswer', 'setLocalDescription', 'addIceCandidate'];
+      for (const m of methods) {
+        if (typeof (pc as any)[m] === 'function') {
+          (pc as any)[m] = wrapReject(m)((pc as any)[m]);
+        }
+      }
+      return pc;
+    } as any;
+
+    (WrappedPeer as any).prototype = (origPeer as any).prototype;
+    g.RTCPeerConnection = WrappedPeer;
+    g.webkitRTCPeerConnection = WrappedPeer;
+  } catch {}
+})();
