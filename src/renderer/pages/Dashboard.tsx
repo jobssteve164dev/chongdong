@@ -46,6 +46,7 @@ import { navigationManager } from '../utils/navigationManager';
 import './Dashboard.css';
 import { rendererSystemMonitor, SystemMetrics } from '../utils/systemMonitor';
 import ChainStatusDisplay from '../components/ChainStatusDisplay';
+import PrivacyDashboard from '../components/PrivacyDashboard';
 
 const { Title, Text } = Typography;
 
@@ -961,6 +962,13 @@ const Dashboard: React.FC = () => {
           </Col>
         </Row>
       )}
+
+      {/* 隐私状态仪表盘 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+        <Col span={24}>
+          <PrivacyDashboard />
+        </Col>
+      </Row>
 
       {/* 提示信息 */}
       {!proxyConnected && (

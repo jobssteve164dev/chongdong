@@ -3,6 +3,7 @@ import { writeFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from '
 import { join } from 'path';
 import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
+import { obsLogger } from './obsLogger';
 
 const execAsync = promisify(exec);
 
@@ -110,8 +111,10 @@ class KillSwitchServiceClass {
       // 加载我们的规则并启用 PF
       await this.runWithAdmin(`pfctl -f "${this.rulesFilePath}"`);
       await this.runWithAdmin('pfctl -e');
+      obsLogger.add('KillSwitch', 'info', 'enabled', { options });
       return { success: true, message: 'Kill Switch enabled' };
     } catch (e) {
+      obsLogger.add('KillSwitch', 'error', 'enableFailed', { error: String(e) });
       return { success: false, message: String(e) };
     }
   }
@@ -132,8 +135,10 @@ class KillSwitchServiceClass {
         await this.runWithAdmin('pfctl -d');
       }
       try { unlinkSync(this.stateFilePath); } catch {}
+      obsLogger.add('KillSwitch', 'info', 'disabled', {});
       return { success: true, message: 'Kill Switch disabled' };
     } catch (e) {
+      obsLogger.add('KillSwitch', 'error', 'disableFailed', { error: String(e) });
       return { success: false, message: String(e) };
     }
   }

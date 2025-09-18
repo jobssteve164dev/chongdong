@@ -215,7 +215,6 @@ export class ProxyModeManager {
       // 并保存系统代理状态以便失败时回滚
       let prevProxy: { host: string; port: number; enabled: boolean } | null = null;
       try { prevProxy = await systemProxyManager.getSystemProxy(); } catch {}
-      let killSwitchEnabled = false;
       try {
         const allowedLocalPorts: number[] = [];
         if (settings.socksPort) allowedLocalPorts.push(settings.socksPort);
@@ -223,8 +222,7 @@ export class ProxyModeManager {
         // DNS/DoT 端口
         allowedLocalPorts.push(settings.dnsListenPort || 53);
         allowedLocalPorts.push(853);
-        const r = await killSwitchService.enable({ enabled: true, allowedLocalPorts, tunInterface: tunName });
-        killSwitchEnabled = !!r?.success;
+        await killSwitchService.enable({ enabled: true, allowedLocalPorts, tunInterface: tunName });
       } catch (e) {
         console.warn('[ProxyModeManager] 启用 Kill Switch 失败（继续执行）:', e);
       }
