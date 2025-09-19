@@ -2,7 +2,6 @@ import { app } from 'electron';
 import { spawn, exec } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from 'fs';
 import { join } from 'path';
-import { obsLogger } from './services/obsLogger';
 
 export interface TunStartOptions {
   tunName?: string; // e.g., 'utun0'
@@ -52,43 +51,12 @@ class TunControllerClass {
     return 'tun2socks';
   }
 
-  private async runWithAdmin(command: string, timeoutMs: number = 6000): Promise<void> {
-    if (process.platform !== 'darwin') {
-      // 非 macOS 简化为普通执行
-      await new Promise<void>((resolve) => {
-        const child = exec(command, { timeout: timeoutMs }, () => resolve());
-        child.on('error', () => resolve());
-      });
-      return;
-    }
-    await new Promise<void>((resolve, reject) => {
-      const shell = `sh -c '${command.replace(/'/g, "'\\''")}'`;
-      const appleScript = `do shell script "${shell.replace(/"/g, '\\"')}" with administrator privileges`;
-      const osa = spawn('/usr/bin/osascript', ['-e', appleScript], { stdio: ['ignore', 'pipe', 'pipe'] });
-      let stderr = '';
-      let done = false;
-      const timer = setTimeout(() => {
-        if (!done) {
-          try { osa.kill(); } catch {}
-          reject(new Error('osascript timeout'));
-        }
-      }, timeoutMs);
-      osa.stderr.on('data', (d) => { stderr += d.toString(); });
-      osa.on('exit', (code) => {
-        clearTimeout(timer);
-        done = true;
-        if (code !== 0) return reject(new Error(stderr || 'osascript failed'));
-        resolve();
-      });
-    });
-  }
-
   public async start(options: TunStartOptions): Promise<void> {
     const isDarwin = process.platform === 'darwin';
     const tunName = options.tunName || 'utun0';
     const socksHost = options.socksHost || '127.0.0.1';
     const socksPort = options.socksPort;
-    const mtu = options.mtu || 1500;
+    const mtu = options.mtu || 9000;
     const enableUdp = options.enableUdp !== false; // default true
     const enableIpv6 = !!options.enableIpv6; // default false
     const dnsServer = options.dnsServer; // optional
@@ -153,20 +121,6 @@ class TunControllerClass {
           resolve();
         });
       });
-
-      // 设置 MTU 并添加路由（原子尝试）
-      try { await this.runWithAdmin(`ifconfig ${tunName} mtu ${mtu}`); obsLogger?.add?.('TUN','info','setMtu',{ tunName, mtu }); } catch (e) { try { obsLogger?.add?.('TUN','warn','setMtuFailed',{ error: String(e) }); } catch {} }
-      try {
-        // IPv4 默认路由拆分到 TUN 接口
-        await this.runWithAdmin(`route -n add -net 0.0.0.0/1 -interface ${tunName}`); obsLogger?.add?.('TUN','info','routeAdd', { net:'0.0.0.0/1', if: tunName });
-        await this.runWithAdmin(`route -n add -net 128.0.0.0/1 -interface ${tunName}`); obsLogger?.add?.('TUN','info','routeAdd', { net:'128.0.0.0/1', if: tunName });
-      } catch {}
-      if (enableIpv6) {
-        try {
-          await this.runWithAdmin(`route -n add -inet6 ::/1 -interface ${tunName}`); obsLogger?.add?.('TUN','info','routeAdd6', { net:'::/1', if: tunName });
-          await this.runWithAdmin(`route -n add -inet6 8000::/1 -interface ${tunName}`); obsLogger?.add?.('TUN','info','routeAdd6', { net:'8000::/1', if: tunName });
-        } catch {}
-      }
     } else {
       // Non-macOS: run without elevation by default
       const child = spawn(tun2socksPath, args, {
@@ -192,17 +146,6 @@ class TunControllerClass {
       }
     } catch (_) {}
     this.runningPid = null;
-
-    // 删除我们添加的路由（尽力而为）
-    try {
-      if (process.platform === 'darwin') {
-        const tunGuess = 'utun0';
-        await this.runWithAdmin(`route -n delete -net 0.0.0.0/1 -interface ${tunGuess}`).catch(() => {});
-        await this.runWithAdmin(`route -n delete -net 128.0.0.0/1 -interface ${tunGuess}`).catch(() => {});
-        await this.runWithAdmin(`route -n delete -inet6 ::/1 -interface ${tunGuess}`).catch(() => {});
-        await this.runWithAdmin(`route -n delete -inet6 8000::/1 -interface ${tunGuess}`).catch(() => {});
-      }
-    } catch {}
   }
 
   public isRunning(): boolean {

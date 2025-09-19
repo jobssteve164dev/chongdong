@@ -12,12 +12,6 @@ const api = {
     validate: (shortcut: string) => ipcRenderer.invoke('hotkeys:validate', shortcut),
     checkAvailability: (shortcut: string) => ipcRenderer.invoke('hotkeys:check-availability', shortcut)
   },
-  // Kill Switch API
-  killSwitch: {
-    enable: (opts: { allowedLocalPorts: number[]; tunInterface?: string }) => ipcRenderer.invoke('killswitch:enable', opts),
-    disable: () => ipcRenderer.invoke('killswitch:disable'),
-    status: () => ipcRenderer.invoke('killswitch:status')
-  },
   
   // 通知API
   notification: {

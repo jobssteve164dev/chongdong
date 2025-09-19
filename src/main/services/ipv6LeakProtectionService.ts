@@ -14,7 +14,6 @@ export class Ipv6LeakProtectionService {
   private settings: AppSettings | null = null;
   private leakProtectionEnabled: boolean = false;
   private monitoringInterval: NodeJS.Timeout | null = null;
-  private systemPolicyApplied: boolean = false;
 
   private constructor() {
     console.log('Ipv6LeakProtectionService initialized');
@@ -34,78 +33,6 @@ export class Ipv6LeakProtectionService {
     this.settings = settings;
     this.leakProtectionEnabled = settings.enableIpv6LeakProtection || false;
     console.log('Ipv6LeakProtectionService settings updated');
-  }
-
-  /**
-   * 根据设置应用系统级 IPv6 策略（严格模式：关闭 IPv6；宽松/关闭：恢复自动）
-   * 仅在 macOS/Linux 上实现，Windows 暂记录日志。
-   */
-  public async applySystemPolicy(): Promise<void> {
-    try {
-      if (!this.settings) return;
-      const mode = this.settings.ipv6LeakProtectionMode || 'relaxed';
-      const strict = this.leakProtectionEnabled && mode === 'strict';
-      const platform = process.platform;
-      if (platform === 'darwin') {
-        const { stdout } = await execAsync('networksetup -listallnetworkservices');
-        const services = stdout.trim().split('\n').filter(line => line.trim() && !line.includes('*'));
-        for (const s of services) {
-          try {
-            if (strict) {
-              await execAsync(`networksetup -setv6off "${s.trim()}"`);
-            } else {
-              await execAsync(`networksetup -setv6automatic "${s.trim()}"`);
-            }
-          } catch {}
-        }
-        this.systemPolicyApplied = true;
-        console.log(`[IPv6Policy] macOS 应用完成: ${strict ? 'setv6off' : 'setv6automatic'}`);
-      } else if (platform === 'linux') {
-        try {
-          if (strict) {
-            await execAsync('sysctl -w net.ipv6.conf.all.disable_ipv6=1');
-            await execAsync('sysctl -w net.ipv6.conf.default.disable_ipv6=1');
-          } else {
-            await execAsync('sysctl -w net.ipv6.conf.all.disable_ipv6=0');
-            await execAsync('sysctl -w net.ipv6.conf.default.disable_ipv6=0');
-          }
-          this.systemPolicyApplied = true;
-          console.log(`[IPv6Policy] Linux 应用完成: ${strict ? 'disable' : 'enable'}`);
-        } catch (e) {
-          console.warn('[IPv6Policy] Linux 应用失败(继续):', e);
-        }
-      } else if (platform === 'win32') {
-        console.warn('[IPv6Policy] Windows 平台未实现系统级切换，保持探测与提示');
-      }
-    } catch (e) {
-      console.warn('[IPv6Policy] 应用失败(继续):', e);
-    }
-  }
-
-  /** 恢复系统 IPv6 策略（在应用退出时调用） */
-  public async restoreSystemPolicy(): Promise<void> {
-    if (!this.systemPolicyApplied) return;
-    try {
-      const platform = process.platform;
-      if (platform === 'darwin') {
-        const { stdout } = await execAsync('networksetup -listallnetworkservices');
-        const services = stdout.trim().split('\n').filter(line => line.trim() && !line.includes('*'));
-        for (const s of services) {
-          try { await execAsync(`networksetup -setv6automatic "${s.trim()}"`); } catch {}
-        }
-        console.log('[IPv6Policy] macOS 已恢复 setv6automatic');
-      } else if (platform === 'linux') {
-        try {
-          await execAsync('sysctl -w net.ipv6.conf.all.disable_ipv6=0');
-          await execAsync('sysctl -w net.ipv6.conf.default.disable_ipv6=0');
-          console.log('[IPv6Policy] Linux 已恢复 IPv6');
-        } catch {}
-      }
-    } catch (e) {
-      console.warn('[IPv6Policy] 恢复失败(继续):', e);
-    } finally {
-      this.systemPolicyApplied = false;
-    }
   }
 
   /**

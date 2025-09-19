@@ -4,7 +4,6 @@ import { systemProxyManager } from './systemProxyManager';
 import { proxyManager } from './proxyManager';
 import { TunController } from './tunController';
 import { CompatPortForwarder } from './compatPortForwarder';
-import { killSwitchService } from './services/killSwitchService';
 
 export interface ProxyModeConfig {
   mode: 'rule' | 'global' | 'direct' | 'vpn';
@@ -105,9 +104,6 @@ export class ProxyModeManager {
       // 规则模式：基于用户定义的规则进行流量路由
       // 这里需要启动代理服务，但只对匹配规则的流量进行代理
       
-      // 禁用 Kill Switch，避免阻断代理外联
-      try { await killSwitchService.disable(); } catch {}
-      
       // 设置系统代理
       if (settings.systemProxy) {
         await systemProxyManager.setSystemProxy('127.0.0.1', settings.socksPort, settings.proxyPort);
@@ -133,8 +129,6 @@ export class ProxyModeManager {
     
     try {
       // 全局模式：所有流量都通过代理
-      // 不启用 Kill Switch（如需启用需加入引擎白名单，否则会阻断引擎外联）
-      try { await killSwitchService.disable(); } catch {}
       
       // 设置系统代理
       if (settings.systemProxy) {
@@ -161,8 +155,6 @@ export class ProxyModeManager {
     
     try {
       // 直连模式：所有流量直连，不经过代理
-      // 禁用 Kill Switch 恢复直连
-      try { await killSwitchService.disable(); } catch {}
       
       // 关闭系统代理
       await systemProxyManager.clearSystemProxy();
@@ -211,42 +203,15 @@ export class ProxyModeManager {
       // 在 TUN 模式下屏蔽后续链路自动设置系统代理
       try { (proxyManager as any).setSuppressSystemProxyForTun?.(true); } catch {}
 
-      // 切换到 VPN 前先启用 Kill Switch（放行本地代理端口和 TUN 接口）
-      // 并保存系统代理状态以便失败时回滚
-      let prevProxy: { host: string; port: number; enabled: boolean } | null = null;
-      try { prevProxy = await systemProxyManager.getSystemProxy(); } catch {}
-      try {
-        const allowedLocalPorts: number[] = [];
-        if (settings.socksPort) allowedLocalPorts.push(settings.socksPort);
-        if (settings.proxyPort) allowedLocalPorts.push(settings.proxyPort);
-        // DNS/DoT 端口
-        allowedLocalPorts.push(settings.dnsListenPort || 53);
-        allowedLocalPorts.push(853);
-        await killSwitchService.enable({ enabled: true, allowedLocalPorts, tunInterface: tunName });
-      } catch (e) {
-        console.warn('[ProxyModeManager] 启用 Kill Switch 失败（继续执行）:', e);
-      }
-
       // 启动/重启 TUN 控制器
-      try {
-        await TunController.start({
-          tunName,
-          socksHost: '127.0.0.1',
-          socksPort,
-          enableUdp,
-          enableIpv6,
-          dnsServer,
-        });
-      } catch (e) {
-        // 回滚：关闭 Kill Switch、恢复系统代理
-        try { await killSwitchService.disable(); } catch {}
-        try {
-          if (prevProxy && prevProxy.enabled) {
-            await systemProxyManager.setSystemProxy(prevProxy.host, prevProxy.port, prevProxy.port);
-          }
-        } catch {}
-        throw e;
-      }
+      await TunController.start({
+        tunName,
+        socksHost: '127.0.0.1',
+        socksPort,
+        enableUdp,
+        enableIpv6,
+        dnsServer,
+      });
 
       // 兼容性代理：在 TUN 模式下可选启用 1080 等端口转发（后续实现）
       // 这里仅保留设置占位，实际监听与转发将在 ProxyManager 或专用组件中实现

@@ -15,7 +15,6 @@ import { settingsManager } from './settingsManager';
 import { crashMonitor } from './crashMonitor';
 import { systemMonitor } from './systemMonitor';
 import { dnsService } from './services/dnsService';
-import { ipv6LeakProtectionService } from './services/ipv6LeakProtectionService';
 import { leakProtectionManager } from './services/leakProtectionManager';
 import { dynamicChainManager } from './dynamicChainManager';
 import { chainStatusManager } from './chainStatusManager';
@@ -23,8 +22,6 @@ import { AppSettings, ChainConfig } from '../shared/types';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
 import { cfEdgeEgressService } from './services/cfEdgeEgressService';
-import { killSwitchService } from './services/killSwitchService';
-import { obsLogger } from './services/obsLogger';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -783,25 +780,6 @@ function createWindow(): void {
   const menu = Menu.buildFromTemplate(template as any);
   Menu.setApplicationMenu(menu);
 }
-// 观测日志 IPC
-ipcMain.handle('obs:get-logs', async () => {
-  try {
-    const logs = obsLogger.getAll();
-    return { success: true, logs };
-  } catch (e) {
-    return { success: false, error: (e as any)?.message || String(e) };
-  }
-});
-
-ipcMain.handle('obs:clear-logs', async () => {
-  try {
-    obsLogger.clear();
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: (e as any)?.message || String(e) };
-  }
-});
-
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -823,22 +801,6 @@ app.whenReady().then(async () => {
       if (settings.enableDns) {
         await dnsService.startDnsService();
         console.log('DNS服务已启动');
-        // macOS: 将系统 DNS 指向本地（需要管理员权限）。失败不阻塞。
-        try {
-          if (process.platform === 'darwin') {
-            const { exec } = require('child_process');
-            const util = require('util');
-            const execAsync = util.promisify(exec);
-            const { stdout } = await execAsync('networksetup -listallnetworkservices');
-            const services = stdout.trim().split('\n').filter((l: string) => l && !l.includes('*'));
-            for (const s of services) {
-              try { await execAsync(`networksetup -setdnsservers "${s.trim()}" 127.0.0.1`); } catch {}
-            }
-            console.log('已尝试将系统DNS指向 127.0.0.1');
-          }
-        } catch (e) {
-          console.warn('设置系统DNS到本地失败（继续）:', e);
-        }
       }
     } catch (e) {
       console.error('启动DNS服务失败:', e);
@@ -852,8 +814,6 @@ app.whenReady().then(async () => {
     const settings = settingsManager.getSettings();
     leakProtectionManager.init(settings);
     console.log('泄露防护管理器已初始化');
-    // 按设置应用系统级 IPv6 策略（严格模式关闭 IPv6）
-    try { await ipv6LeakProtectionService.applySystemPolicy(); } catch {}
   } catch (error) {
     console.error('初始化泄露防护管理器失败:', error);
   }
@@ -926,26 +886,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async (event) => {
   if (!isQuitting) {
     event.preventDefault();
-    try {
-      // 恢复系统 IPv6 策略
-      try { await ipv6LeakProtectionService.restoreSystemPolicy(); } catch {}
-      // 尝试恢复系统 DNS（macOS 设为自动）
-      try {
-        if (process.platform === 'darwin') {
-          const { exec } = require('child_process');
-          const util = require('util');
-          const execAsync = util.promisify(exec);
-          const { stdout } = await execAsync('networksetup -listallnetworkservices');
-          const services = stdout.trim().split('\n').filter((l: string) => l && !l.includes('*'));
-          for (const s of services) {
-            try { await execAsync(`networksetup -setdnsservers "${s.trim()}" empty`); } catch {}
-          }
-          console.log('已尝试恢复系统DNS为自动');
-        }
-      } catch {}
-    } finally {
-      await quitApp();
-    }
+    await quitApp();
   }
 });
 
@@ -1031,38 +972,6 @@ ipcMain.handle('settings:getWebRTCPolicy', async () => {
     };
   } catch (error) {
     return { success: false, error: (error as any)?.message || String(error) };
-  }
-});
-
-// Kill Switch IPC
-ipcMain.handle('killswitch:enable', async (_e, opts: { allowedLocalPorts: number[]; tunInterface?: string }) => {
-  try {
-    const payload: any = { enabled: true, allowedLocalPorts: opts?.allowedLocalPorts || [] };
-    if (opts && typeof opts.tunInterface === 'string' && opts.tunInterface) {
-      payload.tunInterface = opts.tunInterface;
-    }
-    const result = await killSwitchService.enable(payload);
-    return result;
-  } catch (error) {
-    return { success: false, message: (error as any)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('killswitch:disable', async () => {
-  try {
-    const result = await killSwitchService.disable();
-    return result;
-  } catch (error) {
-    return { success: false, message: (error as any)?.message || String(error) };
-  }
-});
-
-ipcMain.handle('killswitch:status', async () => {
-  try {
-    const s = await killSwitchService.status();
-    return s;
-  } catch (error) {
-    return { supported: false, enabled: false, usingChongdongRules: false, details: (error as any)?.message || String(error) };
   }
 });
 
