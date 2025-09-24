@@ -8,6 +8,7 @@ export class HttpHeaderProtectionService {
   private enabled: boolean = true;
   private mode: 'strict' | 'relaxed' = 'strict';
   private customUserAgent: string = '';
+  private readonly neutralAcceptLanguage: string = 'en-US,en;q=0.9';
 
   // 标准化的HTTP头模板
   private readonly headerTemplates = {
@@ -338,6 +339,65 @@ export class HttpHeaderProtectionService {
     }
     
     return baseHeaders;
+  }
+
+  /**
+   * 基于模板与去敏策略清洗HTTP头
+   * - 统一 Accept-Language 为中性配置
+   * - 移除 X-Forwarded-* / Via 等敏感中间头
+   * - 应用标准化 User-Agent/Accept 等（不覆盖 Host）
+   */
+  public sanitizeHeaders(
+    original: { [key: string]: string },
+    template: 'chrome' | 'firefox' | 'safari' | 'edge' = 'chrome',
+    options?: { keep?: string[] }
+  ): { [key: string]: string } {
+    const toKeep = new Set((options?.keep || []).map(k => k.toLowerCase()));
+    const tpl = this.getStandardizedHeaders(template);
+
+    // 起始于原始头，但先复制一份（大小写保持简单处理）
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(original || {})) {
+      const lower = k.toLowerCase();
+      // 保留白名单
+      if (toKeep.has(lower)) {
+        cleaned[k] = v;
+        continue;
+      }
+      // 过滤敏感头
+      if (this.isSensitiveHeader(k)) {
+        continue;
+      }
+      cleaned[k] = v;
+    }
+
+    // 覆盖/设置中性 Accept-Language
+    cleaned['Accept-Language'] = this.neutralAcceptLanguage;
+
+    // 合并模板（不覆盖 Host）
+    const host = cleaned['Host'] || cleaned['host'];
+    for (const [k, v] of Object.entries(tpl)) {
+      if (k.toLowerCase() === 'host') continue;
+      cleaned[k] = v;
+    }
+    if (host) cleaned['Host'] = host; // 统一大小写
+
+    // 移除任何 X-Forwarded-* 与 Via（再次保障）
+    for (const key of Object.keys(cleaned)) {
+      if (this.isSensitiveHeader(key)) delete cleaned[key];
+    }
+    // 恢复必要头
+    if (host) cleaned['Host'] = host;
+
+    return cleaned;
+  }
+
+  private isSensitiveHeader(headerName: string): boolean {
+    const name = headerName.toLowerCase();
+    if (name.startsWith('x-forwarded-')) return true;
+    if (name === 'via') return true;
+    // 列表中的敏感头（大小写不敏感）
+    return this.sensitiveHeaders.some(h => h.toLowerCase() === name);
   }
 
   /**

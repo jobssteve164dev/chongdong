@@ -1,77 +1,108 @@
 Compiled with problems:
 ×
-ERROR in ./src/pages/StrategyList/StrategyList.tsx
-Module build failed (from ./node_modules/babel-loader/lib/index.js):
-SyntaxError: /Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/src/pages/StrategyList/StrategyList.tsx: Missing semicolon. (709:19)
-
-  707 |                       </TableCell>
-  708 |                     </TableRow>
-> 709 |                   ))}
-      |                    ^
-  710 |                 </TableBody>
-  711 |               </Table>
-  712 |             </TableContainer>
-    at constructor (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:367:19)
-    at TypeScriptParserMixin.raise (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:6630:19)
-    at TypeScriptParserMixin.semicolon (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:6926:10)
-    at TypeScriptParserMixin.parseReturnStatement (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:13152:12)
-    at TypeScriptParserMixin.parseStatementContent (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12807:21)
-    at TypeScriptParserMixin.parseStatementContent (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9532:18)
-    at TypeScriptParserMixin.parseStatementLike (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12776:17)
-    at TypeScriptParserMixin.parseStatementListItem (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12756:17)
-    at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:13325:61)
-    at TypeScriptParserMixin.parseBlockBody (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:13318:10)
-    at TypeScriptParserMixin.parseBlock (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:13306:10)
-    at TypeScriptParserMixin.parseFunctionBody (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12110:24)
-    at TypeScriptParserMixin.parseArrowExpression (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12085:10)
-    at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11695:12)
-    at TypeScriptParserMixin.parseExprAtom (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11335:23)
-    at TypeScriptParserMixin.parseExprAtom (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:4797:20)
-    at TypeScriptParserMixin.parseExprSubscripts (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11085:23)
-    at TypeScriptParserMixin.parseUpdate (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11070:21)
-    at TypeScriptParserMixin.parseMaybeUnary (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11050:23)
-    at TypeScriptParserMixin.parseMaybeUnary (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9857:18)
-    at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10903:61)
-    at TypeScriptParserMixin.parseExprOps (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10908:23)
-    at TypeScriptParserMixin.parseMaybeConditional (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10885:23)
-    at TypeScriptParserMixin.parseMaybeAssign (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10835:21)
-    at TypeScriptParserMixin.parseMaybeAssign (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9806:20)
-    at /Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10804:39
-    at TypeScriptParserMixin.allowInAnd (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12436:12)
-    at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10804:17)
-    at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12503:17)
-    at TypeScriptParserMixin.parseExprListItem (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12185:18)
-    at TypeScriptParserMixin.parseCallExpressionArguments (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11256:22)
-    at TypeScriptParserMixin.parseCoverCallAndAsyncArrowHead (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11190:29)
-    at TypeScriptParserMixin.parseSubscript (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11124:19)
-    at TypeScriptParserMixin.parseSubscript (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9358:18)
-    at TypeScriptParserMixin.parseSubscripts (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11098:19)
-    at TypeScriptParserMixin.parseExprSubscripts (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11089:17)
-    at TypeScriptParserMixin.parseUpdate (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11070:21)
-    at TypeScriptParserMixin.parseMaybeUnary (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:11050:23)
-    at TypeScriptParserMixin.parseMaybeUnary (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9857:18)
-    at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10903:61)
-    at TypeScriptParserMixin.parseExprOps (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10908:23)
-    at TypeScriptParserMixin.parseMaybeConditional (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10885:23)
-    at TypeScriptParserMixin.parseMaybeAssign (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10835:21)
-    at TypeScriptParserMixin.parseMaybeAssign (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:9806:20)
-    at TypeScriptParserMixin.parseExpressionBase (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10788:23)
-    at /Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10784:39
-    at TypeScriptParserMixin.allowInAnd (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:12436:12)
-    at TypeScriptParserMixin.parseExpression (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:10784:17)
-    at TypeScriptParserMixin.jsxParseExpressionContainer (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:4665:31)
-    at TypeScriptParserMixin.jsxParseElementAt (/Users/walker/Documents/Qsync/00.AI_PROJECT/AIQ/frontend/node_modules/@babel/parser/lib/index.js:4744:36)
-ERROR
-[eslint] 
-src/pages/StrategyList/StrategyList.tsx
-  Line 709:19:  Parsing error: ';' expected
-
-ERROR in src/pages/StrategyList/StrategyList.tsx:709:20
-TS1005: ';' expected.
-    707 |                       </TableCell>
-    708 |                     </TableRow>
-  > 709 |                   ))}
-        |                    ^
-    710 |                 </TableBody>
-    711 |               </Table>
-    712 |             </TableContainer>
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:52:29
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    50 |       const values = data
+    51 |         .map(d => typeof d[symbol] === 'number' ? d[symbol] : parseFloat(d[symbol] as string))
+  > 52 |         .filter(v => !isNaN(v));
+       |                             ^
+    53 |       
+    54 |       if (values.length > 0) {
+    55 |         const min = Math.min(...values);
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:55:30
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    53 |       
+    54 |       if (values.length > 0) {
+  > 55 |         const min = Math.min(...values);
+       |                              ^^^^^^^^^
+    56 |         const max = Math.max(...values);
+    57 |         ranges[symbol] = { min, max, range: max - min };
+    58 |       }
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:56:30
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    54 |       if (values.length > 0) {
+    55 |         const min = Math.min(...values);
+  > 56 |         const max = Math.max(...values);
+       |                              ^^^^^^^^^
+    57 |         ranges[symbol] = { min, max, range: max - min };
+    58 |       }
+    59 |     });
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:73:20
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    71 |         const range = symbolRanges[symbol];
+    72 |         
+  > 73 |         if (!isNaN(value) && range) {
+       |                    ^^^^^
+    74 |           // 标准化到0-100区间
+    75 |           normalized[symbol] = ((value - range.min) / range.range) * 100;
+    76 |         } else {
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:75:34
+TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+    73 |         if (!isNaN(value) && range) {
+    74 |           // 标准化到0-100区间
+  > 75 |           normalized[symbol] = ((value - range.min) / range.range) * 100;
+       |                                  ^^^^^
+    76 |         } else {
+    77 |           normalized[symbol] = 0;
+    78 |         }
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:123:73
+TS2339: Property 'toFixed' does not exist on type 'string | number'.
+  Property 'toFixed' does not exist on type 'string'.
+    121 |                 />
+    122 |                 <Typography variant="body2">
+  > 123 |                   {symbol}: {viewMode === 'normalized' ? originalValue?.toFixed(2) : entry.value?.toFixed(2)}
+        |                                                                         ^^^^^^^
+    124 |                   {viewMode === 'normalized' && range && (
+    125 |                     <Typography component="span" variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+    126 |                       (标准化: {entry.value?.toFixed(1)}%)
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:154:15
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    152 |     const lastValue = typeof data[data.length - 1][symbol] === 'number' ? data[data.length - 1][symbol] : parseFloat(data[data.length - 1][symbol] as string);
+    153 |     
+  > 154 |     if (isNaN(firstValue) || isNaN(lastValue)) return { change: 0, changePercent: 0 };
+        |               ^^^^^^^^^^
+    155 |     
+    156 |     const change = lastValue - firstValue;
+    157 |     const changePercent = (change / firstValue) * 100;
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:154:36
+TS2345: Argument of type 'string | number' is not assignable to parameter of type 'number'.
+  Type 'string' is not assignable to type 'number'.
+    152 |     const lastValue = typeof data[data.length - 1][symbol] === 'number' ? data[data.length - 1][symbol] : parseFloat(data[data.length - 1][symbol] as string);
+    153 |     
+  > 154 |     if (isNaN(firstValue) || isNaN(lastValue)) return { change: 0, changePercent: 0 };
+        |                                    ^^^^^^^^^
+    155 |     
+    156 |     const change = lastValue - firstValue;
+    157 |     const changePercent = (change / firstValue) * 100;
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:156:20
+TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+    154 |     if (isNaN(firstValue) || isNaN(lastValue)) return { change: 0, changePercent: 0 };
+    155 |     
+  > 156 |     const change = lastValue - firstValue;
+        |                    ^^^^^^^^^
+    157 |     const changePercent = (change / firstValue) * 100;
+    158 |     
+    159 |     return { change, changePercent };
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:156:32
+TS2363: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+    154 |     if (isNaN(firstValue) || isNaN(lastValue)) return { change: 0, changePercent: 0 };
+    155 |     
+  > 156 |     const change = lastValue - firstValue;
+        |                                ^^^^^^^^^^
+    157 |     const changePercent = (change / firstValue) * 100;
+    158 |     
+    159 |     return { change, changePercent };
+ERROR in src/components/charts/MultiSymbolPriceChart.tsx:157:37
+TS2363: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+    155 |     
+    156 |     const change = lastValue - firstValue;
+  > 157 |     const changePercent = (change / firstValue) * 100;
+        |                                     ^^^^^^^^^^
+    158 |     
+    159 |     return { change, changePercent };
+    160 |   };

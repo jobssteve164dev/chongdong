@@ -17,6 +17,8 @@
     "build:renderer": "vite build",
     "dist": "electron-builder",
     "test": "jest",
+    "test:geo": "node dist/main/scripts/testGeolocationProtection.js",
+    "test:e2e:http-egress": "node dist/main/scripts/testHttpEgressConsistency.js",
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
     "format": "prettier --write src/**/*.{ts,tsx,js,jsx,json,css,md}",

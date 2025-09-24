@@ -376,8 +376,7 @@ export class TrafficRouter {
             const lines = headersPart.split('\r\n');
             const requestLine = lines.shift() || '';
 
-            // 构造标准化头
-            const tpl = this.httpHeaderProtector.getStandardizedHeaders('chrome');
+            // 解析头并清洗去敏
             const kv: Record<string, string> = {};
             for (const line of lines) {
               const idx = line.indexOf(':');
@@ -387,13 +386,10 @@ export class TrafficRouter {
                 kv[key] = value;
               }
             }
-            // 应用标准化（保留Host和必要头，覆盖UA/Accept/Accept-Language等）
-            const host = kv['Host'];
-            const merged: Record<string, string> = { ...kv, ...tpl };
-            if (host) merged['Host'] = host; // Host 必须保留，防止路由错误
+            const sanitized = this.httpHeaderProtector.sanitizeHeaders(kv, 'chrome', { keep: ['host'] });
 
             const rebuilt = [requestLine]
-              .concat(Object.entries(merged).map(([k, v]) => `${k}: ${v}`))
+              .concat(Object.entries(sanitized).map(([k, v]) => `${k}: ${v}`))
               .join('\r\n') + '\r\n\r\n' + bodyPart;
             outBuf = Buffer.from(rebuilt, 'utf8');
           }

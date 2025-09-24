@@ -2,6 +2,11 @@
  * 地理位置泄露测试工具
  * 提供多种方式测试地理位置泄露防护效果
  */
+import os from 'os';
+import { settingsManager } from '../settingsManager';
+import { dnsService } from './dnsService';
+import { httpProtocolManager } from './httpProtocolManager';
+
 export class GeolocationLeakTester {
   private static instance: GeolocationLeakTester;
   
@@ -194,42 +199,13 @@ export class GeolocationLeakTester {
   private async testDnsLeak(): Promise<{ success: boolean; details: any }> {
     try {
       console.log('执行DNS泄露测试...');
-      
-      // 测试DNS解析是否通过代理
-      const testDomains = [
-        'google.com',
-        'facebook.com',
-        'twitter.com',
-        'amazon.com'
-      ];
-
-      const results = [];
-      for (const domain of testDomains) {
-        try {
-          // 这里应该实际测试DNS解析
-          // 由于Node.js环境的限制，这里只是模拟
-          results.push({
-            domain: domain,
-            resolved: true,
-            ip: '192.168.1.1', // 模拟IP
-            throughProxy: true // 模拟通过代理
-          });
-        } catch (error) {
-          results.push({
-            domain: domain,
-            resolved: false,
-            error: error instanceof Error ? error.message : '未知错误'
-          });
-        }
-      }
-
-      const success = results.every(r => r.throughProxy);
-
+      const leak = await dnsService.checkDnsLeak();
       return {
-        success: success,
+        success: !leak.leaked,
         details: {
-          results: results,
-          message: success ? '所有DNS查询都通过代理' : '检测到直接DNS查询'
+          leaked: leak.leaked,
+          details: leak.details,
+          leakSources: leak.leakSources
         }
       };
     } catch (error) {
@@ -246,15 +222,13 @@ export class GeolocationLeakTester {
   private async testWebRTCLeak(): Promise<{ success: boolean; details: any }> {
     try {
       console.log('执行WebRTC泄露测试...');
-      
-      // 检查WebRTC是否被禁用
-      const webrtcDisabled = true; // 这里应该实际检查WebRTC状态
-      
+      const s = settingsManager.getSettings?.();
+      const webrtcProtected = !!(s && s.enableWebRTCLeakProtection);
       return {
-        success: webrtcDisabled,
+        success: webrtcProtected,
         details: {
-          webrtcDisabled: webrtcDisabled,
-          message: webrtcDisabled ? 'WebRTC已禁用，无泄露风险' : 'WebRTC未禁用，存在泄露风险'
+          enabled: webrtcProtected,
+          message: webrtcProtected ? 'WebRTC泄露防护已启用' : 'WebRTC泄露防护未启用'
         }
       };
     } catch (error) {
@@ -271,15 +245,26 @@ export class GeolocationLeakTester {
   private async testIpv6Leak(): Promise<{ success: boolean; details: any }> {
     try {
       console.log('执行IPv6泄露测试...');
-      
-      // 检查IPv6是否被禁用
-      const ipv6Disabled = true; // 这里应该实际检查IPv6状态
-      
+      const s = settingsManager.getSettings?.();
+      const ifaces = os.networkInterfaces();
+      let hasGlobalIPv6 = false;
+      for (const [, list] of Object.entries(ifaces)) {
+        for (const info of list || []) {
+          if (info.family === 'IPv6' && !info.internal && info.address && !info.address.startsWith('fe80::')) {
+            hasGlobalIPv6 = true;
+          }
+        }
+      }
+      const protectionOn = !!(s && s.enableIpv6LeakProtection);
+      const ipv6Disabled = !!(s && !s.enableIpv6);
+      const success = protectionOn && (ipv6Disabled || !hasGlobalIPv6);
       return {
-        success: ipv6Disabled,
+        success,
         details: {
-          ipv6Disabled: ipv6Disabled,
-          message: ipv6Disabled ? 'IPv6已禁用，无泄露风险' : 'IPv6未禁用，存在泄露风险'
+          protectionOn,
+          ipv6Disabled,
+          hasGlobalIPv6,
+          message: success ? 'IPv6泄露防护有效' : '检测到可能的IPv6泄露风险'
         }
       };
     } catch (error) {
@@ -296,15 +281,14 @@ export class GeolocationLeakTester {
   private async testBrowserFingerprint(): Promise<{ success: boolean; details: any }> {
     try {
       console.log('执行浏览器指纹测试...');
-      
-      // 检查浏览器指纹是否被保护
-      const fingerprintProtected = true; // 这里应该实际检查指纹保护状态
-      
+      const s = settingsManager.getSettings?.();
+      const fingerprintProtected = !!(s && s.enableTlsFingerprintProtection);
       return {
         success: fingerprintProtected,
         details: {
-          fingerprintProtected: fingerprintProtected,
-          message: fingerprintProtected ? '浏览器指纹已保护' : '浏览器指纹未保护，存在泄露风险'
+          fingerprintProtected,
+          template: s?.tlsFingerprintTemplate || 'chrome',
+          message: fingerprintProtected ? 'TLS指纹模板防护已启用' : 'TLS指纹防护未启用'
         }
       };
     } catch (error) {
@@ -371,15 +355,18 @@ export class GeolocationLeakTester {
   private async testProxyChain(): Promise<{ success: boolean; details: any }> {
     try {
       console.log('执行代理链测试...');
-      
-      // 检查代理链是否正常工作
-      const proxyChainWorking = true; // 这里应该实际检查代理链状态
-      
+      const status = httpProtocolManager.getProtectionStatus();
+      const stats = httpProtocolManager.getConnectionStats();
+      const ok = status.connectionIsolation === true;
       return {
-        success: proxyChainWorking,
+        success: ok,
         details: {
-          proxyChainWorking: proxyChainWorking,
-          message: proxyChainWorking ? '代理链工作正常' : '代理链工作异常'
+          connectionIsolation: status.connectionIsolation,
+          forceHttp1: status.forceHttp1,
+          http2Enabled: status.http2Enabled,
+          sensitiveDomains: status.sensitiveDomains,
+          connectionStats: stats,
+          message: ok ? '连接隔离已启用' : '连接隔离未启用'
         }
       };
     } catch (error) {
