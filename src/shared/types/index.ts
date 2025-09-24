@@ -137,6 +137,19 @@ export interface AppSettings {
   requestDelayRange?: [number, number]; // [min, max] milliseconds
   enableMacAddressProtection?: boolean;
   macAddressProtectionMode?: 'strict' | 'relaxed';
+  // HTTP/2.0特定防护配置
+  enableHttp2Protection?: boolean;
+  http2ProtectionMode?: 'strict' | 'relaxed';
+  http2ConnectionIsolation?: boolean;
+  http2HeaderTableCleanup?: boolean;
+  http2TimingObfuscation?: boolean;
+  http2SensitiveDomains?: string[];
+  http2ProtocolWhitelist?: string[];
+  http2ForceHttp1?: boolean;
+  http2BatchRequests?: boolean;
+  http2BatchSize?: number;
+  http2BatchDelayRange?: [number, number];
+  http2ConnectionResetInterval?: number;
   enableDnsRules: boolean;
   dnsRules: DnsRule[];
   enableDnsFallback: boolean;
@@ -294,6 +307,25 @@ export interface MacAddressLeakResult {
   networkInterfaces: string[];
 }
 
+// HTTP/2.0防护检测结果接口
+export interface Http2ProtectionResult {
+  leaked: boolean;
+  details: string[];
+  leakSources: string[];
+  connectionIsolation: boolean;
+  headerTableCleanup: boolean;
+  timingObfuscation: boolean;
+  protocolDowngrade: boolean;
+  sensitiveDomains: string[];
+  connectionStats: {
+    totalConnections: number;
+    http1Connections: number;
+    http2Connections: number;
+    isolatedConnections: number;
+    activePools: number;
+  };
+}
+
 // 统一泄露防护状态接口
 export interface LeakProtectionStatus {
   dns: {
@@ -337,6 +369,12 @@ export interface LeakProtectionStatus {
     mode: 'strict' | 'relaxed';
     lastCheck?: Date;
     lastResult?: MacAddressLeakResult;
+  };
+  http2Protection: {
+    enabled: boolean;
+    mode: 'strict' | 'relaxed';
+    lastCheck?: Date;
+    lastResult?: Http2ProtectionResult;
   };
 }
 

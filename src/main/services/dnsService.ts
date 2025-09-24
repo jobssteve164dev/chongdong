@@ -230,6 +230,12 @@ class DnsService {
 
   private async resolveSingleDoH(domain: string, server: string, _request: any): Promise<string | null> {
     try {
+      // 严格模式或启用泄露防护时，优先通过本地代理(SOCKS)发起DoH请求，避免直连泄露
+      if (this.leakProtectionEnabled || this.settings?.dnsLeakProtectionMode === 'strict') {
+        const result = await this.resolveDoHOverSocks(domain, server);
+        return result;
+      }
+
       const dohResponse = await axios.get<DoHResponse>(server, {
         params: { name: domain, type: 'A' },
         headers: { 'accept': 'application/dns-json' },
@@ -248,6 +254,11 @@ class DnsService {
   }
   
   private async resolveSingleDoT(domain: string, server: string, _request: any): Promise<string | null> {
+    // 严格模式或启用泄露防护时，通过本地代理(SOCKS)发起DoT，避免直连
+    if (this.leakProtectionEnabled || this.settings?.dnsLeakProtectionMode === 'strict') {
+      return await this.resolveDoTOverSocks(domain, server);
+    }
+
     return new Promise((resolve, reject) => {
       const [host, portStr] = server.replace('tls://', '').split(':');
       const port = portStr ? parseInt(portStr, 10) : 853;
@@ -290,6 +301,120 @@ class DnsService {
         socket.end();
       });
     });
+  }
+
+  // 通过本地 SOCKS 代理发起 DoH 请求，避免直连
+  private async resolveDoHOverSocks(domain: string, dohUrl: string): Promise<string | null> {
+    try {
+      const { URL } = require('url');
+      const url = new URL(dohUrl);
+      const host = url.hostname;
+      const port = Number(url.port) || 443;
+      const path = `${url.pathname}?name=${encodeURIComponent(domain)}&type=A`;
+
+      const proxy = this.getSocksProxyEndpoint();
+      if (!proxy) throw new Error('No local proxy endpoint configured');
+
+      const { SocksClient } = require('socks');
+      const { socket } = await SocksClient.createConnection({
+        proxy: { host: proxy.host, port: proxy.port, type: 5 },
+        command: 'connect',
+        destination: { host, port },
+        timeout: 5000
+      });
+
+      return await new Promise<string | null>((resolve, reject) => {
+        const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: false });
+        tlsSocket.setTimeout(5000, () => tlsSocket.destroy(new Error('TLS request timeout')));
+        const requestLines = [
+          `GET ${path} HTTP/1.1`,
+          `Host: ${host}`,
+          'Accept: application/dns-json',
+          'User-Agent: Chongdong-DNS/1.0',
+          'Connection: close',
+          '',
+          ''
+        ].join('\r\n');
+
+        let data = '';
+        tlsSocket
+          .once('secureConnect', () => tlsSocket.write(requestLines))
+          .on('data', (chunk: any) => (data += chunk.toString()))
+          .on('error', (err: any) => reject(err))
+          .on('end', () => {
+            try {
+              const body = data.split('\r\n\r\n')[1] || '';
+              const json = JSON.parse(body) as DoHResponse;
+              const answer = (json.Answer || []).find(a => a.type === 1);
+              resolve(answer?.data || null);
+            } catch (e) {
+              reject(e);
+            }
+          });
+      });
+    } catch (e) {
+      console.error('resolveDoHOverSocks failed:', e);
+      throw e;
+    }
+  }
+
+  // 通过本地 SOCKS 代理发起 DoT 查询，避免直连
+  private async resolveDoTOverSocks(domain: string, dotUrl: string): Promise<string | null> {
+    const [host, portStr] = dotUrl.replace('tls://', '').split(':');
+    const port = portStr ? parseInt(portStr, 10) : 853;
+
+    const proxy = this.getSocksProxyEndpoint();
+    if (!proxy) throw new Error('No local proxy endpoint configured');
+
+    const { SocksClient } = require('socks');
+    const { socket } = await SocksClient.createConnection({
+      proxy: { host: proxy.host, port: proxy.port, type: 5 },
+      command: 'connect',
+      destination: { host, port },
+      timeout: 5000
+    });
+
+    const dnsQueryPacket = new Dns.Packet();
+    (dnsQueryPacket as any).questions.push({ name: domain, type: Dns.Packet.TYPE.A, class: Dns.Packet.CLASS.IN });
+    const queryBuffer = dnsQueryPacket.toBuffer();
+
+    const lengthBuffer = Buffer.alloc(2);
+    lengthBuffer.writeUInt16BE(queryBuffer.length, 0);
+    const finalQuery = Buffer.concat([lengthBuffer, queryBuffer]);
+
+    return await new Promise<string | null>((resolve, reject) => {
+      const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: false }, () => {
+        tlsSocket.write(finalQuery);
+      });
+      tlsSocket.setTimeout(5000, () => tlsSocket.destroy(new Error('DoT over SOCKS timeout')));
+      tlsSocket.on('data', (data) => {
+        try {
+          const answerPacket = (Dns.Packet as any).parse(data.slice(2));
+          if (answerPacket.answers.length > 0 && answerPacket.answers[0].address) {
+            resolve(answerPacket.answers[0].address);
+          } else {
+            resolve(null);
+          }
+        } catch (e) {
+          reject(e);
+        } finally {
+          tlsSocket.end();
+        }
+      });
+      tlsSocket.on('error', (err) => { reject(err); tlsSocket.end(); });
+    });
+  }
+
+  private getSocksProxyEndpoint(): { host: string; port: number } | null {
+    try {
+      const s = this.settings;
+      if (!s) return null;
+      const port = Number(s.socksPort || s.mixedPort || s.proxyPort);
+      if (!port || !Number.isFinite(port)) return null;
+      return { host: '127.0.0.1', port };
+    } catch {
+      return null;
+    }
   }
 
   // 洗牌算法，用于负载均衡

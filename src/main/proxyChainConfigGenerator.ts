@@ -50,11 +50,22 @@ export class ProxyChainConfigGenerator {
       // 无节点时的安全回退：仍然生成一个可启动的基础配置（mixed 入站 + direct 出站）
       const inbounds = this.generateInbounds(listenPort);
       const logConfig = this.generateLogConfig();
+      // 如果全局禁用UDP，则为安全起见增加一条“UDP -> block”的规则
+      let udpBlockRule: any | null = null;
+      try {
+        const { settingsManager } = require('../main/settingsManager');
+        const settings = settingsManager.getSettings?.() || {};
+        if (settings.enableUdp === false) {
+          udpBlockRule = { network: 'udp', outbound: 'block' };
+        }
+      } catch {}
+
       return {
         inbounds,
         outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
         route: {
           rules: [
+            ...(udpBlockRule ? [udpBlockRule] : []),
             {
               inbound: [inbounds[0].tag, 'tun-in'],
               outbound: 'direct'
@@ -78,11 +89,21 @@ export class ProxyChainConfigGenerator {
     if (validNodes.length === 0) {
       const inbounds = this.generateInbounds(listenPort);
       const logConfig = this.generateLogConfig();
+      let udpBlockRule: any | null = null;
+      try {
+        const { settingsManager } = require('../main/settingsManager');
+        const settings = settingsManager.getSettings?.() || {};
+        if (settings.enableUdp === false) {
+          udpBlockRule = { network: 'udp', outbound: 'block' };
+        }
+      } catch {}
+
       return {
         inbounds,
         outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
         route: {
           rules: [
+            ...(udpBlockRule ? [udpBlockRule] : []),
             {
               inbound: [inbounds[0].tag, 'tun-in'],
               outbound: 'direct'
@@ -366,8 +387,19 @@ export class ProxyChainConfigGenerator {
     // 路由规则非常简单：将所有入站流量指向链条的第一个节点
     const firstNodeTag = `proxy-${nodes[0].id}`;
     
+    // 如果全局禁用UDP，则优先阻断UDP以防 QUIC/UDP 泄露
+    let udpBlockRule: any | null = null;
+    try {
+      const { settingsManager } = require('../main/settingsManager');
+      const settings = settingsManager.getSettings?.() || {};
+      if (settings.enableUdp === false) {
+        udpBlockRule = { network: 'udp', outbound: 'block' };
+      }
+    } catch {}
+
     return {
       rules: [
+        ...(udpBlockRule ? [udpBlockRule] : []),
         {
           inbound: ['mixed-in', 'tun-in'],
           outbound: firstNodeTag,
@@ -382,8 +414,19 @@ export class ProxyChainConfigGenerator {
    */
   private generateSingleNodeRoute(node: ProxyNode, isFinalNode: boolean, inboundTag: string): any {
     const outboundTag = isFinalNode ? `proxy-${node.id}` : 'main-out';
+    // 如果全局禁用UDP，则优先阻断UDP
+    let udpBlockRule: any | null = null;
+    try {
+      const { settingsManager } = require('../main/settingsManager');
+      const settings = settingsManager.getSettings?.() || {};
+      if (settings.enableUdp === false) {
+        udpBlockRule = { network: 'udp', outbound: 'block' };
+      }
+    } catch {}
+
     return {
       rules: [
+        ...(udpBlockRule ? [udpBlockRule] : []),
         {
           inbound: [inboundTag, 'tun-in'],
           outbound: outboundTag,

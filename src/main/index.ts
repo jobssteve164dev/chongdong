@@ -62,6 +62,16 @@ try {
   console.warn('设置WebRTC泄露防护失败(可忽略):', err);
 }
 
+// 禁用 QUIC/HTTP3，防止 Alt-Svc 升级到 h3 走本机 UDP/443 导致隐私泄露
+try {
+  app.commandLine.appendSwitch('disable-quic');
+  // 保守起见，关闭 HTTP/2 直连 QUIC 探测（Chromium 会尊重 disable-quic）
+  // 后续仍可在代理内维持 HTTP/2 over TCP/TLS
+  console.log('已禁用 QUIC/HTTP3');
+} catch (err) {
+  console.warn('禁用 QUIC 失败(可忽略):', err);
+}
+
 // 全局主窗口引用
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
