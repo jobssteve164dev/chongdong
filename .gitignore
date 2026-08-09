@@ -278,6 +278,7 @@ test-results.xml
 *.rpm
 *.snap
 
+/.solopreneur/
 # Development specific
 .dev/
 .local/
