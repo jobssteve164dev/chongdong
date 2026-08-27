@@ -13,6 +13,8 @@ declare global {
 
 const { ipcRenderer } = window.electron;
 
+import { assertSuccessfulIpcResult } from '../../shared/proxyRuntime';
+
 export interface ProxySettings {
   host: string;
   port: number;
@@ -36,7 +38,6 @@ export interface TUNConfig {
 
 export class SystemProxy {
   private static instance: SystemProxy;
-  private currentSettings: ProxySettings | null = null;
 
   private constructor() {}
 
@@ -52,8 +53,8 @@ export class SystemProxy {
    */
   public async setSystemProxy(host: string, socksPort: number, httpPort?: number): Promise<void> {
     try {
-      await ipcRenderer.invoke('system:setProxy', { host, socksPort, httpPort });
-      this.currentSettings = { host, port: socksPort, enabled: true };
+      const result = await ipcRenderer.invoke('system:setProxy', { host, socksPort, httpPort });
+      assertSuccessfulIpcResult(result, '系统代理设置失败');
     } catch (error) {
       throw new Error(`Failed to set system proxy: ${error}`);
     }
@@ -64,8 +65,8 @@ export class SystemProxy {
    */
   public async clearSystemProxy(): Promise<void> {
     try {
-      await ipcRenderer.invoke('system:clearProxy');
-      this.currentSettings = null;
+      const result = await ipcRenderer.invoke('system:clearProxy');
+      assertSuccessfulIpcResult(result, '系统代理清理失败');
     } catch (error) {
       throw new Error(`Failed to clear system proxy: ${error}`);
     }
@@ -77,7 +78,6 @@ export class SystemProxy {
   public async getSystemProxy(): Promise<ProxySettings | null> {
     try {
       const settings = await ipcRenderer.invoke('system:getProxy');
-      this.currentSettings = settings;
       return settings;
     } catch (error) {
       throw new Error(`Failed to get system proxy: ${error}`);

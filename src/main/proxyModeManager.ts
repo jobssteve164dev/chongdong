@@ -4,6 +4,7 @@ import { systemProxyManager } from './systemProxyManager';
 import { proxyManager } from './proxyManager';
 import { TunController } from './tunController';
 import { CompatPortForwarder } from './compatPortForwarder';
+import { isProxyRuntimeRunning } from '../shared/proxyRuntime';
 
 export interface ProxyModeConfig {
   mode: 'rule' | 'global' | 'direct' | 'vpn';
@@ -34,6 +35,12 @@ export class ProxyModeManager {
       ProxyModeManager.instance = new ProxyModeManager();
     }
     return ProxyModeManager.instance;
+  }
+
+  public restoreConfiguredMode(mode: ProxyModeConfig['mode']): void {
+    this.currentMode = mode;
+    this.currentVpnName = undefined;
+    console.log(`[ProxyModeManager] 已恢复模式配置（未接管系统流量）: ${mode}`);
   }
 
   /**
@@ -104,8 +111,10 @@ export class ProxyModeManager {
       // 规则模式：基于用户定义的规则进行流量路由
       // 这里需要启动代理服务，但只对匹配规则的流量进行代理
       
-      // 设置系统代理
-      if (settings.systemProxy) {
+      const runtime = await proxyManager.getStats();
+      const runtimeRunning = isProxyRuntimeRunning(runtime);
+
+      if (settings.systemProxy && runtimeRunning) {
         await systemProxyManager.setSystemProxy('127.0.0.1', settings.socksPort, settings.proxyPort);
       }
       
@@ -113,7 +122,9 @@ export class ProxyModeManager {
       
       return {
         success: true,
-        message: '规则模式已启用，将根据用户定义的规则进行流量路由',
+        message: runtimeRunning
+          ? '规则模式已启用，将根据用户定义的规则进行流量路由'
+          : '规则模式已选择，将在可信链路启动后生效',
         port: settings.proxyPort
       };
     } catch (error) {
@@ -130,8 +141,10 @@ export class ProxyModeManager {
     try {
       // 全局模式：所有流量都通过代理
       
-      // 设置系统代理
-      if (settings.systemProxy) {
+      const runtime = await proxyManager.getStats();
+      const runtimeRunning = isProxyRuntimeRunning(runtime);
+
+      if (settings.systemProxy && runtimeRunning) {
         await systemProxyManager.setSystemProxy('127.0.0.1', settings.socksPort, settings.proxyPort);
       }
       
@@ -139,7 +152,9 @@ export class ProxyModeManager {
       
       return {
         success: true,
-        message: '全局模式已启用，所有流量都将通过代理',
+        message: runtimeRunning
+          ? '全局模式已启用，所有流量都将通过代理'
+          : '全局模式已选择，将在可信链路启动后生效',
         port: settings.proxyPort
       };
     } catch (error) {
@@ -187,6 +202,11 @@ export class ProxyModeManager {
       const socksPort = (proxyManager as any).getMiddlewareEntryPort?.() || settings.socksPort;
       if (!socksPort || socksPort <= 0) {
         throw new Error('无效的 SOCKS 入口端口，无法启动 TUN 模式');
+      }
+
+      const runtime = await proxyManager.getStats();
+      if (!isProxyRuntimeRunning(runtime)) {
+        throw new Error('代理链路尚未运行，不能启用 TUN 模式');
       }
 
       // 确保现有代理进程可用（不停止中间件），仅更新网络设置用于其他组件感知

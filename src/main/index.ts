@@ -18,7 +18,7 @@ import { dnsService } from './services/dnsService';
 import { leakProtectionManager } from './services/leakProtectionManager';
 import { dynamicChainManager } from './dynamicChainManager';
 import { chainStatusManager } from './chainStatusManager';
-import { AppSettings, ChainConfig } from '../shared/types';
+import { AppSettings, ChainConfig, ProxyNode } from '../shared/types';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
 import { cfEdgeEgressService } from './services/cfEdgeEgressService';
@@ -107,6 +107,7 @@ async function cleanupProxyState(): Promise<void> {
     console.log('开始清理代理状态...');
     
     // 1. 停止中间件管理器
+    dynamicChainManager.stopAll();
     await proxyManager.stopMiddleware();
     
     // 2. 停止所有代理进程
@@ -119,6 +120,7 @@ async function cleanupProxyState(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     console.log('代理状态清理完成');
+    broadcastProxyStatus(false, { source: 'cleanup' });
   } catch (error) {
     console.error('清理代理状态失败:', error);
     throw error;
@@ -843,23 +845,14 @@ app.whenReady().then(async () => {
     console.warn('初始化离线Geo解析器失败(可忽略):', e);
   }
 
-  // 应用启动时自动应用默认代理模式
+  // 启动时只恢复模式选择；没有已验证的运行态时不得接管系统流量
   try {
     const settings = settingsManager.getSettings();
-    console.log(`[应用启动] 应用默认代理模式: ${settings.mode}`);
-    
-    // 应用默认代理模式
-    await proxyModeManager.applyProxyMode({
-      mode: settings.mode,
-      settings: settings,
-      networkSettings: {
-        listenPort: settings.proxyPort
-      }
-    });
-    
-    console.log(`[应用启动] 默认代理模式应用完成: ${settings.mode}`);
+    proxyModeManager.restoreConfiguredMode(settings.mode);
+    await systemProxyManager.clearSystemProxy();
+    console.log(`[应用启动] 已恢复代理模式配置且保持系统流量直连: ${settings.mode}`);
   } catch (error) {
-    console.error('[应用启动] 应用默认代理模式失败:', error);
+    console.error('[应用启动] 恢复代理模式配置失败:', error);
   }
 
   // Default open or close DevTools by F12 in development
@@ -1065,11 +1058,7 @@ ipcMain.handle('proxy:startClash', async (_, config) => {
 
 ipcMain.handle('proxy:stop', async () => {
   try {
-    // 优先停止中间件，再停止所有单引擎进程
-    try { await proxyManager.stopMiddleware(); } catch (e) { console.warn('[IPC] stopMiddleware ignore:', e); }
-    await proxyManager.stopAll();
-    try { await systemProxyManager.clearSystemProxy(); } catch {}
-    broadcastProxyStatus(false, { source: 'ipc-stop' });
+    await cleanupProxyState();
     return { success: true };
   } catch (error) {
     console.error('Failed to stop proxy:', error);
@@ -2265,6 +2254,34 @@ ipcMain.handle('proxy:start-dynamic-chain', async (_event, { chain, listenPort }
     return { success: true, port: result.port };
   } catch (error) {
     console.error('启动动态代理链失败:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle('proxy:start-static-chain', async (
+  _event,
+  { chain, listenPort, nodes }: { chain: ChainConfig; listenPort: number; nodes: ProxyNode[] }
+) => {
+  try {
+    if (chain.type !== 'static') {
+      throw new Error('代理链类型不是静态链');
+    }
+    if (!Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
+      throw new Error('静态代理链监听端口无效');
+    }
+    if (!Array.isArray(nodes) || nodes.length === 0 || nodes.length !== chain.proxies.length) {
+      throw new Error('静态代理链节点不完整');
+    }
+
+    const expectedNodeIds = new Set(chain.proxies);
+    if (nodes.some(node => !expectedNodeIds.has(node.id))) {
+      throw new Error('静态代理链节点与配置不一致');
+    }
+
+    const result = await proxyManager.startChain(chain, { listenPort }, nodes);
+    return { success: true, port: result.port };
+  } catch (error) {
+    console.error('启动静态代理链失败:', error);
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });

@@ -66,6 +66,14 @@ export class DynamicChainManager {
     }
   }
 
+  public stopAll(): void {
+    for (const timer of this.activeTimers.values()) {
+      clearInterval(timer);
+    }
+    this.activeTimers.clear();
+    console.log('[DynamicChainManager] Stopped all scheduled chain updates');
+  }
+
   private async updateAndApplyChain(chainConfig: ChainConfig, listenPort: number): Promise<{ port: number }> {
     try {
       // 1. 获取所有订阅
@@ -107,8 +115,7 @@ export class DynamicChainManager {
       }
       
       if (nodesToTest.length === 0) {
-        console.warn(`[DynamicChainManager] No nodes found for dynamic chain ${chainConfig.name}.`);
-        return { port: 0 }; // Return a default port or throw an error if no nodes are found
+        throw new Error(`No nodes found for dynamic chain ${chainConfig.name}.`);
       }
 
       // 3. 测试所有节点的延迟
@@ -167,8 +174,7 @@ export class DynamicChainManager {
         console.log(`[DynamicChainManager] Proxy manager started successfully for chain: ${chainConfig.name}`);
         return { port: listenPort };
       } else {
-        console.warn('[DynamicChainManager] No nodes found after latency test for dynamic chain', chainConfig.name);
-        return { port: 0 }; // Return a default port or throw an error if no nodes are found
+        throw new Error(`No valid nodes found after latency test for dynamic chain ${chainConfig.name}.`);
       }
 
     } catch (error) {

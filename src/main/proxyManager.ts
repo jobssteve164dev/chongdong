@@ -898,6 +898,7 @@ export class ProxyManager {
           // middleware 返回的是 bytes 级别统计，这里统一映射为渲染端使用的字段
           // 约定：上传=客户端->适配器(trafficRouter.bytesReceived)，下载=适配器->客户端(bytesSent)
           return {
+            running: true,
             totalUpload: chainStats.bytesReceived || 0,
             totalDownload: chainStats.bytesSent || 0,
             // 速度由前端根据时间差计算；此处保留为0以避免误导
@@ -943,6 +944,7 @@ export class ProxyManager {
       }
 
       return {
+        running: this.processes.size > 0,
         totalUpload,
         totalDownload,
         uploadSpeed,
@@ -954,6 +956,8 @@ export class ProxyManager {
     } catch (error) {
       console.error('获取统计数据失败:', error);
       return {
+        running: false,
+        error: error instanceof Error ? error.message : '获取代理运行状态失败',
         totalUpload: 0,
         totalDownload: 0,
         uploadSpeed: 0,
@@ -1482,11 +1486,14 @@ export class ProxyManager {
     } catch (error) {
       console.error(`❌ [ProxyManager] 中间件代理链启动失败: ${chainId}`, error);
       console.error(`❌ [ProxyManager] 错误详情:`, error instanceof Error ? error.stack : error);
-      
-      // 如果中间件启动失败，回退到传统模式
-      console.log(`[ProxyManager] 回退到传统sing-box模式`);
-      this.useMiddleware = false;
-      await this.startProxyChainWithSingBox(chainId, nodes, port);
+
+      try {
+        await this.middlewareManager?.stop();
+      } catch (cleanupError) {
+        console.warn(`[ProxyManager] 清理失败的中间件代理链时出错:`, cleanupError);
+      }
+      this.middlewareManager = undefined;
+      throw error;
     }
   }
 

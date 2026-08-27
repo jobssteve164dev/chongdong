@@ -11,8 +11,9 @@ import {
   PlayCircleOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { proxyEngine, ProxyStatus } from '../utils/proxyEngine';
+import { proxyEngine } from '../utils/proxyEngine';
 import { systemProxy, ProxySettings } from '../utils/systemProxy';
+import { assertSuccessfulIpcResult } from '../../shared/proxyRuntime';
 import { ChainConfig, ProxyNode, AppSettings, Subscription } from '../../shared/types';
 import { Storage, STORAGE_KEYS } from '../utils/storage';
 import ProxyChainBuilder from '../components/ProxyChainBuilder';
@@ -37,11 +38,8 @@ const ProxyManagement: React.FC = () => {
   const [groupedNodes, setGroupedNodes] = useState<GroupedNodes>({});
   const [subscriptionMap, setSubscriptionMap] = useState<Record<string, string>>({});
   
-  // 从 Zustand store 获取节点和延迟信息
+  // 从 Zustand store 获取节点
   const nodes = useNodeStore((state: NodeStore) => state.nodes);
-  const nodeLatencies = useNodeStore((state: NodeStore) => state.nodeLatencies);
-  const defaultChainId = useNodeStore((state: NodeStore) => state.defaultChainId);
-  const setNodeLatencies = useNodeStore((state: NodeStore) => state.setNodeLatencies);
   
   // 从store获取全局代理连接状态
   const proxyConnected = useNodeStore((state: NodeStore) => state.proxyConnected);
@@ -110,7 +108,7 @@ const ProxyManagement: React.FC = () => {
               encryption: server.encryption,
               network: server.network,
               wsPath: server.wsPath,
-              wsHost: server.wsHost,
+              wsHost: server.wsHeaders?.['Host'],
             };
             nodesFromSubscriptions.push(node);
           }
@@ -132,7 +130,7 @@ const ProxyManagement: React.FC = () => {
       encryption: server.encryption,
       network: server.network,
       wsPath: server.wsPath,
-      wsHost: server.wsHost,
+      wsHost: server.wsHeaders?.['Host'],
     }));
 
     // 合并从订阅生成的节点、自定义服务器和现有的手动添加的节点
@@ -176,10 +174,11 @@ const ProxyManagement: React.FC = () => {
     try {
       // 清理现有代理状态
       try {
-        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        const cleanupResult = await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        assertSuccessfulIpcResult(cleanupResult, '无法清理上一条代理链路');
         console.log('代理状态清理完成');
       } catch (cleanupError) {
-        console.warn('清理代理状态时出现警告:', cleanupError);
+        throw new Error(`启动前清理失败: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
       }
       
       const selectedNode = nodes.find((n: ProxyNode) => n.id === selectedNodeId);
@@ -209,27 +208,16 @@ const ProxyManagement: React.FC = () => {
       
       const defaultSettings = DefaultSettings.getDefaultAppSettings();
 
-      await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
-      message.success('代理引擎启动成功');
+      const started = await proxyEngine.startWithNode(selectedNode, settings || defaultSettings);
+      if (!started) {
+        throw new Error(proxyEngine.getStatus().error || '代理引擎未能进入运行状态');
+      }
       
       // 启动代理后，设置系统代理
-      try {
-        // 使用设置中的实际端口配置
-        const finalSettings = settings || defaultSettings;
-        const socksPort = finalSettings.socksPort || 7896; // SOCKS端口
-        const httpPort = finalSettings.proxyPort || 7897; // HTTP端口
-        console.log('当前设置中的端口配置:', {
-          proxyPort: finalSettings.proxyPort,
-          socksPort: finalSettings.socksPort,
-          mixedPort: finalSettings.mixedPort
-        });
-        console.log(`设置系统代理 - SOCKS: ${socksPort}, HTTP: ${httpPort}`);
-        await systemProxy.setSystemProxy('127.0.0.1', socksPort, httpPort);
-        console.log(`系统代理已设置 - HTTP/HTTPS: 127.0.0.1:${httpPort}, SOCKS: 127.0.0.1:${socksPort}`);
-      } catch (proxyError) {
-        console.error('设置系统代理失败:', proxyError);
-        message.warning('代理引擎启动成功，但系统代理设置失败，可能需要管理员权限');
-      }
+      const finalSettings = settings || defaultSettings;
+      const socksPort = finalSettings.socksPort || 7896;
+      const httpPort = finalSettings.proxyPort || 7897;
+      await systemProxy.setSystemProxy('127.0.0.1', socksPort, httpPort);
       
       // 更新全局状态
       setProxyConnected(true);
@@ -238,18 +226,25 @@ const ProxyManagement: React.FC = () => {
       
       // 广播状态变化到主进程，通知Dashboard刷新
       try {
-        await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+        const broadcastResult = await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
           running: true,
           source: 'proxy-management-node',
           nodeId: selectedNode.id,
           nodeName: selectedNode.name
         });
+        assertSuccessfulIpcResult(broadcastResult, '无法同步代理运行状态');
       } catch (error) {
-        console.warn('广播代理状态失败:', error);
+        throw new Error(`代理状态同步失败: ${error instanceof Error ? error.message : String(error)}`);
       }
-      
+
+      message.success('代理连接已启动');
       loadSystemProxy();
     } catch (error) {
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+      } catch (cleanupError) {
+        console.error('代理启动失败后的回滚也失败:', cleanupError);
+      }
       message.error(`代理启动失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // 更新全局状态
       setProxyConnected(false);
@@ -265,39 +260,37 @@ const ProxyManagement: React.FC = () => {
     try {
       // 清理现有代理状态
       try {
-        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        const cleanupResult = await window.electron.ipcRenderer.invoke('proxy:cleanup');
+        assertSuccessfulIpcResult(cleanupResult, '无法清理上一条代理链路');
         console.log('代理状态清理完成');
       } catch (cleanupError) {
-        console.warn('清理代理状态时出现警告:', cleanupError);
+        throw new Error(`启动前清理失败: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
       }
       
       // 最终修复：从存储中获取用户设置，找到指定的端口号
-      const userSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS, DefaultSettings.getDefaultAppSettings());
+      const userSettings = Storage.get<AppSettings>(
+        STORAGE_KEYS.SETTINGS,
+        DefaultSettings.getDefaultAppSettings()
+      ) || DefaultSettings.getDefaultAppSettings();
       const listenPort = userSettings.mixedPort || 7897; // 使用用户设置的混合端口，如果没有则使用默认值
       
       console.log(`[ProxyManagement] Attempting to start chain with user-defined port: ${listenPort}`);
 
-      if (chain.type === 'dynamic') {
-        const result = await window.electron.ipcRenderer.invoke('proxy:start-dynamic-chain', { chain, listenPort });
-        if (result.success && result.port) {
-          message.success(`动态代理链 \"${chain.name}\" 已在端口 ${result.port} 启动`);
-          // 使用返回的、确认已成功监听的端口号设置系统代理
-          try {
-            await systemProxy.setSystemProxy('127.0.0.1', result.port, result.port);
-            console.log(`系统代理已设置为: 127.0.0.1:${result.port} (HTTP/SOCKS)`);
-          } catch (proxyError) {
-            console.error('设置系统代理失败:', proxyError);
-            message.warning('代理链启动成功，但系统代理设置失败');
-          }
-        } else {
-          throw new Error(result.error || '启动动态代理链失败，未返回端口号');
-        }
-      } else {
-        // TODO: 实现静态代理链启动逻辑
-        console.log('启动静态代理链:', chain.name);
-        // 对于静态链，也需要类似地获取端口并传递
-        message.info('静态代理链启动功能尚未实现');
+      const result = chain.type === 'dynamic'
+        ? await window.electron.ipcRenderer.invoke('proxy:start-dynamic-chain', { chain, listenPort })
+        : await window.electron.ipcRenderer.invoke('proxy:start-static-chain', {
+            chain,
+            listenPort,
+            nodes: chain.proxies.map(nodeId => nodes.find(node => node.id === nodeId)).filter(Boolean)
+          });
+
+      assertSuccessfulIpcResult(result, `启动${chain.type === 'dynamic' ? '动态' : '静态'}代理链失败`);
+      const startedPort = Number((result as { port?: number }).port);
+      if (!Number.isInteger(startedPort) || startedPort < 1 || startedPort > 65535) {
+        throw new Error('代理链启动后未返回有效监听端口');
       }
+
+      await systemProxy.setSystemProxy('127.0.0.1', startedPort, startedPort);
       
       // 更新全局状态
       setProxyConnected(true);
@@ -306,19 +299,26 @@ const ProxyManagement: React.FC = () => {
       
       // 广播状态变化到主进程，通知Dashboard刷新
       try {
-        await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
+        const broadcastResult = await window.electron.ipcRenderer.invoke('proxy:broadcastStatus', {
           running: true,
           source: 'proxy-management-chain',
           chainId: chain.id,
           chainName: chain.name,
           chainType: chain.type
         });
+        assertSuccessfulIpcResult(broadcastResult, '无法同步代理链运行状态');
       } catch (error) {
-        console.warn('广播代理状态失败:', error);
+        throw new Error(`代理链状态同步失败: ${error instanceof Error ? error.message : String(error)}`);
       }
-      
+
+      message.success(`${chain.type === 'dynamic' ? '动态' : '静态'}代理链 \"${chain.name}\" 已启动`);
       loadSystemProxy();
     } catch (error) {
+      try {
+        await window.electron.ipcRenderer.invoke('proxy:cleanup');
+      } catch (cleanupError) {
+        console.error('代理链启动失败后的回滚也失败:', cleanupError);
+      }
       message.error(`启动失败: ${error instanceof Error ? error.message : '未知错误'}`);
       // 更新全局状态
       setProxyConnected(false);

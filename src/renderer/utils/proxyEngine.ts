@@ -13,8 +13,8 @@ declare global {
 
 const { ipcRenderer } = window.electron;
 
-import { ProxyEngine, ProxyEngineType } from '../../shared/types';
-import { AppSettings, ProxyNode, Subscription } from '../../shared/types';
+import { AppSettings, ProxyNode } from '../../shared/types';
+import { assertSuccessfulIpcResult, isProxyRuntimeRunning } from '../../shared/proxyRuntime';
 
 export interface ProxyConfig {
   id: string;
@@ -83,6 +83,10 @@ export class ProxyEngine {
    * 启动代理服务
    */
   public async startWithNode(node: ProxyNode, settings: AppSettings): Promise<boolean> {
+    this.status.running = false;
+    this.status.uptime = 0;
+    this.status.error = undefined;
+
     try {
       const engineType = settings.proxyEngine || 'singbox';
       
@@ -161,6 +165,8 @@ export class ProxyEngine {
       
       return true;
     } catch (error) {
+      this.status.running = false;
+      this.status.uptime = 0;
       this.status.error = error instanceof Error ? error.message : 'Unknown error';
       this.notifyStatusChange();
       console.error('Failed to start proxy with node:', error);
@@ -206,7 +212,8 @@ export class ProxyEngine {
    */
   public async stop(): Promise<void> {
     try {
-      await ipcRenderer.invoke('proxy:stop');
+      const result = await ipcRenderer.invoke('proxy:stop');
+      assertSuccessfulIpcResult(result, '代理停止失败');
       this.status.running = false;
       this.status.uptime = 0;
       this.status.connections = 0;
@@ -280,9 +287,11 @@ export class ProxyEngine {
   public async checkRunningStatus(): Promise<boolean> {
     try {
       const stats = await this.getStats();
-      // 如果能获取到统计信息，说明代理正在运行
-      const isRunning = stats && !stats.error;
+      const isRunning = isProxyRuntimeRunning(stats);
       this.status.running = isRunning;
+      if (!isRunning) {
+        this.status.uptime = 0;
+      }
       console.log('强制检查代理状态:', isRunning, stats);
       return isRunning;
     } catch (error) {
@@ -303,6 +312,8 @@ export class ProxyEngine {
     } catch (error) {
       console.error('Failed to get stats:', error);
       return {
+        running: false,
+        error: error instanceof Error ? error.message : '无法获取代理运行状态',
         activeConnections: 0,
         totalUpload: 0,
         totalDownload: 0

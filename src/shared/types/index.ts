@@ -504,6 +504,7 @@ export interface ProxyNode {
   username?: string; // for socks/http
   password?: string;
   encryption?: string;
+  security?: string;
   network?: string;
   wsPath?: string;
   wsHost?: string;
