@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Tag, Progress, Button, Space, Tooltip, Alert, Spin } from 'antd';
+import { Card, Row, Col, Tag, Button, Space, Alert, Spin } from 'antd';
 import { 
   CheckCircleOutlined, 
   CloseCircleOutlined, 
@@ -56,7 +56,6 @@ const ChainStatusDisplay: React.FC<ChainStatusDisplayProps> = ({
     setIpDetectionLoading(true);
     try {
       const nodeIPs = await chainIPDetector.detectChainNodeIPs(chainId);
-      console.log(`[ChainStatusDisplay] 节点IP检测结果:`, nodeIPs);
       setNodeIPs(nodeIPs);
     } catch (error) {
       console.error('检测节点IP异常:', error);
@@ -328,7 +327,6 @@ const ChainStatusDisplay: React.FC<ChainStatusDisplayProps> = ({
                 description={node.error}
                 type="error"
                 showIcon
-                size="small"
                 style={{ marginTop: 8 }}
               />
             )}
@@ -372,7 +370,7 @@ const ChainStatusDisplay: React.FC<ChainStatusDisplayProps> = ({
 
           {nodeIPs.length > 0 ? (
             <div>
-              {nodeIPs.map((nodeIP, index) => (
+              {nodeIPs.map((nodeIP) => (
                 <Card
                   key={nodeIP.nodeId}
                   size="small"
@@ -432,7 +430,6 @@ const ChainStatusDisplay: React.FC<ChainStatusDisplayProps> = ({
                       description={nodeIP.detection.error || '无法检测到IP地址'}
                       type="error"
                       showIcon
-                      size="small"
                     />
                   )}
                 </Card>

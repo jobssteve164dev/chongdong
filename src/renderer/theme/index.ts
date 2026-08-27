@@ -26,7 +26,6 @@ export const lightTheme: ThemeConfig = {
     Card: {
       headerBg: '#fafafa',
       headerFontSize: 16,
-      headerFontWeight: 600,
     },
     Button: {
       borderRadius: 6,
@@ -69,7 +68,6 @@ export const darkTheme: ThemeConfig = {
     Card: {
       headerBg: '#1f1f1f',
       headerFontSize: 16,
-      headerFontWeight: 600,
     },
     Button: {
       borderRadius: 6,

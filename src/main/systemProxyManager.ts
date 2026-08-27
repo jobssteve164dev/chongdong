@@ -16,6 +16,13 @@ export class SystemProxyManager {
     return SystemProxyManager.instance;
   }
 
+  private validateVpnName(name: string): string {
+    if (typeof name !== 'string' || !/^[A-Za-z0-9 _.-]{1,64}$/.test(name)) {
+      throw new Error('VPN 名称包含不允许的字符');
+    }
+    return name;
+  }
+
   /**
    * 设置系统代理
    */
@@ -467,25 +474,24 @@ export class SystemProxyManager {
     password?: string;
     type: 'openvpn' | 'wireguard' | 'ikev2' | 'l2tp';
   }): Promise<void> {
-    switch (process.platform) {
-      case 'win32':
-        await this.createWindowsVPN(config);
-        break;
-      case 'darwin':
-        await this.createMacOSVPN(config);
-        break;
-      case 'linux':
-        await this.createLinuxVPN(config);
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${process.platform}`);
+    this.validateVpnName(config?.name);
+    if (typeof config?.server !== 'string' || !/^[A-Za-z0-9.:[\]-]{1,255}$/.test(config.server)) {
+      throw new Error('VPN 服务器地址无效');
     }
+    if (!['ikev2', 'l2tp'].includes(config.type)) {
+      throw new Error('系统 VPN 配置仅支持 IKEv2 或 L2TP');
+    }
+    if (process.platform !== 'win32') {
+      throw new Error('当前平台未实现可验证的系统 VPN 配置写入');
+    }
+    await this.createWindowsVPN(config);
   }
 
   /**
    * 连接VPN
    */
   public async connectVPN(name: string): Promise<void> {
+    this.validateVpnName(name);
     switch (process.platform) {
       case 'win32':
         await this.connectWindowsVPN(name);
@@ -505,6 +511,7 @@ export class SystemProxyManager {
    * 断开VPN
    */
   public async disconnectVPN(name: string): Promise<void> {
+    this.validateVpnName(name);
     switch (process.platform) {
       case 'win32':
         await this.disconnectWindowsVPN(name);
@@ -525,7 +532,8 @@ export class SystemProxyManager {
    */
   private async createWindowsVPN(config: any): Promise<void> {
     try {
-      const command = `Add-VpnConnection -Name "${config.name}" -ServerAddress "${config.server}" -TunnelType "${config.type}" -EncryptionLevel "Required" -AuthenticationMethod MSChapv2 -Force -PassThru -AllUserConnection`;
+      const tunnelType = config.type === 'ikev2' ? 'Ikev2' : 'L2tp';
+      const command = `Add-VpnConnection -Name "${config.name}" -ServerAddress "${config.server}" -TunnelType "${tunnelType}" -EncryptionLevel "Required" -AuthenticationMethod MSChapv2 -Force -PassThru -AllUserConnection`;
       await execAsync(`powershell -Command "${command}"`);
       console.log(`Windows VPN connection created: ${config.name}`);
     } catch (error) {
@@ -554,78 +562,6 @@ export class SystemProxyManager {
   /**
    * macOS VPN操作
    */
-  private async createMacOSVPN(config: any): Promise<void> {
-    try {
-      console.log(`[SystemProxyManager] 尝试创建macOS VPN服务: ${config.name}`);
-      
-      // 使用scutil --nc命令管理VPN服务
-      // 首先检查VPN服务是否已存在
-      try {
-        const { stdout } = await execAsync(`scutil --nc list`);
-        if (stdout.includes(config.name)) {
-          console.log(`macOS VPN service ${config.name} already exists`);
-          return;
-        }
-      } catch (error) {
-        console.log(`[SystemProxyManager] 检查VPN服务列表失败: ${error}`);
-      }
-
-      // 创建VPN配置文件
-      // macOS VPN配置存储在/Library/Preferences/SystemConfiguration/目录下
-      const vpnConfigPath = `/Library/Preferences/SystemConfiguration/${config.name}.plist`;
-      
-      // 创建VPN配置plist文件
-      const vpnConfig = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>UserDefinedName</key>
-  <string>${config.name}</string>
-  <key>VPN</key>
-  <dict>
-    <key>RemoteAddress</key>
-    <string>${config.server}</string>
-    <key>AuthName</key>
-    <string>${config.username || 'chongdong'}</string>
-    <key>AuthPassword</key>
-    <string>${config.password || 'defaultsecret'}</string>
-    <key>VPNType</key>
-    <string>L2TP</string>
-  </dict>
-</dict>
-</plist>`;
-
-      try {
-        // 写入VPN配置文件
-        require('fs').writeFileSync(vpnConfigPath, vpnConfig);
-        console.log(`[SystemProxyManager] VPN配置文件已创建: ${vpnConfigPath}`);
-        
-        // 使用scutil启用VPN服务
-        await execAsync(`sudo scutil --nc select "${config.name}"`);
-        console.log(`[SystemProxyManager] VPN服务已启用: ${config.name}`);
-        
-      } catch (error) {
-        console.warn(`[SystemProxyManager] VPN配置创建失败: ${error}`);
-        
-        // 备用方案：使用系统偏好设置的方式
-        console.log(`[SystemProxyManager] 使用备用方案创建VPN服务`);
-        
-        // 尝试使用networksetup创建PPPoE服务作为VPN替代
-        try {
-          await execAsync(`sudo networksetup -createpppoeservice "${config.name}" "en0" "${config.username || 'chongdong'}" "${config.password || 'defaultsecret'}"`);
-          console.log(`[SystemProxyManager] PPPoE VPN服务已创建: ${config.name}`);
-        } catch (pppoeError) {
-          console.warn(`[SystemProxyManager] PPPoE服务创建也失败: ${pppoeError}`);
-          // 不抛出错误，让VPN模式继续工作
-        }
-      }
-      
-    } catch (error) {
-      console.warn(`[SystemProxyManager] VPN创建失败，但继续执行: ${error}`);
-      // 不抛出错误，让VPN模式继续工作
-    }
-  }
-
   private async connectMacOSVPN(name: string): Promise<void> {
     try {
       console.log(`[SystemProxyManager] 尝试连接macOS VPN: ${name}`);
@@ -679,16 +615,6 @@ export class SystemProxyManager {
   /**
    * Linux VPN操作
    */
-  private async createLinuxVPN(config: any): Promise<void> {
-    try {
-      // Linux VPN创建需要更复杂的配置
-      // 这里提供简化版本
-      console.log(`Linux VPN creation not fully implemented for ${config.name}`);
-    } catch (error) {
-      throw new Error(`Failed to create Linux VPN: ${error}`);
-    }
-  }
-
   private async connectLinuxVPN(name: string): Promise<void> {
     try {
       await execAsync(`nmcli connection up "${name}"`);
@@ -810,6 +736,7 @@ export class SystemProxyManager {
    * 获取VPN状态
    */
   public async getVPNStatus(name: string): Promise<{ connected: boolean; error?: string }> {
+    this.validateVpnName(name);
     try {
       switch (process.platform) {
         case 'win32':
@@ -863,7 +790,7 @@ export class SystemProxyManager {
         // 使用scutil --nc status检查连接状态
         const result = await execAsync(`sudo scutil --nc status "${name}"`);
         const isConnected = result.stdout.includes('Connected') || result.stdout.includes('connected');
-        console.log(`[SystemProxyManager] VPN状态检查结果: ${result.stdout}`);
+        console.log(`[SystemProxyManager] VPN状态检查完成`);
         return { connected: isConnected };
       } catch (scutilError) {
         console.warn(`[SystemProxyManager] scutil状态检查失败: ${scutilError}`);

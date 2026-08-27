@@ -79,25 +79,25 @@ export class LeakProtectionManager {
     
     // 初始化高级防护服务
     this.tlsFingerprintService.configure({
-      enabled: settings.enableTlsFingerprintProtection || true,
+      enabled: settings.enableTlsFingerprintProtection ?? true,
       mode: settings.tlsFingerprintMode || 'strict',
       template: settings.tlsFingerprintTemplate || 'chrome'
     });
     
     this.httpHeaderService.configure({
-      enabled: settings.enableHttpHeaderProtection || true,
+      enabled: settings.enableHttpHeaderProtection ?? true,
       mode: settings.httpHeaderProtectionMode || 'strict',
       customUserAgent: settings.customUserAgent || ''
     });
     
     this.timingLeakService.configure({
-      enabled: settings.enableTimingLeakProtection || true,
+      enabled: settings.enableTimingLeakProtection ?? true,
       mode: settings.timingLeakProtectionMode || 'relaxed',
       requestDelayRange: settings.requestDelayRange || [100, 500]
     });
     
     this.macAddressService.configure({
-      enabled: settings.enableMacAddressProtection || true,
+      enabled: settings.enableMacAddressProtection ?? true,
       mode: settings.macAddressProtectionMode || 'relaxed'
     });
 
@@ -114,26 +114,26 @@ export class LeakProtectionManager {
 
     // 地理位置防护
     geolocationProtectionService.configure({
-      enabled: settings.enableHttp2Protection || true,
+      enabled: settings.enableHttp2Protection ?? true,
       mode: settings.http2ProtectionMode || 'strict',
       dnsProtection: {
-        enabled: settings.enableDnsLeakProtection || true,
+        enabled: settings.enableDnsLeakProtection ?? true,
         forceProxyDns: true,
         blockDirectDns: true,
-        dnsOverHttps: settings.enableDoh || false
+        dnsOverHttps: settings.enableDoh ?? false
       },
       ipv6Protection: {
-        enabled: settings.enableIpv6LeakProtection || true,
+        enabled: settings.enableIpv6LeakProtection ?? true,
         disableIpv6: true,
         blockIpv6Leaks: true
       },
       webrtcProtection: {
-        enabled: settings.enableWebRTCLeakProtection || true,
+        enabled: settings.enableWebRTCLeakProtection ?? true,
         disableWebRTC: true,
         blockStunServers: true
       },
       fingerprintProtection: {
-        enabled: settings.enableHttpHeaderProtection || true,
+        enabled: settings.enableHttpHeaderProtection ?? true,
         randomizeUserAgent: true,
         hideTimezone: true,
         hideLanguage: true,
@@ -141,7 +141,7 @@ export class LeakProtectionManager {
         hideCanvasFingerprint: true
       },
       networkInterfaceProtection: {
-        enabled: settings.enableMacAddressProtection || true,
+        enabled: settings.enableMacAddressProtection ?? true,
         hideMacAddress: true,
         hideNetworkInterfaces: true,
         randomizeNetworkInfo: true
@@ -158,6 +158,9 @@ export class LeakProtectionManager {
     this.trafficDecoyService.configure();
     this.behaviorAnalyticsService.configure();
     this.behaviorAnalyticsService.start();
+    if (this.monitoringEnabled) {
+      this.trafficDecoyService.start();
+    }
   }
 
   /**
@@ -238,14 +241,14 @@ export class LeakProtectionManager {
       ]);
 
       return {
-        dns: dnsResult,
-        ipv6: ipv6Result,
-        webRTC: webRTCResult,
-        tlsFingerprint: tlsFingerprintResult,
-        httpHeader: httpHeaderResult,
-        timingLeak: timingLeakResult,
-        macAddress: macAddressResult,
-        http2Protection: http2ProtectionResult
+        dns: { ...dnsResult, verified: dnsResult.verified === true },
+        ipv6: { ...ipv6Result, verified: ipv6Result.verified === true },
+        webRTC: { ...webRTCResult, verified: webRTCResult.verified === true },
+        tlsFingerprint: { ...tlsFingerprintResult, verified: tlsFingerprintResult.verified === true },
+        httpHeader: { ...httpHeaderResult, verified: httpHeaderResult.verified === true },
+        timingLeak: { ...timingLeakResult, verified: timingLeakResult.verified === true },
+        macAddress: { ...macAddressResult, verified: macAddressResult.verified === true },
+        http2Protection: { ...http2ProtectionResult, verified: http2ProtectionResult.verified === true }
       };
     } catch (error) {
       console.error('执行泄露检测时出错:', error);
@@ -270,15 +273,16 @@ export class LeakProtectionManager {
   }> {
     console.log('开始执行完整泄露检测...');
     
+    const checked = await this.checkAllLeaks();
     const results = {
-      dns: await dnsService.checkDnsLeak(),
-      ipv6: await ipv6LeakProtectionService.checkIPv6Leak(),
-      webrtc: await webRTCLeakProtectionService.checkWebRTCLeak(),
-      tlsFingerprint: await this.tlsFingerprintService.checkTlsFingerprintLeak(),
-      httpHeader: await this.httpHeaderService.checkHttpHeaderLeak(),
-      timingLeak: await this.timingLeakService.checkTimingLeak(),
-      macAddress: await this.macAddressService.checkMacAddressLeak(),
-      http2Protection: await this.checkHttp2Protection(),
+      dns: checked.dns,
+      ipv6: checked.ipv6,
+      webrtc: checked.webRTC,
+      tlsFingerprint: checked.tlsFingerprint,
+      httpHeader: checked.httpHeader,
+      timingLeak: checked.timingLeak,
+      macAddress: checked.macAddress,
+      http2Protection: checked.http2Protection,
       overallLeaked: false,
       summary: [] as string[]
     };
@@ -334,8 +338,13 @@ export class LeakProtectionManager {
       results.summary.push(`HTTP/2.0防护泄露: ${results.http2Protection.leakSources.join(', ')}`);
     }
 
-    if (!results.overallLeaked) {
-      results.summary.push('✅ 所有泄露检测通过');
+    const hasUnverified = [results.dns, results.ipv6, results.webrtc, results.tlsFingerprint,
+      results.httpHeader, results.timingLeak, results.macAddress, results.http2Protection]
+      .some(result => result.verified !== true);
+    if (!results.overallLeaked && hasUnverified) {
+      results.summary.push('未发现明确泄露，但部分项目缺少真实出口观测');
+    } else if (!results.overallLeaked) {
+      results.summary.push('所有泄露检测均有观测证据且未发现泄露');
     }
 
     console.log('完整泄露检测完成:', results.summary);
@@ -470,8 +479,10 @@ export class LeakProtectionManager {
         if (results.overallLeaked) {
           console.warn('🚨 检测到泄露风险:', results.summary);
           // 这里可以添加通知逻辑
+        } else if (results.summary.includes('所有泄露检测均有观测证据且未发现泄露')) {
+          console.log('泄露防护检查已通过观测验证');
         } else {
-          console.log('✅ 泄露防护检查通过');
+          console.log('未发现明确泄露，但部分检查缺少真实观测证据');
         }
       } catch (error) {
         console.error('泄露防护监控执行失败:', error);
@@ -494,6 +505,7 @@ export class LeakProtectionManager {
     // 停止各个服务的监控
     ipv6LeakProtectionService.stopLeakMonitoring();
     webRTCLeakProtectionService.stopLeakMonitoring();
+    dnsService.stopLeakMonitoring();
     this.trafficDecoyService.stop();
     this.behaviorAnalyticsService.stop();
 
@@ -570,6 +582,7 @@ export class LeakProtectionManager {
     
     const result: Http2ProtectionResult = {
       leaked: false,
+      verified: false,
       details: [],
       leakSources: [],
       connectionIsolation: false,
@@ -601,13 +614,13 @@ export class LeakProtectionManager {
         result.leakSources.push('连接隔离未启用');
         result.details.push('HTTP/2.0连接隔离未启用，可能存在连接复用泄露');
       } else {
-        result.details.push('✅ HTTP/2.0连接隔离已启用');
+        result.details.push('HTTP/2.0 连接隔离策略已配置；仍需实际连接统计验证');
       }
       
       // 检查协议降级
       result.protocolDowngrade = protocolStatus.forceHttp1;
       if (result.protocolDowngrade) {
-        result.details.push('✅ 已强制使用HTTP/1.1协议');
+        result.details.push('已配置强制使用 HTTP/1.1；仍需实际出口协商结果验证');
       } else {
         result.details.push('使用HTTP/2.0协议，需要额外防护措施');
       }
@@ -620,7 +633,7 @@ export class LeakProtectionManager {
         result.leakSources.push('头部表清理未启用');
         result.details.push('HTTP/2.0头部表清理未启用，可能存在头部泄露');
       } else {
-        result.details.push('✅ HTTP/2.0头部表清理已启用');
+        result.details.push('HTTP/2.0 头部表清理开关已启用；当前没有数据面观测证据');
       }
       
       // 检查时序混淆（基于设置开关）
@@ -630,7 +643,7 @@ export class LeakProtectionManager {
         result.leakSources.push('时序混淆未启用');
         result.details.push('HTTP/2.0时序混淆未启用，可能存在时序泄露');
       } else {
-        result.details.push('✅ HTTP/2.0时序混淆已启用');
+        result.details.push('HTTP/2.0 时序混淆开关已启用；当前没有数据面观测证据');
       }
       
       // 检查连接统计
@@ -639,11 +652,11 @@ export class LeakProtectionManager {
         result.leakSources.push('无隔离连接');
         result.details.push('未创建任何隔离连接，敏感域名可能共享连接');
       } else {
-        result.details.push(`✅ 已创建${connectionStats.isolatedConnections}个隔离连接`);
+        result.details.push(`实际观测到 ${connectionStats.isolatedConnections} 个隔离连接`);
       }
       
       if (!result.leaked) {
-        result.details.push('✅ HTTP/2.0防护检查通过');
+        result.details.push('未发现明确配置冲突，但缺少完整出口观测，不能判定防护通过');
       }
 
     } catch (error) {
@@ -653,7 +666,7 @@ export class LeakProtectionManager {
       result.details.push(`检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 
-    console.log('HTTP/2.0防护检查完成:', result);
+    console.log('HTTP/2.0防护检查完成');
     return result;
   }
 
@@ -665,8 +678,11 @@ export class LeakProtectionManager {
       console.log('应用HTTP/2.0防护措施...');
       
       // 应用头部与时间防护（通用接口）
-      await this.httpHeaderService.applyProtection();
-      await this.timingLeakService.applyProtection();
+      const headerProtectionApplied = await this.httpHeaderService.applyProtection();
+      const timingProtectionApplied = await this.timingLeakService.applyProtection();
+      if (!headerProtectionApplied || !timingProtectionApplied) {
+        throw new Error('HTTP/2 防护未完整进入实际转发数据面');
+      }
       
       // 启动连接清理任务
       httpProtocolManager.startCleanupTask();

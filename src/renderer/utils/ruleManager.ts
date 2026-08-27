@@ -5,7 +5,6 @@ import {
   RuleType,
   RuleAction,
   RuleSource,
-  RuleParseResult,
   RuleConflictResult,
   RuleMatchResult,
   RuleStats
@@ -74,7 +73,7 @@ export class RuleManager {
   private loadData(): void {
     try {
       // 加载规则
-      const savedRules = Storage.get<RoutingRule[]>(STORAGE_KEYS.RULES, []);
+      const savedRules = Storage.get<RoutingRule[]>(STORAGE_KEYS.RULES, []) || [];
       savedRules.forEach(rule => {
         this.rules.set(rule.id, {
           ...rule,
@@ -84,7 +83,7 @@ export class RuleManager {
       });
 
       // 加载规则组
-      const savedGroups = Storage.get<RuleGroup[]>(STORAGE_KEYS.RULE_GROUPS, []);
+      const savedGroups = Storage.get<RuleGroup[]>(STORAGE_KEYS.RULE_GROUPS, []) || [];
       savedGroups.forEach(group => {
         this.groups.set(group.id, {
           ...group,
@@ -99,15 +98,11 @@ export class RuleManager {
       });
 
       // 加载规则模板
-      const savedTemplates = Storage.get<RuleTemplate[]>(STORAGE_KEYS.RULE_TEMPLATES, []);
+      const savedTemplates = Storage.get<RuleTemplate[]>(STORAGE_KEYS.RULE_TEMPLATES, []) || [];
       savedTemplates.forEach(template => {
         this.templates.set(template.id, {
           ...template,
-          rules: template.rules.map(rule => ({
-            ...rule,
-            createdAt: new Date(rule.createdAt),
-            updatedAt: new Date(rule.updatedAt)
-          })),
+          rules: template.rules,
           createdAt: new Date(template.createdAt),
           updatedAt: new Date(template.updatedAt)
         });
@@ -494,10 +489,10 @@ export class RuleManager {
   /**
    * 按属性统计
    */
-  private countByProperty<T extends keyof RoutingRule>(rules: RoutingRule[], property: T): Record<any, number> {
-    const counts: Record<any, number> = {};
+  private countByProperty<T extends keyof RoutingRule>(rules: RoutingRule[], property: T): Record<string, number> {
+    const counts: Record<string, number> = {};
     rules.forEach(rule => {
-      const value = rule[property];
+      const value = String(rule[property]);
       counts[value] = (counts[value] || 0) + 1;
     });
     return counts;

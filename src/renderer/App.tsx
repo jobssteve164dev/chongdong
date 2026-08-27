@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Layout, Menu, Button, Space, Typography } from 'antd';
 import {
   DashboardOutlined,
@@ -79,14 +79,7 @@ const AppContent: React.FC = () => {
               setCurrentProxyNode(null); // 清空节点信息
             } catch (error) {
               console.warn('获取代理链配置失败:', error);
-              // 设置基本信息作为备选
-              const chainInfo = {
-                id: payload.chainId,
-                name: payload.chainName || `Chain-${payload.chainId}`,
-                type: payload.chainType || (payload.source === 'tray-dynamic' ? 'dynamic' : 'static'),
-                proxies: []
-              };
-              setCurrentProxyChain(chainInfo);
+              setCurrentProxyChain(null);
               setCurrentProxyNode(null);
             }
           } else if (payload?.nodeId) {
@@ -99,15 +92,7 @@ const AppContent: React.FC = () => {
                 setCurrentProxyNode(node);
                 setCurrentProxyChain(null); // 清空代理链信息
               } else {
-                // 如果找不到节点信息，创建一个基本信息
-                const nodeInfo = {
-                  id: payload.nodeId,
-                  name: payload.nodeName || `Node-${payload.nodeId}`,
-                  type: 'unknown',
-                  server: 'unknown',
-                  port: 0
-                };
-                setCurrentProxyNode(nodeInfo);
+                setCurrentProxyNode(null);
                 setCurrentProxyChain(null);
               }
             } catch (error) {
@@ -176,12 +161,15 @@ const AppContent: React.FC = () => {
       }
     };
 
-    window.electron.ipcRenderer.on('nodes:request-latencies', handleRequestLatencies);
+    const offRequestLatencies = window.electron.ipcRenderer.on(
+      'nodes:request-latencies',
+      handleRequestLatencies
+    );
 
     return () => {
       // 清理IPC监听器
       try {
-        window.electron.ipcRenderer.removeListener('nodes:request-latencies', handleRequestLatencies);
+        offRequestLatencies();
       } catch (error) {
         console.warn('清理延迟数据请求监听器失败:', error);
       }

@@ -1,7 +1,8 @@
 import { app } from 'electron';
-import { spawn, exec } from 'child_process';
+import { spawn, exec, execFile } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from 'fs';
 import { join } from 'path';
+import { promisify } from 'util';
 
 export interface TunStartOptions {
   tunName?: string; // e.g., 'utun0'
@@ -11,8 +12,9 @@ export interface TunStartOptions {
   enableUdp?: boolean;
   enableIpv6?: boolean;
   dnsServer?: string;
-  extraArgs?: string[]; // allow user to tune flags when needed
 }
+
+const execFileAsync = promisify(execFile);
 
 class TunControllerClass {
   private static instance: TunControllerClass;
@@ -60,40 +62,27 @@ class TunControllerClass {
     const enableUdp = options.enableUdp !== false; // default true
     const enableIpv6 = !!options.enableIpv6; // default false
     const dnsServer = options.dnsServer; // optional
-    const extraArgs = options.extraArgs || [];
+    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(tunName)) throw new Error('TUN 设备名称无效');
+    if (socksHost !== '127.0.0.1' && socksHost !== '::1' && socksHost !== 'localhost') {
+      throw new Error('TUN 上游必须是本机可信 SOCKS 入口');
+    }
+    if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) throw new Error('SOCKS 入口端口无效');
+    if (!Number.isInteger(mtu) || mtu < 576 || mtu > 65535) throw new Error('TUN MTU 无效');
 
     // If already running, stop first
     await this.stop().catch(() => {});
 
     const tun2socksPath = this.resolveTunBinaryPath();
 
-    // Build args conservatively to avoid tight coupling to a specific distribution
-    // Many tun2socks variants support flags in the form of:
-    //   --interface <name>
-    //   --proxy socks5://host:port
-    //   --loglevel info
-    //   --udp (enable udp)
-    // Some variants use: -device utun, -tunName, -proxyServer, etc.
-    // We allow override via extraArgs and keep the common subset below.
-    const args: string[] = [];
-    // Interface / device
-    args.push('--interface', tunName);
-    // Proxy endpoint
-    args.push('--proxy', `socks5://${socksHost}:${socksPort}`);
-    // MTU (best-effort; some variants may ignore or use different flag)
-    args.push('--mtu', String(mtu));
-    // Log level
-    args.push('--loglevel', 'info');
-    // UDP support
-    if (enableUdp) args.push('--udp');
-    // IPv6 enable (best-effort)
-    if (enableIpv6) args.push('--ipv6');
-    // DNS intercept/forward (best-effort)
-    if (dnsServer) {
-      args.push('--dns-addr', dnsServer);
-    }
-    // User-provided extra args
-    args.push(...extraArgs);
+    void enableUdp;
+    void enableIpv6;
+    void dnsServer;
+    const args = [
+      '--device', `tun://${tunName}`,
+      '--proxy', `socks5://${socksHost}:${socksPort}`,
+      '--mtu', String(mtu),
+      '--loglevel', 'info'
+    ];
 
     // Assemble shell command for elevation on macOS
     const logRedir = `>> "${this.logFile}" 2>&1`;
@@ -128,8 +117,38 @@ class TunControllerClass {
         stdio: ['ignore', 'ignore', 'ignore'],
         detached: false
       });
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          error ? reject(error) : resolve();
+        };
+        const timer = setTimeout(() => finish(), 750);
+        child.once('error', error => finish(error));
+        child.once('exit', code => finish(new Error(`tun2socks 启动后立即退出，退出码: ${code}`)));
+      });
       this.runningPid = child.pid || null;
+      if (!this.runningPid || !this.isRunning()) throw new Error('tun2socks 进程未保持运行');
       try { writeFileSync(this.pidFile, String(this.runningPid || '')); } catch (_) {}
+    }
+  }
+
+  public async verifyTrafficCapture(tunName: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(tunName)) return false;
+    try {
+      if (process.platform === 'linux') {
+        const { stdout } = await execFileAsync('ip', ['-4', 'route', 'show', 'default'], { timeout: 4000 });
+        return stdout.split(/\r?\n/).some(line => new RegExp(`\\bdev\\s+${tunName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(line));
+      }
+      if (process.platform === 'darwin') {
+        const { stdout } = await execFileAsync('route', ['-n', 'get', 'default'], { timeout: 4000 });
+        return new RegExp(`interface:\\s*${tunName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(stdout);
+      }
+      return false;
+    } catch {
+      return false;
     }
   }
 
@@ -250,5 +269,4 @@ class TunControllerClass {
 }
 
 export const TunController = TunControllerClass.getInstance();
-
 

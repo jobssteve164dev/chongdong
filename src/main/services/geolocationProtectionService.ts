@@ -16,7 +16,7 @@ export class GeolocationProtectionService {
       forceProxyDns: true,
       blockDirectDns: true,
       dnsOverHttps: true,
-      customDnsServers: ['1.1.1.1', '8.8.8.8']
+      customDnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query']
     },
     
     // IPv6防护
@@ -359,7 +359,7 @@ export class GeolocationProtectionService {
 
   private async blockDirectDns(): Promise<void> {
     console.log('阻止直接DNS查询...');
-    // 这里应该实际阻止直接DNS查询
+    throw new Error('尚未建立操作系统级 DNS 出口阻断观测');
   }
 
   private async enableDnsOverHttps(): Promise<void> {
@@ -382,76 +382,76 @@ export class GeolocationProtectionService {
   // IPv6防护具体实现
   private async disableIpv6(): Promise<void> {
     console.log('禁用IPv6...');
-    // 这里应该实际禁用IPv6
+    throw new Error('尚未实现操作系统级 IPv6 禁用');
   }
 
   private async blockIpv6Leaks(): Promise<void> {
     console.log('阻止IPv6泄露...');
-    // 这里应该实际阻止IPv6泄露
+    throw new Error('尚未实现操作系统级 IPv6 出口阻断');
   }
 
   // WebRTC防护具体实现
   private async disableWebRTC(): Promise<void> {
     console.log('禁用WebRTC...');
-    // 这里应该实际禁用WebRTC
+    throw new Error('WebRTC 仅有 Chromium 策略，不能声明完全禁用');
   }
 
   private async blockStunServers(): Promise<void> {
     console.log('阻止STUN服务器...');
-    // 这里应该实际阻止STUN服务器
+    throw new Error('尚未观测并验证 STUN 出口阻断');
   }
 
   // 浏览器指纹防护具体实现
   private async randomizeUserAgent(): Promise<void> {
     console.log('随机化User-Agent...');
-    // 这里应该实际随机化User-Agent
+    throw new Error('尚未实现 User-Agent 隔离');
   }
 
   private async hideTimezone(): Promise<void> {
     console.log('隐藏时区信息...');
-    // 这里应该实际隐藏时区信息
+    throw new Error('尚未实现时区隔离');
   }
 
   private async hideLanguage(): Promise<void> {
     console.log('隐藏语言信息...');
-    // 这里应该实际隐藏语言信息
+    throw new Error('尚未实现语言隔离');
   }
 
   private async hideScreenResolution(): Promise<void> {
     console.log('隐藏屏幕分辨率...');
-    // 这里应该实际隐藏屏幕分辨率
+    throw new Error('尚未实现屏幕分辨率隔离');
   }
 
   private async hideCanvasFingerprint(): Promise<void> {
     console.log('隐藏Canvas指纹...');
-    // 这里应该实际隐藏Canvas指纹
+    throw new Error('尚未实现 Canvas 指纹隔离');
   }
 
   // 网络接口防护具体实现
   private async hideMacAddress(): Promise<void> {
     console.log('隐藏MAC地址...');
-    // 这里应该实际隐藏MAC地址
+    throw new Error('尚未实现操作系统级 MAC 地址隔离');
   }
 
   private async hideNetworkInterfaces(): Promise<void> {
     console.log('隐藏网络接口信息...');
-    // 这里应该实际隐藏网络接口信息
+    throw new Error('尚未实现操作系统级网络接口隔离');
   }
 
   private async randomizeNetworkInfo(): Promise<void> {
     console.log('随机化网络信息...');
-    // 这里应该实际随机化网络信息
+    throw new Error('尚未实现网络信息随机化');
   }
 
   // 代理链验证具体实现
   private async validateProxyChainHealth(): Promise<void> {
     console.log('验证代理链健康状态...');
-    // 这里应该实际验证代理链
+    throw new Error('尚未建立逐跳代理链外部观测');
   }
 
   private async monitorProxyHealth(): Promise<void> {
     console.log('监控代理健康状态...');
-    // 这里应该实际监控代理健康状态
+    throw new Error('尚未建立逐跳代理健康观测');
   }
 
   /**
@@ -464,6 +464,7 @@ export class GeolocationProtectionService {
     fingerprintLeak: boolean;
     networkInterfaceLeak: boolean;
     proxyChainLeak: boolean;
+    verified: boolean;
     overallLeaked: boolean;
     details: string[];
   }> {
@@ -476,6 +477,7 @@ export class GeolocationProtectionService {
       fingerprintLeak: false,
       networkInterfaceLeak: false,
       proxyChainLeak: false,
+      verified: false,
       overallLeaked: false,
       details: [] as string[]
     };
@@ -520,16 +522,14 @@ export class GeolocationProtectionService {
       result.overallLeaked = result.dnsLeak || result.ipv6Leak || result.webrtcLeak || 
                            result.fingerprintLeak || result.networkInterfaceLeak || result.proxyChainLeak;
 
-      if (!result.overallLeaked) {
-        result.details.push('✅ 地理位置防护检查通过');
-      }
+      result.details.push('部分项目缺少真实外部观测，不能判定防护通过');
 
     } catch (error) {
       console.error('地理位置泄露检测失败:', error);
       result.details.push(`检测失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 
-    console.log('地理位置泄露检测完成:', result);
+    console.log('地理位置泄露检测完成');
     return result;
   }
 
@@ -583,4 +583,3 @@ export class GeolocationProtectionService {
 }
 
 export const geolocationProtectionService = GeolocationProtectionService.getInstance();
-

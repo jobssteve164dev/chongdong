@@ -250,6 +250,7 @@ export interface DnsRule {
 // DNS泄露检测结果接口
 export interface DnsLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
 }
@@ -257,6 +258,7 @@ export interface DnsLeakResult {
 // IPv6泄露检测结果接口
 export interface Ipv6LeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   detectedIpv6Addresses: string[];
@@ -265,6 +267,7 @@ export interface Ipv6LeakResult {
 // WebRTC泄露检测结果接口
 export interface WebRTCLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   detectedIPs: string[];
@@ -274,6 +277,7 @@ export interface WebRTCLeakResult {
 // TLS指纹泄露检测结果接口
 export interface TlsFingerprintLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   detectedFingerprints: string[];
@@ -283,6 +287,7 @@ export interface TlsFingerprintLeakResult {
 // HTTP头泄露检测结果接口
 export interface HttpHeaderLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   detectedHeaders: { [key: string]: string };
@@ -292,6 +297,7 @@ export interface HttpHeaderLeakResult {
 // 时间泄露检测结果接口
 export interface TimingLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   timingPatterns: string[];
@@ -301,6 +307,7 @@ export interface TimingLeakResult {
 // MAC地址泄露检测结果接口
 export interface MacAddressLeakResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   detectedMacAddresses: string[];
@@ -310,6 +317,7 @@ export interface MacAddressLeakResult {
 // HTTP/2.0防护检测结果接口
 export interface Http2ProtectionResult {
   leaked: boolean;
+  verified?: boolean;
   details: string[];
   leakSources: string[];
   connectionIsolation: boolean;

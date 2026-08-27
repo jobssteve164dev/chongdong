@@ -82,7 +82,7 @@ class GeolocationTester {
             };
           }
 
-          log.info('IP地理位置测试成功', result, 'GeolocationTester');
+          log.info('IP地理位置测试成功', null, 'GeolocationTester');
           return result;
           
         } catch (error) {
@@ -111,7 +111,7 @@ class GeolocationTester {
    */
   public async testIPLocationViaProxy(proxyUrl: string): Promise<GeolocationResult> {
     try {
-      log.info('开始通过代理测试IP地址地理位置', { proxyUrl }, 'GeolocationTester');
+      log.info('开始通过代理测试IP地址地理位置', null, 'GeolocationTester');
       
       // 这里需要实现通过代理获取IP地理位置的功能
       // 由于浏览器环境的限制，需要通过主进程来实现
@@ -121,7 +121,7 @@ class GeolocationTester {
       });
       
       if (result.success) {
-        log.info('通过代理IP地理位置测试成功', result, 'GeolocationTester');
+        log.info('通过代理IP地理位置测试成功', null, 'GeolocationTester');
         return {
           ...result,
           timestamp: Date.now()

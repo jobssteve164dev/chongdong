@@ -3,9 +3,17 @@
  * 提供多种方式测试地理位置泄露防护效果
  */
 import os from 'os';
+import tls from 'tls';
+import { SocksClient } from 'socks';
 import { settingsManager } from '../settingsManager';
 import { dnsService } from './dnsService';
 import { httpProtocolManager } from './httpProtocolManager';
+
+interface LeakTestResult {
+  success: boolean;
+  verified: boolean;
+  details: any;
+}
 
 export class GeolocationLeakTester {
   private static instance: GeolocationLeakTester;
@@ -38,6 +46,7 @@ export class GeolocationLeakTester {
       description: string;
       result: any;
       success: boolean;
+      verified: boolean;
       score: number;
     }>;
     recommendations: string[];
@@ -94,7 +103,7 @@ export class GeolocationLeakTester {
       try {
         console.log(`执行测试: ${test.name}`);
         const result = await test.test();
-        const success = result.success;
+        const success = result.verified === true && result.success === true;
         const score = success ? 100 : 0;
         totalScore += score;
 
@@ -103,6 +112,7 @@ export class GeolocationLeakTester {
           description: test.description,
           result: result,
           success: success,
+          verified: result.verified === true,
           score: score
         });
 
@@ -121,6 +131,7 @@ export class GeolocationLeakTester {
           description: test.description,
           result: { error: error instanceof Error ? error.message : '未知错误' },
           success: false,
+          verified: false,
           score: 0
         });
       }
@@ -141,23 +152,24 @@ export class GeolocationLeakTester {
   /**
    * IP地址泄露测试
    */
-  private async testIpLeak(): Promise<{ success: boolean; details: any }> {
+  private async testIpLeak(): Promise<LeakTestResult> {
     try {
       console.log('执行IP地址泄露测试...');
       
-      // 测试多个IP检测服务
       const ipServices = [
         'https://api.ipify.org?format=json',
         'https://ipapi.co/json/',
-        'https://ipinfo.io/json',
-        'https://api.myip.com'
+        'https://ipinfo.io/json'
       ];
+      const socksPort = Number(settingsManager.getSettings().socksPort);
+      if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) {
+        return { success: false, verified: false, details: { message: '本地 SOCKS 入口未配置' } };
+      }
 
       const results = [];
       for (const service of ipServices) {
         try {
-          const response = await fetch(service);
-          const data = await response.json() as any;
+          const data = await this.requestJsonViaSocks(service, socksPort);
           results.push({
             service: service,
             ip: data.ip || data.query,
@@ -174,20 +186,24 @@ export class GeolocationLeakTester {
       // 检查是否所有IP都相同（表示代理工作正常）
       const ips = results.map(r => r.ip).filter(ip => ip);
       const uniqueIps = [...new Set(ips)];
-      const success = uniqueIps.length === 1 && ips.length > 0;
+      const verified = ips.length >= 2;
+      const success = verified && uniqueIps.length === 1;
 
       return {
         success: success,
+        verified,
         details: {
           results: results,
           uniqueIps: uniqueIps,
           ipCount: ips.length,
-          message: success ? '所有IP检测服务返回相同IP，代理工作正常' : '检测到多个不同IP，可能存在泄露'
+          message: !verified ? '无法通过本地 SOCKS 入口取得足够观测结果' :
+            success ? '多个独立服务观测到一致的代理出口IP' : '代理出口观测结果不一致'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -196,12 +212,13 @@ export class GeolocationLeakTester {
   /**
    * DNS泄露测试
    */
-  private async testDnsLeak(): Promise<{ success: boolean; details: any }> {
+  private async testDnsLeak(): Promise<LeakTestResult> {
     try {
       console.log('执行DNS泄露测试...');
       const leak = await dnsService.checkDnsLeak();
       return {
-        success: !leak.leaked,
+        success: leak.verified === true && !leak.leaked,
+        verified: leak.verified === true,
         details: {
           leaked: leak.leaked,
           details: leak.details,
@@ -211,6 +228,7 @@ export class GeolocationLeakTester {
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -219,21 +237,23 @@ export class GeolocationLeakTester {
   /**
    * WebRTC泄露测试
    */
-  private async testWebRTCLeak(): Promise<{ success: boolean; details: any }> {
+  private async testWebRTCLeak(): Promise<LeakTestResult> {
     try {
       console.log('执行WebRTC泄露测试...');
       const s = settingsManager.getSettings?.();
       const webrtcProtected = !!(s && s.enableWebRTCLeakProtection);
       return {
-        success: webrtcProtected,
+        success: false,
+        verified: false,
         details: {
           enabled: webrtcProtected,
-          message: webrtcProtected ? 'WebRTC泄露防护已启用' : 'WebRTC泄露防护未启用'
+          message: webrtcProtected ? '防护策略已启用，但尚未观测 ICE 候选地址' : 'WebRTC泄露防护未启用'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -242,7 +262,7 @@ export class GeolocationLeakTester {
   /**
    * IPv6泄露测试
    */
-  private async testIpv6Leak(): Promise<{ success: boolean; details: any }> {
+  private async testIpv6Leak(): Promise<LeakTestResult> {
     try {
       console.log('执行IPv6泄露测试...');
       const s = settingsManager.getSettings?.();
@@ -260,6 +280,7 @@ export class GeolocationLeakTester {
       const success = protectionOn && (ipv6Disabled || !hasGlobalIPv6);
       return {
         success,
+        verified: true,
         details: {
           protectionOn,
           ipv6Disabled,
@@ -270,6 +291,7 @@ export class GeolocationLeakTester {
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -278,22 +300,24 @@ export class GeolocationLeakTester {
   /**
    * 浏览器指纹测试
    */
-  private async testBrowserFingerprint(): Promise<{ success: boolean; details: any }> {
+  private async testBrowserFingerprint(): Promise<LeakTestResult> {
     try {
       console.log('执行浏览器指纹测试...');
       const s = settingsManager.getSettings?.();
       const fingerprintProtected = !!(s && s.enableTlsFingerprintProtection);
       return {
-        success: fingerprintProtected,
+        success: false,
+        verified: false,
         details: {
           fingerprintProtected,
           template: s?.tlsFingerprintTemplate || 'chrome',
-          message: fingerprintProtected ? 'TLS指纹模板防护已启用' : 'TLS指纹防护未启用'
+          message: fingerprintProtected ? 'TLS指纹策略已启用，但尚未从外部观测握手指纹' : 'TLS指纹防护未启用'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -302,23 +326,22 @@ export class GeolocationLeakTester {
   /**
    * 时区泄露测试
    */
-  private async testTimezoneLeak(): Promise<{ success: boolean; details: any }> {
+  private async testTimezoneLeak(): Promise<LeakTestResult> {
     try {
       console.log('执行时区泄露测试...');
       
-      // 检查时区信息是否被隐藏
-      const timezoneHidden = true; // 这里应该实际检查时区隐藏状态
-      
       return {
-        success: timezoneHidden,
+        success: false,
+        verified: false,
         details: {
-          timezoneHidden: timezoneHidden,
-          message: timezoneHidden ? '时区信息已隐藏' : '时区信息未隐藏，存在泄露风险'
+          observedTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          message: '当前未实现可由外部观测验证的时区隔离'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -327,23 +350,22 @@ export class GeolocationLeakTester {
   /**
    * 语言泄露测试
    */
-  private async testLanguageLeak(): Promise<{ success: boolean; details: any }> {
+  private async testLanguageLeak(): Promise<LeakTestResult> {
     try {
       console.log('执行语言泄露测试...');
       
-      // 检查语言信息是否被隐藏
-      const languageHidden = true; // 这里应该实际检查语言隐藏状态
-      
       return {
-        success: languageHidden,
+        success: false,
+        verified: false,
         details: {
-          languageHidden: languageHidden,
-          message: languageHidden ? '语言信息已隐藏' : '语言信息未隐藏，存在泄露风险'
+          observedLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+          message: '当前未实现可由外部观测验证的语言隔离'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
@@ -352,29 +374,82 @@ export class GeolocationLeakTester {
   /**
    * 代理链测试
    */
-  private async testProxyChain(): Promise<{ success: boolean; details: any }> {
+  private async testProxyChain(): Promise<LeakTestResult> {
     try {
       console.log('执行代理链测试...');
       const status = httpProtocolManager.getProtectionStatus();
       const stats = httpProtocolManager.getConnectionStats();
-      const ok = status.connectionIsolation === true;
       return {
-        success: ok,
+        success: false,
+        verified: false,
         details: {
           connectionIsolation: status.connectionIsolation,
           forceHttp1: status.forceHttp1,
           http2Enabled: status.http2Enabled,
           sensitiveDomains: status.sensitiveDomains,
           connectionStats: stats,
-          message: ok ? '连接隔离已启用' : '连接隔离未启用'
+          message: '连接隔离配置已读取，但缺少逐跳外部观测，不能判定链路通过'
         }
       };
     } catch (error) {
       return {
         success: false,
+        verified: false,
         details: { error: error instanceof Error ? error.message : '未知错误' }
       };
     }
+  }
+
+  private async requestJsonViaSocks(target: string, socksPort: number): Promise<any> {
+    const targetUrl = new URL(target);
+    if (targetUrl.protocol !== 'https:') {
+      throw new Error('出口观测仅允许 HTTPS');
+    }
+
+    const { socket } = await SocksClient.createConnection({
+      proxy: { host: '127.0.0.1', port: socksPort, type: 5 },
+      command: 'connect',
+      destination: { host: targetUrl.hostname, port: 443 },
+      timeout: 8000
+    });
+
+    return await new Promise((resolve, reject) => {
+      const secureSocket = tls.connect({
+        socket,
+        servername: targetUrl.hostname,
+        rejectUnauthorized: true
+      });
+      let response = '';
+      const timeout = setTimeout(() => secureSocket.destroy(new Error('出口观测请求超时')), 10000);
+
+      secureSocket.once('secureConnect', () => {
+        secureSocket.write([
+          `GET ${targetUrl.pathname}${targetUrl.search} HTTP/1.1`,
+          `Host: ${targetUrl.hostname}`,
+          'Accept: application/json',
+          'User-Agent: Chongdong/1.0',
+          'Connection: close', '', ''
+        ].join('\r\n'));
+      });
+      secureSocket.on('data', chunk => { response += chunk.toString('utf8'); });
+      secureSocket.once('error', error => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      secureSocket.once('end', () => {
+        clearTimeout(timeout);
+        try {
+          const separator = response.indexOf('\r\n\r\n');
+          const statusLine = response.slice(0, response.indexOf('\r\n'));
+          if (separator < 0 || !/^HTTP\/1\.[01] 2\d\d\b/.test(statusLine)) {
+            throw new Error(`出口观测服务响应无效: ${statusLine || 'empty response'}`);
+          }
+          resolve(JSON.parse(response.slice(separator + 4).trim()));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
   }
 
   /**

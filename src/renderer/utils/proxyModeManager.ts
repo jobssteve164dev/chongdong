@@ -120,9 +120,9 @@ export class ProxyModeManager {
       case 'rule':
         return '规则模式：根据用户定义的规则进行流量路由';
       case 'global':
-        return '全局模式：所有流量都通过代理';
+        return '全局模式：系统代理流量通过可信链路';
       case 'direct':
-        return '直连模式：所有流量直连，不经过代理';
+        return '直连模式：关闭系统代理接管';
       case 'vpn':
         return 'VPN模式（TUN）：通过系统 utun 设备接管全局流量';
       default:

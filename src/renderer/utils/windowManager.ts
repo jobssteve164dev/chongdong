@@ -1,17 +1,3 @@
-// 声明全局类型
-declare global {
-  interface Window {
-    electron: {
-      ipcRenderer: {
-        invoke: (channel: string, ...args: any[]) => Promise<any>;
-        on: (channel: string, listener: (...args: any[]) => void) => () => void;
-        send: (channel: string, ...args: any[]) => void;
-        removeAllListeners: (channel: string) => void;
-      };
-    };
-  }
-}
-
 /**
  * 窗口管理工具类
  * 提供窗口控制相关的API

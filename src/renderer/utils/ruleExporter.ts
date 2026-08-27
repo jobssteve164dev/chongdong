@@ -1,4 +1,4 @@
-import { RoutingRule, RuleGroup, RuleTemplate, RuleType, RuleAction, RuleSource } from '../../shared/types';
+import { RoutingRule, RuleType, RuleAction, RuleSource } from '../../shared/types';
 import { log } from './logger';
 
 export interface ExportFormat {

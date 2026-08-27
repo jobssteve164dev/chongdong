@@ -61,10 +61,13 @@ export class SettingsManager {
    */
   public saveSettings(settings: AppSettings): void {
     try {
-      fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2));
+      const temporaryPath = `${this.settingsPath}.${process.pid}.tmp`;
+      fs.writeFileSync(temporaryPath, JSON.stringify(settings, null, 2), { mode: 0o600 });
+      fs.renameSync(temporaryPath, this.settingsPath);
       console.log('Settings saved successfully');
     } catch (error) {
       console.error('Failed to save settings:', error);
+      throw error;
     }
   }
 
@@ -73,10 +76,13 @@ export class SettingsManager {
    */
   public savePreferences(preferences: UserPreferences): void {
     try {
-      fs.writeFileSync(this.preferencesPath, JSON.stringify(preferences, null, 2));
+      const temporaryPath = `${this.preferencesPath}.${process.pid}.tmp`;
+      fs.writeFileSync(temporaryPath, JSON.stringify(preferences, null, 2), { mode: 0o600 });
+      fs.renameSync(temporaryPath, this.preferencesPath);
       console.log('Preferences saved successfully');
     } catch (error) {
       console.error('Failed to save preferences:', error);
+      throw error;
     }
   }
 

@@ -1,7 +1,6 @@
 import { networkInterfaces } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import axios from 'axios';
 import { Ipv6LeakResult, AppSettings } from '../../shared/types';
 
 const execAsync = promisify(exec);
@@ -112,70 +111,26 @@ export class Ipv6LeakProtectionService {
 
       // 获取本地IPv6接口
       const ipv6Interfaces = this.getIPv6Interfaces();
-      const publicIpv6Addresses = ipv6Interfaces.filter(iface => !iface.internal);
+      const publicIpv6Addresses = ipv6Interfaces.filter(iface =>
+        !iface.internal &&
+        iface.address !== '::1' &&
+        !iface.address.toLowerCase().startsWith('fe80:')
+      );
       
       details.push(`检测到 ${ipv6Interfaces.length} 个IPv6网络接口`);
       details.push(`其中 ${publicIpv6Addresses.length} 个为公网接口`);
 
-      // 记录检测到的IPv6地址
+      // 地址只在主进程内用于判断，不跨 IPC 返回或写入日志。
       for (const iface of publicIpv6Addresses) {
-        detectedIpv6Addresses.push(iface.address);
-        details.push(`IPv6接口 ${iface.name}: ${iface.address}`);
+        details.push(`接口 ${iface.name} 存在可路由 IPv6 地址（具体地址已隐藏）`);
       }
 
-      // 通过IPv6测试服务器检测真实IPv6地址
-      const ipv6TestServers = [
-        'https://ipv6.icanhazip.com',
-        'https://v6.ident.me',
-        'https://ipv6.icanhazip.com'
-      ];
-
-      const detectedPublicIpv6: string[] = [];
-
-      for (const server of ipv6TestServers) {
-        try {
-          const response = await axios.get(server, {
-            timeout: 5000,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; IPv6LeakTest/1.0)'
-            }
-          });
-          
-          const detectedIp = response.data.trim();
-          if (detectedIp && this.isValidIPv6(detectedIp)) {
-            detectedPublicIpv6.push(detectedIp);
-            details.push(`通过 ${server} 检测到IPv6地址: ${detectedIp}`);
-          }
-        } catch (error) {
-          details.push(`通过 ${server} 检测失败: ${error instanceof Error ? error.message : '未知错误'}`);
-        }
-      }
-
-      // 分析泄露情况
-      if (detectedPublicIpv6.length > 0) {
-        // 检查检测到的公网IPv6地址是否与本地接口匹配
-        const hasMatchingInterface = detectedPublicIpv6.some(publicIp => 
-          publicIpv6Addresses.some(iface => iface.address === publicIp)
-        );
-
-        if (hasMatchingInterface) {
-          leaked = true;
-          leakSources.push('检测到本地IPv6地址与公网IPv6地址匹配');
-          details.push('🚨 检测到IPv6泄露：本地IPv6地址暴露到公网');
-        } else {
-          details.push('✅ 检测到的公网IPv6地址与本地接口不匹配');
-        }
-
-        // 检查是否在严格模式下检测到IPv6连接
-        if (this.settings.ipv6LeakProtectionMode === 'strict') {
-          if (detectedPublicIpv6.length > 0) {
-            leaked = true;
-            leakSources.push('严格模式下检测到IPv6连接');
-            details.push('🚨 严格模式下检测到IPv6连接，可能存在泄露');
-          }
-        }
-      } else {
-        details.push('✅ 未检测到公网IPv6地址');
+      if (publicIpv6Addresses.length > 0 && this.settings.ipv6LeakProtectionMode === 'strict') {
+        leaked = true;
+        leakSources.push('严格模式下本地接口仍存在可路由 IPv6 地址');
+        details.push('严格模式要求阻断 IPv6；当前本地接口状态不满足要求');
+      } else if (publicIpv6Addresses.length === 0) {
+        details.push('本地接口未发现可路由 IPv6 地址；尚未验证真实出口');
       }
 
       // 检查系统IPv6配置
@@ -190,6 +145,7 @@ export class Ipv6LeakProtectionService {
 
     return {
       leaked,
+      verified: false,
       details,
       leakSources,
       detectedIpv6Addresses
@@ -251,14 +207,6 @@ export class Ipv6LeakProtectionService {
   }
 
   /**
-   * 验证IPv6地址格式
-   */
-  private isValidIPv6(ip: string): boolean {
-    const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^::$/;
-    return ipv6Regex.test(ip);
-  }
-
-  /**
    * 获取IPv6泄露防护状态
    */
   public getLeakProtectionStatus(): { enabled: boolean; mode: string; strictMode: boolean } {
@@ -286,8 +234,10 @@ export class Ipv6LeakProtectionService {
         if (leakResult.leaked) {
           console.warn('🚨 IPv6泄露检测到:', leakResult.leakSources);
           // 这里可以添加通知逻辑
+        } else if (leakResult.verified === true) {
+          console.log('IPv6 泄露检查已通过外部观测验证');
         } else {
-          console.log('✅ IPv6泄露检查通过');
+          console.log('IPv6 本地检查未发现明确泄露，但缺少真实出口证据');
         }
       } catch (error) {
         console.error('IPv6泄露监控执行失败:', error);

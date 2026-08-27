@@ -19,7 +19,7 @@ export class CnCidrManager {
 
   public getFilePath(): string {
     const binDir = join(app.getPath('userData'), 'bin');
-    try { if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true }); } catch {}
+    if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true, mode: 0o700 });
     return join(binDir, this.fileName);
   }
 
@@ -28,17 +28,32 @@ export class CnCidrManager {
   }
 
   public async downloadOrUpdate(): Promise<void> {
-    try {
-      const filePath = this.getFilePath();
-      const resp = await axios.get(this.url, { responseType: 'text', timeout: 10000 });
-      fs.writeFileSync(filePath, resp.data, 'utf8');
-      console.log('[CnCidrManager] CN CIDR 列表已更新:', filePath);
-    } catch (e) {
-      console.warn('[CnCidrManager] 更新 CN CIDR 列表失败(可忽略):', e instanceof Error ? e.message : String(e));
+    const filePath = this.getFilePath();
+    const resp = await axios.get<string>(this.url, {
+      responseType: 'text',
+      timeout: 10000,
+      maxRedirects: 0,
+      maxContentLength: 2 * 1024 * 1024
+    });
+    const content = String(resp.data);
+    const lines = content.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length < 100) {
+      throw new Error('CN CIDR 列表条目过少，拒绝覆盖本地可信数据');
     }
+    const valid = lines.every(line => {
+      const [address, maskText] = line.split('/');
+      const octets = address?.split('.').map(Number) || [];
+      const mask = Number(maskText);
+      return octets.length === 4 && octets.every(value => Number.isInteger(value) && value >= 0 && value <= 255) &&
+        Number.isInteger(mask) && mask >= 0 && mask <= 32;
+    });
+    if (!valid) {
+      throw new Error('CN CIDR 列表格式校验失败，拒绝覆盖本地可信数据');
+    }
+    fs.writeFileSync(filePath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+    console.log('[CnCidrManager] CN CIDR 列表已通过格式校验并更新');
   }
 }
 
 export const cnCidrManager = CnCidrManager.getInstance();
-
 

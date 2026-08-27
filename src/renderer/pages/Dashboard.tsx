@@ -124,11 +124,10 @@ const Dashboard: React.FC = () => {
       });
     };
 
-    window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
+    const unsubscribe = window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
 
     return () => {
-      // 清理IPC监听器 - 当前IPC实现不支持removeAllListeners
-      // window.electron.ipcRenderer.removeAllListeners('proxy:portInUse');
+      unsubscribe();
     };
   }, []);
 
@@ -341,7 +340,7 @@ const Dashboard: React.FC = () => {
         // 调试信息
         console.log('=== 自动启动代理调试信息 ===');
         console.log('当前节点数量:', currentNodes.length);
-        console.log('节点列表:', currentNodes.map(n => ({ id: n.id, name: n.name, server: n.server })));
+        console.log(`已加载 ${currentNodes.length} 个节点`);
         
         const currentLatencies = useNodeStore.getState().nodeLatencies;
         console.log('延迟信息类型:', typeof currentLatencies, currentLatencies instanceof Map);

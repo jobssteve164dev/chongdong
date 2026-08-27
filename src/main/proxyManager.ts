@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
-import { writeFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, chmodSync } from 'fs';
 import { coreDownloader } from './coreDownloader';
 import { createConnection } from 'net';
 import { ProxyNode, ChainConfig, NetworkSettings } from '../shared/types';
@@ -10,6 +10,8 @@ import { settingsManager } from './settingsManager';
 import { ProxyChainMiddlewareManager } from './proxyChainMiddlewareManager';
 import { ProxyChainMiddlewareConfig } from '../shared/types/middleware';
 import { systemProxyManager } from './systemProxyManager';
+import { stringify as stringifyYaml } from 'yaml';
+import { internalApiSecret, secureInternalClashApi } from './internalApiAuth';
 
 interface ProxyProcess {
   id: string;
@@ -60,7 +62,7 @@ export class ProxyManager {
    */
   public updateNetworkSettings(settings: NetworkSettings): void {
     this.currentNetworkSettings = settings;
-    console.log('网络设置已更新:', settings);
+    console.log('网络设置已更新');
   }
 
   /**
@@ -116,7 +118,7 @@ export class ProxyManager {
         return;
       }
       
-      console.log(`🔍 [连接测试] 当前进程配置:`, JSON.stringify(currentProcess.config, null, 2));
+      console.log(`🔍 [连接测试] 当前核心: ${currentProcess.type}`);
       
       // 检查出站配置
       const outbounds = currentProcess.config.outbounds || [];
@@ -124,7 +126,7 @@ export class ProxyManager {
       
       for (const outbound of outbounds) {
         if (outbound.type === 'vmess' || outbound.type === 'trojan' || outbound.type === 'vless') {
-          console.log(`🔍 [连接测试] 测试代理服务器连接: ${outbound.server}:${outbound.server_port}`);
+          console.log(`🔍 [连接测试] 测试代理服务器连接`);
           
           const testConnection = async (): Promise<boolean> => {
             return new Promise((resolve) => {
@@ -135,7 +137,7 @@ export class ProxyManager {
               });
               
               socket.on('connect', () => {
-                console.log(`✅ [连接测试] 代理服务器连接成功: ${outbound.server}:${outbound.server_port}`);
+                console.log(`✅ [连接测试] 代理服务器连接成功`);
                 socket.destroy();
                 resolve(true);
               });
@@ -284,17 +286,17 @@ export class ProxyManager {
   /**
    * 重启所有代理进程
    */
-  public async restartAllProcesses(): Promise<void> {
+  public async restartAllProcesses(rollbackNetworkSettings?: NetworkSettings): Promise<void> {
     console.log('开始重启所有代理进程...');
     
     const processesToRestart = Array.from(this.processes.values());
     
     if (processesToRestart.length === 0) {
-      console.log('没有正在运行的代理进程，无需重启');
-      return;
+      throw new Error('没有可重启的代理进程');
     }
     
     // 停止所有进程
+    const failures: string[] = [];
     for (const process of processesToRestart) {
       try {
         await this.stopProcess(process.id);
@@ -322,9 +324,29 @@ export class ProxyManager {
         }
       } catch (error) {
         console.error(`重启 ${process.type} 进程失败:`, error);
+        failures.push(`${process.type}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    
+    if (failures.length > 0) {
+      const rollbackFailures: string[] = [];
+      if (rollbackNetworkSettings) {
+        await this.stopAll();
+        this.currentNetworkSettings = rollbackNetworkSettings;
+        for (const process of processesToRestart) {
+          try {
+            switch (process.type) {
+              case 'singbox': await this.startSingbox(process.config, rollbackNetworkSettings); break;
+              case 'xray': await this.startXray(process.config, rollbackNetworkSettings); break;
+              case 'clash': await this.startClash(process.config, rollbackNetworkSettings); break;
+            }
+          } catch (error) {
+            rollbackFailures.push(`${process.type}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+      const rollbackMessage = rollbackFailures.length > 0 ? `；回滚失败: ${rollbackFailures.join('; ')}` : '';
+      throw new Error(`代理进程重启失败: ${failures.join('; ')}${rollbackMessage}`);
+    }
     console.log('所有代理进程重启完成');
   }
 
@@ -363,7 +385,7 @@ export class ProxyManager {
     console.log(`=== 开始启动 Sing-box 进程 ===`);
     console.log(`进程ID: ${processId}`);
     console.log(`配置文件路径: ${configPath}`);
-    console.log(`原始配置:`, JSON.stringify(config, null, 2));
+    console.log('准备 Sing-box 配置');
     console.log(`网络设置:`, networkSettings);
     
     // 在启动新进程前，先清理所有现有的 sing-box 进程
@@ -372,12 +394,13 @@ export class ProxyManager {
     
     // 应用网络设置到配置
     console.log(`应用网络设置到配置...`);
-    const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
-    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    const finalConfig = secureInternalClashApi(this.applyNetworkSettingsToConfig(config, networkSettings));
+    console.log(`最终配置包含 ${finalConfig.outbounds?.length || 0} 个出站`);
     
     // 写入配置文件
     console.log(`写入配置文件到: ${configPath}`);
-    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
+    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2), { mode: 0o600 });
+    chmodSync(configPath, 0o600);
     
     // 获取Sing-box可执行文件路径
     const singboxPath = await this.getSingboxPath();
@@ -519,7 +542,6 @@ export class ProxyManager {
         // 检测其他常见错误
         if (errorMessage.includes('decode config')) {
           console.error('🔍 [错误诊断] Sing-box 配置解析错误，请检查配置文件格式');
-          console.log('🔍 [错误诊断] 当前配置:', JSON.stringify(finalConfig, null, 2));
           childProcess.kill();
           if (!resolved) {
             resolved = true;
@@ -675,10 +697,11 @@ export class ProxyManager {
     
     // 应用网络设置到配置
     const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
-    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    console.log('Xray 配置已生成');
     
     // 写入配置文件
-    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
+    writeFileSync(configPath, JSON.stringify(finalConfig, null, 2), { mode: 0o600 });
+    chmodSync(configPath, 0o600);
     
     // 获取Xray可执行文件路径
     const xrayPath = await this.getXrayPath();
@@ -772,14 +795,15 @@ export class ProxyManager {
     
     console.log(`准备启动 Clash 进程: ${processId}`);
     console.log(`配置文件路径: ${configPath}`);
-    console.log(`网络设置:`, networkSettings);
+    console.log(`正在应用 Clash 网络设置`);
     
     // 应用网络设置到配置
     const finalConfig = this.applyNetworkSettingsToConfig(config, networkSettings);
-    console.log(`最终配置文件内容:`, JSON.stringify(finalConfig, null, 2));
+    console.log('Clash 配置已生成');
     
     // 写入配置文件
-    writeFileSync(configPath, this.convertClashConfigToYaml(finalConfig));
+    writeFileSync(configPath, this.convertClashConfigToYaml(finalConfig), { mode: 0o600 });
+    chmodSync(configPath, 0o600);
     
     // 获取Clash可执行文件路径
     const clashPath = await this.getClashPath();
@@ -978,16 +1002,6 @@ export class ProxyManager {
       const http = require('http');
       
       const fetchApi = (path: string): Promise<any> => new Promise((resolve) => {
-        // 确保不受代理环境变量影响
-        const originalProxy = process.env['http_proxy'];
-        const originalHttpsProxy = process.env['https_proxy'];
-        const originalAllProxy = process.env['all_proxy'];
-        
-        // 临时清除代理环境变量
-        delete process.env['http_proxy'];
-        delete process.env['https_proxy'];
-        delete process.env['all_proxy'];
-        
         const req = http.request({
           hostname: '127.0.0.1',
           port: 9090, // Sing-box Clash API 端口
@@ -995,7 +1009,8 @@ export class ProxyManager {
           method: 'GET',
           timeout: 1000,
           // 确保直接连接，不使用代理
-          agent: false
+          agent: false,
+          headers: { Authorization: `Bearer ${internalApiSecret}` }
         }, (res: any) => {
           let data = '';
           res.on('data', (chunk: any) => (data += chunk));
@@ -1005,30 +1020,18 @@ export class ProxyManager {
             } catch (error) {
               resolve(null);
             }
-            // 恢复代理环境变量
-            if (originalProxy) process.env['http_proxy'] = originalProxy;
-            if (originalHttpsProxy) process.env['https_proxy'] = originalHttpsProxy;
-            if (originalAllProxy) process.env['all_proxy'] = originalAllProxy;
           });
         });
         
         req.on('error', (error: any) => {
           console.log('Sing-box API请求失败:', error.message);
           resolve(null);
-          // 恢复代理环境变量
-          if (originalProxy) process.env['http_proxy'] = originalProxy;
-          if (originalHttpsProxy) process.env['https_proxy'] = originalHttpsProxy;
-          if (originalAllProxy) process.env['all_proxy'] = originalAllProxy;
         });
         
         req.on('timeout', () => {
           console.log('Sing-box API请求超时');
           req.destroy();
           resolve(null);
-          // 恢复代理环境变量
-          if (originalProxy) process.env['http_proxy'] = originalProxy;
-          if (originalHttpsProxy) process.env['https_proxy'] = originalHttpsProxy;
-          if (originalAllProxy) process.env['all_proxy'] = originalAllProxy;
         });
         
         req.end();
@@ -1036,7 +1039,7 @@ export class ProxyManager {
       
       // 获取连接信息
       const connectionsData = await fetchApi('/connections');
-      console.log('Sing-box API响应:', { connectionsData });
+      console.log(`Sing-box API返回 ${Array.isArray(connectionsData?.connections) ? connectionsData.connections.length : 0} 条连接统计`);
 
       if (!connectionsData) {
         console.log('Sing-box连接数据为空');
@@ -1124,49 +1127,7 @@ export class ProxyManager {
    * 转换Clash配置为YAML格式
    */
   private convertClashConfigToYaml(config: any): string {
-    // 简化的YAML转换
-    let yaml = `port: ${config.port}\n`;
-    yaml += `socks-port: ${config['socks-port']}\n`;
-    yaml += `mixed-port: ${config['mixed-port']}\n`;
-    yaml += `allow-lan: ${config['allow-lan']}\n`;
-    yaml += `mode: ${config.mode}\n`;
-    yaml += `log-level: ${config['log-level']}\n`;
-    yaml += `external-controller: ${config['external-controller']}\n\n`;
-    
-    yaml += `proxies:\n`;
-    if (config.proxies) {
-      for (const proxy of config.proxies) {
-        yaml += `  - name: ${proxy.name}\n`;
-        yaml += `    type: ${proxy.type}\n`;
-        yaml += `    server: ${proxy.server}\n`;
-        yaml += `    port: ${proxy.port}\n`;
-        if (proxy.uuid) yaml += `    uuid: ${proxy.uuid}\n`;
-        if (proxy.password) yaml += `    password: ${proxy.password}\n`;
-        yaml += `\n`;
-      }
-    }
-    
-    yaml += `proxy-groups:\n`;
-    if (config['proxy-groups']) {
-      for (const group of config['proxy-groups']) {
-        yaml += `  - name: ${group.name}\n`;
-        yaml += `    type: ${group.type}\n`;
-        yaml += `    proxies:\n`;
-        for (const proxy of group.proxies) {
-          yaml += `      - ${proxy}\n`;
-        }
-        yaml += `\n`;
-      }
-    }
-    
-    yaml += `rules:\n`;
-    if (config.rules) {
-      for (const rule of config.rules) {
-        yaml += `  - ${rule}\n`;
-      }
-    }
-    
-    return yaml;
+    return stringifyYaml(config);
   }
 
   /**
@@ -1217,7 +1178,9 @@ export class ProxyManager {
         });
       }
       
-      finalConfig.dns.servers = dnsServers.length > 0 ? dnsServers : ['8.8.8.8'];
+      finalConfig.dns.servers = dnsServers.length > 0
+        ? dnsServers
+        : ['https://cloudflare-dns.com/dns-query'];
       
       // DNS缓存配置已分离到独立的DNS管理器中
       // 不再在代理引擎中处理DNS缓存
@@ -1447,7 +1410,7 @@ export class ProxyManager {
         maxRetries: 3,
         timeout: 10000
       };
-      console.log(`[ProxyManager] 中间件配置创建完成:`, JSON.stringify(config, null, 2));
+      console.log(`[ProxyManager] 中间件配置创建完成，节点数: ${nodes.length}`);
       
       // 创建并启动中间件管理器
       console.log(`[ProxyManager] 创建中间件管理器...`);
@@ -1569,71 +1532,27 @@ export class ProxyManager {
    */
   public async testNodeLatency(node: ProxyNode): Promise<{ success: boolean; latency: number; timestamp: number; error?: string }> {
     console.log(`[ProxyManager] Testing latency for node: ${node.name} (${node.id})`);
-    
-    try {
-      const startTime = Date.now();
-      
-      // 创建HTTP请求来测试延迟（直接连接测试，不使用代理）
-      const https = require('https');
-      const http = require('http');
-      
-      const testUrl = 'http://connectivitycheck.gstatic.com/generate_204';
-      const timeout = 10000;
-      
-      return new Promise((resolve) => {
-        const url = new URL(testUrl);
-        const isHttps = url.protocol === 'https:';
-        const client = isHttps ? https : http;
-        
-        const req = client.request(url, {
-          method: 'GET',
-          timeout: timeout,
-        }, () => {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          
-          console.log(`延迟测试成功: ${node.name}`, { latency });
-          
-          resolve({
-            success: true,
-            latency,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.on('error', (error: any) => {
-          console.error(`延迟测试失败: ${node.name}`, error);
-          resolve({
-            success: false,
-            error: error.message,
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.on('timeout', () => {
-          console.error(`延迟测试超时: ${node.name}`);
-          req.destroy();
-          resolve({
-            success: false,
-            error: 'Request timeout',
-            latency: 0,
-            timestamp: Date.now()
-          });
-        });
-        
-        req.end();
-      });
-      
-    } catch (error) {
-      console.error(`延迟测试失败: ${node.name}`, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        latency: 0,
-        timestamp: Date.now()
-      };
+    const host = node.server;
+    const port = Number(node.port);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return { success: false, error: '节点地址或端口无效', latency: 0, timestamp: Date.now() };
     }
+
+    const startedAt = Date.now();
+    return await new Promise(resolve => {
+      const socket = createConnection({ host, port });
+      let settled = false;
+      const finish = (result: { success: boolean; latency: number; timestamp: number; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        resolve(result);
+      };
+      socket.setTimeout(10000);
+      socket.once('connect', () => finish({ success: true, latency: Date.now() - startedAt, timestamp: Date.now() }));
+      socket.once('timeout', () => finish({ success: false, error: '节点连接超时', latency: 0, timestamp: Date.now() }));
+      socket.once('error', error => finish({ success: false, error: error.message, latency: 0, timestamp: Date.now() }));
+    });
   }
 
   /**

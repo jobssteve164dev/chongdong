@@ -51,11 +51,31 @@ import { DefaultSettings } from '../utils/defaultSettings';
 import ErrorMonitor from '../components/ErrorMonitor';
 import BehaviorAnalytics from '../components/BehaviorAnalytics';
 import { proxyModeManager } from '../utils/proxyModeManager';
+import { latencyTester } from '../utils/latencyTester';
 import './Settings.css';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 const { TabPane } = Tabs;
+
+type LeakCheckPresentationInput = {
+  leaked?: boolean;
+  verified?: boolean;
+  details?: string[] | string;
+};
+
+const getLeakCheckPresentation = (result?: LeakCheckPresentationInput): {
+  status: 'error' | 'warning' | 'success' | 'default';
+  text: string;
+} => {
+  if (!result) return { status: 'default', text: '未执行' };
+  if (result.leaked === true) return { status: 'error', text: '检测到泄露' };
+  if (result.verified !== true) return { status: 'warning', text: '缺少出口证据' };
+  return { status: 'success', text: '已验证未泄露' };
+};
+
+const formatLeakDetails = (details?: string[] | string): string =>
+  Array.isArray(details) ? details.join('\n') : (details || '');
 
 const Settings: React.FC = () => {
   const { toggleTheme } = useTheme();
@@ -231,7 +251,7 @@ const Settings: React.FC = () => {
         await applyWindowSettings(savedPreferences);
       }
 
-      log.info('加载已保存的设置', { settings: savedSettings, preferences: savedPreferences }, 'Settings');
+      log.info('已加载保存的设置', null, 'Settings');
     } catch (error) {
       log.error('加载设置失败', error, 'Settings');
     }
@@ -317,41 +337,31 @@ const Settings: React.FC = () => {
 
       // 保存应用设置
       const newSettings = { ...settings, ...settingsValues, ...edgeValues };
-      Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
-      setSettings(newSettings);
       
       // 保存用户偏好设置
       const newPreferences = { ...preferences, ...preferencesValues };
-      Storage.set(STORAGE_KEYS.USER_PREFERENCES, newPreferences);
-      setPreferences(newPreferences);
       
       // 保存网络和安全设置到应用设置中
       const allSettings = { ...newSettings, ...networkValues, ...securityValues, ...engineValues };
-      Storage.set(STORAGE_KEYS.SETTINGS, allSettings);
-      setSettings(allSettings);
-      
-      // 实时应用窗口设置
-      await applyWindowSettings(newPreferences);
       
       // 通知主进程设置已更新
-      try {
-        const result = await window.electron.ipcRenderer.invoke('settings:updated', {
-          settings: allSettings,
-          preferences: newPreferences
-        });
-        if (result.success) {
-          log.info('设置已成功保存到主进程', null, 'Settings');
-        } else {
-          log.warn('主进程保存设置失败', result.error, 'Settings');
-          message.warning('部分设置应用失败，请检查代理状态');
-        }
-      } catch (error) {
-        log.warn('通知主进程设置更新失败', error, 'Settings');
-        message.warning('设置保存成功，但应用失败，请检查代理状态');
+      const result = await window.electron.ipcRenderer.invoke('settings:updated', {
+        settings: allSettings,
+        preferences: newPreferences
+      });
+      if (!result.success) {
+        throw new Error(result.error || '主进程未能应用设置');
       }
+
+      Storage.set(STORAGE_KEYS.SETTINGS, allSettings);
+      Storage.set(STORAGE_KEYS.USER_PREFERENCES, newPreferences);
+      setSettings(allSettings);
+      setPreferences(newPreferences);
+      await applyWindowSettings(newPreferences);
+      log.info('设置已成功保存到主进程', null, 'Settings');
       
       message.success('所有设置已保存');
-      log.info('保存所有设置', { settings: allSettings, preferences: newPreferences }, 'Settings');
+      log.info('所有设置已保存', null, 'Settings');
     } catch (error) {
       message.error('保存设置失败');
       log.error('保存设置失败', error, 'Settings');
@@ -400,26 +410,12 @@ const Settings: React.FC = () => {
         console.log('[Settings] 准备保存的changedValues:', changedValues);
         const newSettings = { ...settings, ...allValues, ...changedValues };
         console.log('[Settings] 准备保存的newSettings.customDecoyDomains:', newSettings.customDecoyDomains);
-        setSettings(newSettings);
-        
         // 如果是延迟测试配置变更，更新延迟测试器配置
         const latencyTestKeys = [
           'latencyTestUrl', 'latencyTestTimeout', 'latencyTestRetries', 
           'latencyTestInterval', 'latencyTestConcurrency'
         ];
         const hasLatencyTestChanges = Object.keys(changedValues).some(key => latencyTestKeys.includes(key));
-        
-        if (hasLatencyTestChanges) {
-          const { latencyTester } = await import('../utils/latencyTester');
-          latencyTester.updateConfig({
-            testUrl: allValues.latencyTestUrl || 'http://connectivitycheck.gstatic.com/generate_204',
-            timeout: allValues.latencyTestTimeout || 10000,
-            retries: allValues.latencyTestRetries || 3,
-            testInterval: (allValues.latencyTestInterval || 10) * 60 * 1000, // 转换为毫秒
-            concurrency: allValues.latencyTestConcurrency || 3
-          });
-          try { (window as any).electron?.ipcRenderer?.invoke('settings:autoLatency:restart'); } catch {}
-        }
         
         // 使用防抖机制，避免频繁调用
         if (networkSettingsTimeoutRef.current) {
@@ -429,10 +425,6 @@ const Settings: React.FC = () => {
         networkSettingsTimeoutRef.current = setTimeout(async () => {
           try {
             console.log('[Settings] 防抖保存 - newSettings.customDecoyDomains:', newSettings.customDecoyDomains);
-            // 立即保存到本地存储
-            Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
-            console.log('[Settings] 已保存到本地存储');
-            
             // 通知主进程网络设置已更新
             const result = await window.electron.ipcRenderer.invoke('settings:updated', {
               settings: newSettings,
@@ -441,10 +433,21 @@ const Settings: React.FC = () => {
             console.log('[Settings] IPC保存结果:', result);
             
             if (result.success) {
+              Storage.set(STORAGE_KEYS.SETTINGS, newSettings);
+              setSettings(newSettings);
+              if (hasLatencyTestChanges) {
+                latencyTester.updateConfig({
+                  testUrl: allValues.latencyTestUrl || 'http://connectivitycheck.gstatic.com/generate_204',
+                  timeout: allValues.latencyTestTimeout || 10000,
+                  retries: allValues.latencyTestRetries || 3,
+                  testInterval: (allValues.latencyTestInterval || 10) * 60 * 1000,
+                  concurrency: allValues.latencyTestConcurrency || 3
+                });
+                await window.electron.ipcRenderer.invoke('settings:autoLatency:restart');
+              }
               log.info('网络设置已实时应用', changedValues, 'Settings');
             } else {
-              log.warn('网络设置应用失败', result.error, 'Settings');
-              message.warning('网络设置应用失败，请检查代理状态');
+              throw new Error(result.error || '网络设置未能应用');
             }
           } catch (error) {
             log.warn('网络设置应用失败', error, 'Settings');
@@ -496,6 +499,8 @@ const Settings: React.FC = () => {
         if (leakCheckResult.leaked) {
           setDnsLeakDetected(true);
           setDnsLeakResult(`检测到DNS泄露!\n${leakCheckResult.details.join('\n')}`);
+        } else if (leakCheckResult.verified !== true) {
+          setDnsLeakResult(`配置检查完成，但尚未验证真实DNS出口。\n${leakCheckResult.details.join('\n')}`);
         } else {
           setDnsLeakResult(`DNS泄露检查通过!\n${leakCheckResult.details.join('\n')}`);
         }
@@ -530,12 +535,15 @@ const Settings: React.FC = () => {
         setAllLeakCheckResult(leakData);
         
         // 检查是否有任何泄露
-        const hasAnyLeak = leakData.dns?.hasLeak || leakData.ipv6?.hasLeak || leakData.webRTC?.hasLeak ||
-                          leakData.tlsFingerprint?.hasLeak || leakData.httpHeader?.hasLeak ||
-                          leakData.timingLeak?.hasLeak || leakData.macAddress?.hasLeak;
+        const results = [leakData.dns, leakData.ipv6, leakData.webRTC, leakData.tlsFingerprint,
+          leakData.httpHeader, leakData.timingLeak, leakData.macAddress, leakData.http2Protection].filter(Boolean);
+        const hasAnyLeak = results.some(item => item.leaked === true);
+        const hasUnverified = results.some(item => item.verified !== true);
         
         if (hasAnyLeak) {
           message.warning('检测到网络泄露，请查看详细结果');
+        } else if (hasUnverified) {
+          message.info('未发现明确泄露，但部分项目缺少真实出口观测');
         } else {
           message.success('所有泄露检测通过，网络连接安全');
         }
@@ -749,7 +757,7 @@ const Settings: React.FC = () => {
 
   const handleCheckNotificationPermission = async () => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('notification:checkPermission');
+      const result = await window.electron.ipcRenderer.invoke('notification:check-permission');
       if (result.hasPermission) {
         message.success('通知权限正常');
       } else {
@@ -839,10 +847,9 @@ const Settings: React.FC = () => {
     try {
       const result = await window.electron.ipcRenderer.invoke('latency:reset');
       if (result.success) {
+        ConfigApi.updateSettings(result.settings);
         message.success('延迟测试配置已重置为默认值');
-        // 重新加载设置
-        const newSettings = ConfigApi.getSettings();
-        setSettings(newSettings);
+        setSettings(result.settings);
       } else {
         message.error(`延迟测试配置重置失败: ${result.error}`);
       }
@@ -859,11 +866,10 @@ const Settings: React.FC = () => {
       log.error('代理重启失败', { error: data.error }, 'Settings');
     };
 
-    window.electron.ipcRenderer.on('proxy:restartFailed', handleProxyRestartFailed);
+    const unsubscribe = window.electron.ipcRenderer.on('proxy:restartFailed', handleProxyRestartFailed);
 
     return () => {
-      // 移除事件监听器
-      window.electron.ipcRenderer.on('proxy:restartFailed', () => {});
+      unsubscribe();
     };
   }, []);
 
@@ -1212,37 +1218,6 @@ const Settings: React.FC = () => {
                 </Col>
               </Row>
 
-              <Divider />
-
-              <Title level={4}>外部API设置（高级）</Title>
-              <Alert
-                message="外部API说明"
-                description="启用外部API允许其他工具（如Clash for Windows）通过HTTP API控制虫洞。仅在需要时启用。"
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-              />
-
-              <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="enableExternalApi" label="启用外部API" valuePropName="checked">
-                    <Switch />
-                  </Form.Item>
-                </Col>
-              </Row>
-
-              <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="externalController" label="外部控制器地址">
-                    <Input placeholder="127.0.0.1:9090" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="secret" label="API密钥">
-                    <Input.Password placeholder="留空则不设置密钥" />
-                  </Form.Item>
-                </Col>
-              </Row>
             </Form>
           </Card>
         </TabPane>
@@ -1724,107 +1699,48 @@ const Settings: React.FC = () => {
                       <div style={{ marginBottom: 12 }}>
                         <strong>检测时间:</strong> {new Date().toLocaleString()}
                       </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>DNS泄露防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.dns?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.dns?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.dns?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.dns.details}
+                      {([
+                        ['DNS 泄露', allLeakCheckResult.dns],
+                        ['IPv6 泄露', allLeakCheckResult.ipv6],
+                        ['WebRTC 泄露', allLeakCheckResult.webRTC],
+                        ['TLS 指纹', allLeakCheckResult.tlsFingerprint],
+                        ['HTTP 头', allLeakCheckResult.httpHeader],
+                        ['时间模式', allLeakCheckResult.timingLeak],
+                        ['MAC 地址', allLeakCheckResult.macAddress],
+                        ['HTTP/2 连接隔离', allLeakCheckResult.http2Protection],
+                      ] as Array<[string, LeakCheckPresentationInput | undefined]>).map(([label, result]) => {
+                        const presentation = getLeakCheckPresentation(result);
+                        const details = formatLeakDetails(result?.details);
+                        return (
+                          <div key={label} style={{ marginBottom: 8 }}>
+                            <strong>{label}:</strong>
+                            <Badge
+                              status={presentation.status}
+                              text={presentation.text}
+                              style={{ marginLeft: 8 }}
+                            />
+                            {details && (
+                              <div style={{ marginTop: 4, fontSize: '12px', color: '#666', whiteSpace: 'pre-wrap' }}>
+                                {details}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>IPv6泄露防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.ipv6?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.ipv6?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.ipv6?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.ipv6.details}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>WebRTC泄露防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.webRTC?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.webRTC?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.webRTC?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.webRTC.details}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>TLS指纹防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.tlsFingerprint?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.tlsFingerprint?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.tlsFingerprint?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.tlsFingerprint.details}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>HTTP头防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.httpHeader?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.httpHeader?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.httpHeader?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.httpHeader.details}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>时间泄露防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.timingLeak?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.timingLeak?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.timingLeak?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.timingLeak.details}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>MAC地址防护:</strong> 
-                        <Badge 
-                          status={allLeakCheckResult.macAddress?.hasLeak ? "error" : "success"} 
-                          text={allLeakCheckResult.macAddress?.hasLeak ? "检测到泄露" : "无泄露"}
-                          style={{ marginLeft: 8 }}
-                        />
-                        {allLeakCheckResult.macAddress?.details && (
-                          <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                            {allLeakCheckResult.macAddress.details}
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })}
                     </div>
                   }
                   type={
-                    allLeakCheckResult.dns?.hasLeak || 
-                    allLeakCheckResult.ipv6?.hasLeak || 
-                    allLeakCheckResult.webRTC?.hasLeak ||
-                    allLeakCheckResult.tlsFingerprint?.hasLeak ||
-                    allLeakCheckResult.httpHeader?.hasLeak ||
-                    allLeakCheckResult.timingLeak?.hasLeak ||
-                    allLeakCheckResult.macAddress?.hasLeak ? "error" : "success"
+                    [allLeakCheckResult.dns, allLeakCheckResult.ipv6, allLeakCheckResult.webRTC,
+                      allLeakCheckResult.tlsFingerprint, allLeakCheckResult.httpHeader,
+                      allLeakCheckResult.timingLeak, allLeakCheckResult.macAddress,
+                      allLeakCheckResult.http2Protection].some(result => result?.leaked === true)
+                      ? "error"
+                      : [allLeakCheckResult.dns, allLeakCheckResult.ipv6, allLeakCheckResult.webRTC,
+                        allLeakCheckResult.tlsFingerprint, allLeakCheckResult.httpHeader,
+                        allLeakCheckResult.timingLeak, allLeakCheckResult.macAddress,
+                        allLeakCheckResult.http2Protection].some(result => result?.verified !== true)
+                        ? "warning"
+                        : "success"
                   }
                   showIcon
                   style={{ marginTop: 16 }}
@@ -2404,5 +2320,3 @@ const Settings: React.FC = () => {
 };
 
 export default Settings;
-
-

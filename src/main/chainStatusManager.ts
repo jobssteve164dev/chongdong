@@ -311,7 +311,7 @@ export class ChainStatusManager {
             const secureSocket = tls.connect({
               socket: socket,
               servername: targetUrl.hostname,
-              rejectUnauthorized: false,
+              rejectUnauthorized: true,
               timeout: 8000
             }, () => {
               const requestLines = [

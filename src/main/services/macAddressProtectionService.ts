@@ -2,8 +2,8 @@ import { MacAddressLeakResult } from '../../shared/types';
 import { networkInterfaces } from 'os';
 
 /**
- * MAC地址防护服务
- * 负责检测和防护MAC地址泄露，实现网络接口MAC地址随机化
+ * MAC 地址本地观测服务。
+ * 当前实现不修改操作系统网络接口，也不能证明 MAC 地址是否被远端观测。
  */
 export class MacAddressProtectionService {
   private enabled: boolean = true;
@@ -49,7 +49,7 @@ export class MacAddressProtectionService {
           for (const address of addresses) {
             if (address.mac && address.mac !== '00:00:00:00:00:00') {
               this.originalMacAddresses.set(interfaceName, address.mac);
-              console.log(`发现网络接口 ${interfaceName}: ${address.mac}`);
+              console.log(`发现网络接口 ${interfaceName}（MAC 地址已在主进程内保留，不写入日志）`);
             }
           }
         }
@@ -89,7 +89,9 @@ export class MacAddressProtectionService {
     try {
       // 获取当前MAC地址
       const currentMacAddresses = await this.getCurrentMacAddresses();
-      result.detectedMacAddresses = Array.from(currentMacAddresses.values());
+      result.verified = false;
+      // 原始 MAC 地址只用于主进程内的本地判定，不跨 IPC 暴露给渲染进程。
+      result.detectedMacAddresses = [];
       result.networkInterfaces = Array.from(currentMacAddresses.keys());
       
       // 检测MAC地址泄露
@@ -104,7 +106,7 @@ export class MacAddressProtectionService {
           result.details.push('严格模式下检测到MAC地址泄露');
         }
       } else {
-        result.details.push('✅ MAC地址防护正常，未检测到泄露');
+        result.details.push('本地接口检查未发现新增异常；未获得远端出口观测，不能判定无泄露');
       }
 
       // 记录检测到的MAC地址信息
@@ -115,7 +117,7 @@ export class MacAddressProtectionService {
       result.details.push(`检测失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 
-    console.log('MAC地址泄露检测完成:', result);
+    console.log('MAC地址泄露检测完成');
     return result;
   }
 
@@ -287,20 +289,6 @@ export class MacAddressProtectionService {
   /**
    * 生成随机MAC地址
    */
-  private generateRandomMacAddress(): string {
-    const bytes = new Array(6);
-    
-    // 第一个字节：本地管理地址，单播
-    bytes[0] = 0x02; // 本地管理地址
-    
-    // 其余字节：随机生成
-    for (let i = 1; i < 6; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-    
-    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join(':');
-  }
-
   /**
    * 随机化MAC地址
    */
@@ -310,59 +298,14 @@ export class MacAddressProtectionService {
       return false;
     }
 
-    try {
-      console.log('开始随机化MAC地址...');
-      
-      const interfaces = networkInterfaces();
-      const randomizedAddresses = new Map<string, string>();
-      
-      for (const [interfaceName, addresses] of Object.entries(interfaces)) {
-        if (addresses) {
-          for (const address of addresses) {
-            if (address.mac && address.mac !== '00:00:00:00:00:00') {
-              const interfaceType = this.getInterfaceType(interfaceName);
-              
-              // 只对以太网和WiFi接口进行随机化
-              if (interfaceType === 'ethernet' || interfaceType === 'wifi') {
-                const randomMac = this.generateRandomMacAddress();
-                randomizedAddresses.set(interfaceName, randomMac);
-                console.log(`随机化接口 ${interfaceName}: ${address.mac} -> ${randomMac}`);
-              }
-            }
-          }
-        }
-      }
-      
-      this.randomizedMacAddresses = randomizedAddresses;
-      
-      // 注意：实际的MAC地址修改需要系统级权限
-      // 这里只是生成随机地址并记录
-      console.log(`生成了${randomizedAddresses.size}个随机MAC地址`);
-      
-      return true;
-    } catch (error) {
-      console.error('随机化MAC地址失败:', error);
-      return false;
-    }
+    throw new Error('当前构建未实现可验证的操作系统级 MAC 地址随机化');
   }
 
   /**
    * 恢复原始MAC地址
    */
   public async restoreOriginalMacAddresses(): Promise<boolean> {
-    try {
-      console.log('恢复原始MAC地址...');
-      
-      // 注意：实际的MAC地址恢复需要系统级权限
-      // 这里只是清除随机化记录
-      this.randomizedMacAddresses.clear();
-      
-      console.log('原始MAC地址恢复完成');
-      return true;
-    } catch (error) {
-      console.error('恢复原始MAC地址失败:', error);
-      return false;
-    }
+    throw new Error('当前构建未修改操作系统 MAC 地址，因此不存在可验证的恢复动作');
   }
 
   /**
@@ -374,23 +317,7 @@ export class MacAddressProtectionService {
       return false;
     }
 
-    try {
-      console.log(`应用MAC地址防护: mode=${this.mode}`);
-      
-      // 应用随机化
-      const success = await this.randomizeMacAddresses();
-      
-      if (success) {
-        console.log('MAC地址防护应用成功');
-      } else {
-        console.log('MAC地址防护应用失败');
-      }
-      
-      return success;
-    } catch (error) {
-      console.error('应用MAC地址防护失败:', error);
-      return false;
-    }
+    throw new Error('当前构建仅提供 MAC 地址本地观测，未实现操作系统级防护');
   }
 
   /**

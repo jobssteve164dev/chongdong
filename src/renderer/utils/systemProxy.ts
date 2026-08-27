@@ -1,16 +1,3 @@
-// 通过预加载脚本访问 ipcRenderer
-declare global {
-  interface Window {
-    electron: {
-      ipcRenderer: {
-        invoke: (channel: string, ...args: any[]) => Promise<any>;
-        send: (channel: string, data: any) => void;
-        on: (channel: string, func: (...args: any[]) => void) => void;
-      };
-    };
-  }
-}
-
 const { ipcRenderer } = window.electron;
 
 import { assertSuccessfulIpcResult } from '../../shared/proxyRuntime';
@@ -89,7 +76,8 @@ export class SystemProxy {
    */
   public async createVPNConnection(config: VPNConfig): Promise<void> {
     try {
-      await ipcRenderer.invoke('vpn:create', config);
+      const result = await ipcRenderer.invoke('vpn:create', config);
+      assertSuccessfulIpcResult(result, 'VPN 配置创建失败');
     } catch (error) {
       throw new Error(`Failed to create VPN connection: ${error}`);
     }
@@ -100,7 +88,8 @@ export class SystemProxy {
    */
   public async connectVPN(name: string): Promise<void> {
     try {
-      await ipcRenderer.invoke('vpn:connect', name);
+      const result = await ipcRenderer.invoke('vpn:connect', name);
+      assertSuccessfulIpcResult(result, 'VPN 连接失败');
     } catch (error) {
       throw new Error(`Failed to connect VPN: ${error}`);
     }
@@ -111,7 +100,8 @@ export class SystemProxy {
    */
   public async disconnectVPN(name: string): Promise<void> {
     try {
-      await ipcRenderer.invoke('vpn:disconnect', name);
+      const result = await ipcRenderer.invoke('vpn:disconnect', name);
+      assertSuccessfulIpcResult(result, 'VPN 断开失败');
     } catch (error) {
       throw new Error(`Failed to disconnect VPN: ${error}`);
     }
@@ -132,77 +122,54 @@ export class SystemProxy {
    * 创建TUN设备
    */
   public async createTUNDevice(config: TUNConfig): Promise<void> {
-    try {
-      await ipcRenderer.invoke('tun:create', config);
-    } catch (error) {
-      throw new Error(`Failed to create TUN device: ${error}`);
-    }
+    void config;
+    throw new Error('独立 TUN 设备接口未开放，请通过 VPN 模式建立可信链路');
   }
 
   /**
    * 删除TUN设备
    */
   public async removeTUNDevice(interfaceName: string): Promise<void> {
-    try {
-      await ipcRenderer.invoke('tun:remove', interfaceName);
-    } catch (error) {
-      throw new Error(`Failed to remove TUN device: ${error}`);
-    }
+    void interfaceName;
+    throw new Error('独立 TUN 设备接口未开放，请通过 VPN 模式管理可信链路');
   }
 
   /**
    * 获取TUN设备状态
    */
   public async getTUNStatus(interfaceName: string): Promise<{ exists: boolean; active: boolean }> {
-    try {
-      return await ipcRenderer.invoke('tun:getStatus', interfaceName);
-    } catch (error) {
-      throw new Error(`Failed to get TUN status: ${error}`);
-    }
+    void interfaceName;
+    throw new Error('独立 TUN 状态接口未开放，请查询 VPN 模式状态');
   }
 
   /**
    * 设置路由表
    */
   public async setRoutes(routes: Array<{ destination: string; gateway: string; interface?: string }>): Promise<void> {
-    try {
-      await ipcRenderer.invoke('network:setRoutes', routes);
-    } catch (error) {
-      throw new Error(`Failed to set routes: ${error}`);
-    }
+    void routes;
+    throw new Error('系统路由写入能力尚未接通，已拒绝修改路由表');
   }
 
   /**
    * 清除路由表
    */
   public async clearRoutes(): Promise<void> {
-    try {
-      await ipcRenderer.invoke('network:clearRoutes');
-    } catch (error) {
-      throw new Error(`Failed to clear routes: ${error}`);
-    }
+    throw new Error('系统路由恢复能力尚未接通，已拒绝修改路由表');
   }
 
   /**
    * 设置DNS服务器
    */
   public async setDNSServers(servers: string[]): Promise<void> {
-    try {
-      await ipcRenderer.invoke('network:setDNS', servers);
-    } catch (error) {
-      throw new Error(`Failed to set DNS servers: ${error}`);
-    }
+    void servers;
+    throw new Error('操作系统 DNS 写入能力尚未接通，已拒绝修改 DNS');
   }
 
   /**
    * 恢复默认DNS设置
    */
   public async restoreDefaultDNS(): Promise<void> {
-    try {
-      await ipcRenderer.invoke('network:restoreDNS');
-    } catch (error) {
-      throw new Error(`Failed to restore DNS: ${error}`);
-    }
+    throw new Error('操作系统 DNS 恢复能力尚未接通，已拒绝修改 DNS');
   }
 
   /**

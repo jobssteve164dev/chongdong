@@ -450,9 +450,7 @@ export class ChainProxyManager {
       throw new Error('代理链不存在或未启用');
     }
 
-    // 这里应该实现实际的延迟测试逻辑
-    // 简化示例，返回随机延迟
-    return Math.random() * 100 + 50; // 50-150ms
+    throw new Error('代理链延迟尚未绑定真实运行时观测');
   }
 
   /**
@@ -469,14 +467,7 @@ export class ChainProxyManager {
       throw new Error('代理链不存在');
     }
 
-    // 这里应该实现实际的统计逻辑
-    // 简化示例
-    return {
-      latency: Math.random() * 100 + 50,
-      throughput: Math.random() * 1000 + 500,
-      successRate: Math.random() * 0.3 + 0.7, // 70%-100%
-      lastTest: new Date()
-    };
+    throw new Error('代理链性能统计尚未绑定真实运行时观测');
   }
 
   /**

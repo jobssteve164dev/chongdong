@@ -245,7 +245,7 @@ class TrafficRuleManager {
   // 获取所有分流规则组
   getAllGroups(): TrafficRuleGroup[] {
     try {
-      const groups = Storage.get<TrafficRuleGroup[]>(this.STORAGE_KEY, []);
+      const groups = Storage.get<TrafficRuleGroup[]>(this.STORAGE_KEY, []) || [];
       return groups.sort((a, b) => b.priority - a.priority);
     } catch (error) {
       log.error('获取分流规则组失败', error, 'TrafficRuleManager');
@@ -394,7 +394,7 @@ class TrafficRuleManager {
   // 获取所有模板
   getTemplates(): TrafficRuleTemplate[] {
     try {
-      return Storage.get<TrafficRuleTemplate[]>(this.TEMPLATES_KEY, []);
+      return Storage.get<TrafficRuleTemplate[]>(this.TEMPLATES_KEY, []) || [];
     } catch (error) {
       log.error('获取模板失败', error, 'TrafficRuleManager');
       return [];
@@ -460,7 +460,7 @@ class TrafficRuleManager {
       result.totalGroups = result.groups.length;
       result.totalRules = result.groups.reduce((sum, group) => sum + group.rules.length, 0);
 
-      log.info('解析订阅链接', { url, success: result.success, groups: result.totalGroups, rules: result.totalRules }, 'TrafficRuleManager');
+      log.info('解析订阅链接', { success: result.success, groups: result.totalGroups, rules: result.totalRules }, 'TrafficRuleManager');
       return result;
     } catch (error) {
       log.error('解析订阅链接失败', error, 'TrafficRuleManager');

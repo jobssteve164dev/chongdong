@@ -94,38 +94,10 @@ export class CrashMonitor {
       });
     });
 
-    // 监听GPU进程崩溃
-    app.on('gpu-process-crashed', async (_event, killed) => {
-      let gpuInfo = null;
-      try {
-        // 等待GPU信息Promise完成，然后序列化
-        const rawGpuInfo = await app.getGPUInfo('basic');
-        gpuInfo = JSON.parse(JSON.stringify(rawGpuInfo)); // 深度序列化
-      } catch (error) {
-        log.warn('获取GPU信息失败', error, 'CrashMonitor');
-        gpuInfo = { 
-          error: 'Failed to get GPU info', 
-          message: error instanceof Error ? error.message : 'Unknown error' 
-        };
-      }
-      
-      this.handleProcessCrash({
-        processType: 'gpu',
-        exitCode: killed ? -1 : 0,
-        reason: killed ? 'GPU进程被杀死' : 'GPU进程崩溃',
-        timestamp: Date.now(),
-        details: `GPU进程崩溃: ${killed ? '被杀死' : '意外退出'}`,
-        context: {
-          killed,
-          gpuInfo
-        }
-      });
-    });
-
     // 监听子进程崩溃
     app.on('child-process-gone', (_event, details) => {
       this.handleProcessCrash({
-        processType: 'utility',
+        processType: details.type === 'GPU' ? 'gpu' : 'utility',
         exitCode: details.exitCode,
         reason: details.type,
         timestamp: Date.now(),
@@ -440,7 +412,8 @@ export class CrashMonitor {
     try {
       // 只保留最近1000条记录
       const recentCrashes = this.crashes.slice(-1000);
-      fs.writeFileSync(this.crashLogFile, JSON.stringify(recentCrashes, null, 2));
+      fs.writeFileSync(this.crashLogFile, JSON.stringify(recentCrashes, null, 2), { mode: 0o600 });
+      fs.chmodSync(this.crashLogFile, 0o600);
     } catch (error) {
       log.error('保存崩溃历史失败', error, 'CrashMonitor');
     }

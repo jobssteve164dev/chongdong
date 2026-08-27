@@ -7,7 +7,8 @@
 - PSK / PSKS（二选一）
   - PSK: 单一预共享密钥，用于 HMAC 签名校验。
   - PSKS: 多密钥映射（JSON 字符串），例如：
-    - PSKS='{"key-2025-09":"psk1","key-2025-12":"psk2"}'
+    - PSKS='{"key-current":"replace-with-at-least-32-random-bytes","key-next":"replace-with-another-32-random-bytes"}'
+  - 每个 PSK 至少 16 个字符，生产环境应使用密码学安全随机值并通过密钥轮换流程管理。
   - Worker端行为：优先从 PSKS 里用 kid 找到对应的 psk；找不到则回退到 PSK。
 
 - KV（绑定）
@@ -78,9 +79,9 @@
   ]
 
   [vars]
-  PSK = "your_psk_here"
+  PSK = "replace-with-at-least-32-random-bytes"
   # 或 PSKS (多密钥)
-  # PSKS = '{"key-2025-09":"psk1","key-2025-12":"psk2"}'
+  # PSKS = '{"key-current":"replace-with-at-least-32-random-bytes","key-next":"replace-with-another-32-random-bytes"}'
 
   # 可选安全参数
   RATE = '{"limit":60,"window":60}'

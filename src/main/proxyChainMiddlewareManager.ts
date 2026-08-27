@@ -318,8 +318,7 @@ export class ProxyChainMiddlewareManager implements IProxyChainMiddleware {
     this.adapters = [];
     const nodes = this.config.nodes;
     if (nodes.length === 0) {
-      console.warn('[ProxyChainMiddlewareManager] 警告: 代理链中没有节点。');
-      return;
+      throw new Error('代理链中没有节点，拒绝启动空链路');
     }
 
     const portManager = PortManager.getInstance();

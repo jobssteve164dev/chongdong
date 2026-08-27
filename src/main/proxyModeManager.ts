@@ -83,22 +83,17 @@ export class ProxyModeManager {
   private async cleanupCurrentMode(): Promise<void> {
     console.log(`[ProxyModeManager] 清理当前模式: ${this.currentMode}`);
     
-    try {
-      // 新：VPN模式为 TUN，切换时禁用 TUN 并重启引擎
-      if (this.currentMode === 'vpn') {
-        console.log(`[ProxyModeManager] 关闭 TUN 设置并重启引擎`);
-        proxyManager.updateNetworkSettings({ enableTun: false } as any);
-        await proxyManager.restartAllProcesses();
-        this.currentVpnName = undefined;
-      }
-      
-      // 统一清理系统代理
-      await systemProxyManager.clearSystemProxy();
-      
-      console.log(`[ProxyModeManager] 当前模式清理完成`);
-    } catch (error) {
-      console.error(`[ProxyModeManager] 清理当前模式失败:`, error);
+    if (this.currentMode === 'vpn') {
+      console.log(`[ProxyModeManager] 关闭 TUN 设置`);
+      await TunController.stop();
+      await CompatPortForwarder.stopAll();
+      proxyManager.updateNetworkSettings({ enableTun: false } as any);
+      proxyManager.setSuppressSystemProxyForTun(false);
+      this.currentVpnName = undefined;
     }
+
+    await systemProxyManager.clearSystemProxy();
+    console.log(`[ProxyModeManager] 当前模式清理完成`);
   }
 
   /**
@@ -139,7 +134,7 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 应用全局模式`);
     
     try {
-      // 全局模式：所有流量都通过代理
+      // 全局模式：接管系统代理支持的流量
       
       const runtime = await proxyManager.getStats();
       const runtimeRunning = isProxyRuntimeRunning(runtime);
@@ -153,7 +148,7 @@ export class ProxyModeManager {
       return {
         success: true,
         message: runtimeRunning
-          ? '全局模式已启用，所有流量都将通过代理'
+          ? '全局模式已启用，系统代理流量将通过可信链路'
           : '全局模式已选择，将在可信链路启动后生效',
         port: settings.proxyPort
       };
@@ -169,7 +164,7 @@ export class ProxyModeManager {
     console.log(`[ProxyModeManager] 应用直连模式`);
     
     try {
-      // 直连模式：所有流量直连，不经过代理
+      // 直连模式：关闭系统代理接管
       
       // 关闭系统代理
       await systemProxyManager.clearSystemProxy();
@@ -178,7 +173,7 @@ export class ProxyModeManager {
       
       return {
         success: true,
-        message: '直连模式已启用，所有流量将直连，不经过代理'
+        message: '直连模式已启用，系统代理接管已关闭'
       };
     } catch (error) {
       throw new Error(`应用直连模式失败: ${error instanceof Error ? error.message : String(error)}`);
@@ -221,7 +216,7 @@ export class ProxyModeManager {
       proxyManager.updateNetworkSettings(mergedNetwork as any);
 
       // 在 TUN 模式下屏蔽后续链路自动设置系统代理
-      try { (proxyManager as any).setSuppressSystemProxyForTun?.(true); } catch {}
+      proxyManager.setSuppressSystemProxyForTun(true);
 
       // 启动/重启 TUN 控制器
       await TunController.start({
@@ -233,6 +228,12 @@ export class ProxyModeManager {
         dnsServer,
       });
 
+      if (!TunController.isRunning() || !await TunController.verifyTrafficCapture(tunName)) {
+        await TunController.stop();
+        proxyManager.setSuppressSystemProxyForTun(false);
+        throw new Error(`TUN 进程或 ${tunName} 路由接管未通过验证`);
+      }
+
       // 兼容性代理：在 TUN 模式下可选启用 1080 等端口转发（后续实现）
       // 这里仅保留设置占位，实际监听与转发将在 ProxyManager 或专用组件中实现
 
@@ -243,22 +244,17 @@ export class ProxyModeManager {
       await systemProxyManager.clearSystemProxy();
 
       // 兼容端口（例如 1080）→ 转发到中间件入口或 settings 端口
-      try {
-        if (settings.enableCompatProxy) {
+      if (settings.enableCompatProxy) {
           const httpPort = settings.compatHttpPort || 1080;
           const socksPort = settings.compatSocksPort || 1080;
-          const entry = (proxyManager as any).getMiddlewareEntryPort?.() || settings.socksPort;
-          if (entry) {
-            await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
-            if (socksPort !== httpPort) {
-              await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
-            }
+          const entry = proxyManager.getMiddlewareEntryPort() || settings.socksPort;
+          if (!entry) throw new Error('无法确定兼容代理入口端口');
+          await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
+          if (socksPort !== httpPort) {
+            await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
           }
-        } else {
-          await CompatPortForwarder.stopAll();
-        }
-      } catch (e) {
-        console.warn('[ProxyModeManager] 启动兼容端口失败:', e);
+      } else {
+        await CompatPortForwarder.stopAll();
       }
 
       return {
@@ -267,6 +263,11 @@ export class ProxyModeManager {
         vpnName: 'ChongdongTUN'
       };
     } catch (error) {
+      await TunController.stop().catch(() => {});
+      await CompatPortForwarder.stopAll().catch(() => {});
+      proxyManager.setSuppressSystemProxyForTun(false);
+      this.currentMode = 'rule';
+      this.currentVpnName = undefined;
       throw new Error(`应用VPN模式失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -313,8 +314,9 @@ export class ProxyModeManager {
         await TunController.stop();
         await CompatPortForwarder.stopAll();
         proxyManager.updateNetworkSettings({ enableTun: false } as any);
-        try { (proxyManager as any).setSuppressSystemProxyForTun?.(false); } catch {}
+        proxyManager.setSuppressSystemProxyForTun(false);
         this.currentVpnName = undefined;
+        this.currentMode = 'rule';
         console.log(`[ProxyModeManager] 已停止自研 TUN 模式`);
       } catch (error) {
         console.error(`[ProxyModeManager] 断开VPN连接失败:`, error);

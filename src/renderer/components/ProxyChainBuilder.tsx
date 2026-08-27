@@ -109,7 +109,8 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
   // 加载可用节点和已保存的代理链
   useEffect(() => {
     if (initialChain) {
-      setChainNodes(initialChain.nodes);
+      setChainNodes(initialChain.nodes.filter((node): node is ChainNode => 'server' in node));
+      setDynamicChainProxies(initialChain.nodes.filter((node): node is ChainSubscription => !('server' in node)));
     }
   }, [initialChain]);
 
@@ -198,7 +199,7 @@ const ProxyChainBuilder: React.FC<ProxyChainBuilderProps> = ({
         message.error(`批量测试失败: ${result.error}`);
       }
     } catch (error) {
-      message.error(`批量测试IPC调用失败: ${error.message}`);
+      message.error(`批量测试IPC调用失败: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }

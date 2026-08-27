@@ -107,7 +107,7 @@ const NodeSelector: React.FC<NodeSelectorProps> = ({ nodes, onSelect }) => {
               encryption: server.encryption,
               network: server.network,
               wsPath: server.wsPath,
-              wsHost: server.wsHost,
+              wsHost: server.wsHeaders?.Host,
             };
             nodesFromSubscriptions.push(node);
           }
@@ -301,7 +301,7 @@ const NodeSelector: React.FC<NodeSelectorProps> = ({ nodes, onSelect }) => {
     
     const validNodes = group.nodes.filter(node => {
       const latency = getValidLatency(node.id);
-      return latency > 0;
+      return latency !== null && latency > 0;
     }).length;
     
     return { totalNodes, testedNodes, validNodes };

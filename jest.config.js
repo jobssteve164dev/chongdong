@@ -16,7 +16,7 @@ module.exports = {
     '!src/**/index.{ts,tsx}',
   ],
   setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/renderer/$1',
     '^@/shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@/components/(.*)$': '<rootDir>/src/renderer/components/$1',
@@ -31,4 +31,3 @@ module.exports = {
   collectCoverage: false,
   verbose: true,
 };
-

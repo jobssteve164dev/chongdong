@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, Tray, nativeImage } from 'electron';
 import { join } from 'path';
+import { connect } from 'net';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createGlobalShortcutManager, HotkeyConfig } from './globalShortcutManager';
 import { createNotificationManager, NotificationConfig } from './notificationManager';
@@ -18,10 +19,13 @@ import { dnsService } from './services/dnsService';
 import { leakProtectionManager } from './services/leakProtectionManager';
 import { dynamicChainManager } from './dynamicChainManager';
 import { chainStatusManager } from './chainStatusManager';
-import { AppSettings, ChainConfig, ProxyNode } from '../shared/types';
+import { AppSettings, ChainConfig, NetworkSettings, ProxyNode } from '../shared/types';
+import { DefaultSettings } from '../shared/defaultSettings';
+import { isProxyRuntimeRunning } from '../shared/proxyRuntime';
 import * as fs from 'fs';
 import { databaseUpdateManager } from './databaseUpdateManager';
 import { cfEdgeEgressService } from './services/cfEdgeEgressService';
+import { internalApiSecret } from './internalApiAuth';
 
 // 关闭硬件加速，规避 GPU 进程崩溃导致的白屏
 try {
@@ -32,7 +36,6 @@ try {
   app.commandLine.appendSwitch('--disable-gpu');
   app.commandLine.appendSwitch('--disable-gpu-compositing');
   app.commandLine.appendSwitch('--disable-gpu-rasterization');
-  app.commandLine.appendSwitch('--disable-gpu-sandbox');
   console.log('已设置GPU禁用标志');
 } catch (err) {
   console.warn('禁用硬件加速失败(可忽略):', err);
@@ -81,6 +84,38 @@ const nodeLatencyCache: Map<string, { latency: number; timestamp: number }> = ne
 // 渲染层上报的已保存代理链缓存（优先用于托盘展示）
 let savedChainsCache: ChainConfig[] = [];
 let isQuitting = false;
+
+interface LatencyProbeNode {
+  id?: string;
+  name?: string;
+  host?: string;
+  server?: string;
+  port?: number;
+}
+
+async function testNodeReachability(node: LatencyProbeNode, timeoutMs: number): Promise<{ success: boolean; latency: number; error?: string }> {
+  const host = node.host || node.server;
+  const port = Number(node.port);
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return { success: false, latency: 0, error: '节点地址或端口无效' };
+  }
+
+  return await new Promise(resolve => {
+    const startedAt = Date.now();
+    const socket = connect({ host, port });
+    let settled = false;
+    const finish = (result: { success: boolean; latency: number; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish({ success: true, latency: Date.now() - startedAt }));
+    socket.once('timeout', () => finish({ success: false, latency: 0, error: '节点连接超时' }));
+    socket.once('error', error => finish({ success: false, latency: 0, error: error.message }));
+  });
+}
 
 // 向渲染进程广播代理状态
 function broadcastProxyStatus(running: boolean, payload: any = {}): void {
@@ -330,7 +365,7 @@ async function createTray(): Promise<void> {
         label: '启动（自动择优节点）',
         click: async () => {
           try {
-            await cleanupProxyState().catch(() => {});
+            await cleanupProxyState();
             const settingsNow = settingsManager.getSettings();
             const subsNow = settingsNow.subscriptions || [];
             const all: any[] = [];
@@ -353,12 +388,20 @@ async function createTray(): Promise<void> {
                 if ((best as any).wsHost && !outbound.transport.headers.Host) { outbound.transport.headers.Host = (best as any).wsHost; }
               }
             } else if (normalizedType === 'shadowsocks') { outbound.method = (best as any).method || (best as any).encryption; outbound.password = best.password; }
-            else if (normalizedType === 'trojan') { outbound.password = best.password; const serverName = (best as any).sni || best.host; outbound.tls = { enabled: true, server_name: serverName, insecure: (best as any).allowInsecure ?? true }; }
-            const cfg = { log: { level: settingsNow.logLevel || 'info', output: settingsNow.enableLog ? (settingsNow.logFile || 'chongdong.log') : 'console' }, experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: '' } }, dns: { servers: [{ tag: 'default', address: settingsNow.dnsServer || '8.8.8.8', detour: 'direct' }], final: 'default' }, inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: settingsNow.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: settingsNow.proxyPort || 7897 } ], outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ], route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
+            else if (normalizedType === 'trojan') { outbound.password = best.password; const serverName = (best as any).sni || best.host; outbound.tls = { enabled: true, server_name: serverName, insecure: false }; }
+            const dnsAddress = settingsNow.enableDoh ? settingsNow.dohServer : settingsNow.dnsServer;
+            if (settingsNow.dnsLeakProtectionMode === 'strict' && !/^(https|tls):\/\//.test(dnsAddress || '')) {
+              throw new Error('严格模式要求配置加密 DNS');
+            }
+            const cfg = { log: { level: settingsNow.logLevel || 'info', output: settingsNow.enableLog ? (settingsNow.logFile || 'chongdong.log') : 'console' }, experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: internalApiSecret } }, dns: { servers: [{ tag: 'default', address: dnsAddress || 'https://cloudflare-dns.com/dns-query', detour: outbound.tag }], final: 'default' }, inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: settingsNow.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: settingsNow.proxyPort || 7897 } ], outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ], route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
             await proxyManager.startSingbox(cfg);
+            await systemProxyManager.setSystemProxy('127.0.0.1', settingsNow.socksPort || 7896, settingsNow.proxyPort || 7897);
             broadcastProxyStatus(true, { source: 'tray-node', nodeId: best.id, nodeName: best.name });
-            try { await systemProxyManager.setSystemProxy('127.0.0.1', settingsNow.socksPort || 7896, settingsNow.proxyPort || 7897); } catch (err) { console.warn('设置系统代理失败:', err); }
-          } catch (e) { console.error('托盘自动择优节点启动失败:', e); }
+          } catch (e) {
+            await cleanupProxyState().catch(cleanupError => console.error('启动失败后的清理失败:', cleanupError));
+            broadcastProxyStatus(false, { source: 'tray-node' });
+            console.error('托盘自动择优节点启动失败:', e);
+          }
         }
       });
 
@@ -380,7 +423,7 @@ async function createTray(): Promise<void> {
               return null; })();
             if (!found) return;
             // 清理现有代理状态
-            await cleanupProxyState().catch(() => {});
+            await cleanupProxyState();
             const proto = ((found.protocol || '') as string).toLowerCase();
             const normalizedType = proto === 'ss' ? 'shadowsocks' : proto;
             const outbound: any = {
@@ -408,30 +451,33 @@ async function createTray(): Promise<void> {
             } else if (normalizedType === 'trojan') {
               outbound.password = found.password;
               const serverName = (found as any).sni || found.host;
-              outbound.tls = { enabled: true, server_name: serverName, insecure: (found as any).allowInsecure ?? true };
+              outbound.tls = { enabled: true, server_name: serverName, insecure: false };
             }
 
+            const dnsAddress = appSettings.enableDoh ? appSettings.dohServer : appSettings.dnsServer;
+            if (appSettings.dnsLeakProtectionMode === 'strict' && !/^(https|tls):\/\//.test(dnsAddress || '')) {
+              throw new Error('严格模式要求配置加密 DNS');
+            }
             const cfg = { log: { level: appSettings.logLevel || 'info', output: appSettings.enableLog ? (appSettings.logFile || 'chongdong.log') : 'console' },
-              experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: '' } },
-              dns: { servers: [{ tag: 'default', address: appSettings.dnsServer || '8.8.8.8', detour: 'direct' }], final: 'default' },
+              experimental: { clash_api: { external_controller: '127.0.0.1:9090', external_ui: '', secret: internalApiSecret } },
+              dns: { servers: [{ tag: 'default', address: dnsAddress || 'https://cloudflare-dns.com/dns-query', detour: outbound.tag }], final: 'default' },
               inbounds: [ { type: 'socks', tag: 'socks-in', listen: '127.0.0.1', listen_port: appSettings.socksPort || 7896 }, { type: 'http', tag: 'http-in', listen: '127.0.0.1', listen_port: appSettings.proxyPort || 7897 } ],
               outbounds: [ { type: 'direct', tag: 'direct' }, { type: 'dns', tag: 'dns' }, outbound ],
               route: { rules: [ { geoip: 'private', outbound: 'direct' }, { geoip: 'cn', outbound: 'direct' } ], final: outbound.tag } };
             await proxyManager.startSingbox(cfg);
+            const socksPort = appSettings.socksPort || 7896;
+            const httpPort = appSettings.proxyPort || 7897;
+            await systemProxyManager.setSystemProxy('127.0.0.1', socksPort, httpPort);
             broadcastProxyStatus(true, { 
               source: 'tray-node',
               nodeId: n.id,
               nodeName: n.name
             });
-            // 启动成功后设置系统代理
-            try {
-              const socksPort = appSettings.socksPort || 7896;
-              const httpPort = appSettings.proxyPort || 7897;
-              await systemProxyManager.setSystemProxy('127.0.0.1', socksPort, httpPort);
-            } catch (err) {
-              console.warn('设置系统代理失败:', err);
-            }
-          } catch (e) { console.error('通过托盘启动节点失败:', e); }
+          } catch (e) {
+            await cleanupProxyState().catch(cleanupError => console.error('启动失败后的清理失败:', cleanupError));
+            broadcastProxyStatus(false, { source: 'tray-node' });
+            console.error('通过托盘启动节点失败:', e);
+          }
         }
         }
       }));
@@ -442,13 +488,14 @@ async function createTray(): Promise<void> {
         click: async () => {
           try {
             // 清理现有代理状态
-            await cleanupProxyState().catch(() => {});
+            await cleanupProxyState();
             
             const subs = settingsManager.getSettings().subscriptions || [];
             if (subs.length === 0) return;
             const chain: ChainConfig = { id: 'tray_dynamic_all', name: '托盘·自动链', description: '从全部订阅自动选择最佳节点', type: 'dynamic', proxies: subs.map((s: any) => s.id), rules: [], enabled: true, createdAt: new Date(), updatedAt: new Date() } as any;
             const port = settings.proxyPort || 7897;
             const result = await dynamicChainManager.startChain(chain, port);
+            await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port);
             broadcastProxyStatus(true, { 
               source: 'tray-dynamic-all', 
               chainId: chain.id,
@@ -456,9 +503,11 @@ async function createTray(): Promise<void> {
               chainType: chain.type,
               port: result.port || port 
             });
-            // 设置系统代理到返回端口（HTTP/SOCKS 同端口）
-            try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
-          } catch (e) { console.error('通过托盘启动动态链失败:', e); }
+          } catch (e) {
+            await cleanupProxyState().catch(cleanupError => console.error('启动失败后的清理失败:', cleanupError));
+            broadcastProxyStatus(false, { source: 'tray-dynamic-all' });
+            console.error('通过托盘启动动态链失败:', e);
+          }
         }
       }];
 
@@ -478,11 +527,12 @@ async function createTray(): Promise<void> {
               click: async () => {
                 try {
                   // 清理现有代理状态
-                  await cleanupProxyState().catch(() => {});
+                  await cleanupProxyState();
                   
                   const port = settings.proxyPort || 7897;
                   if (c.type === 'dynamic') {
                     const result = await dynamicChainManager.startChain(c, port);
+                    await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port);
                     broadcastProxyStatus(true, { 
                       source: 'tray-dynamic', 
                       chainId: c.id,
@@ -490,9 +540,9 @@ async function createTray(): Promise<void> {
                       chainType: c.type,
                       port: result.port || port 
                     });
-                    try { await systemProxyManager.setSystemProxy('127.0.0.1', result.port || port, result.port || port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   } else {
                     await proxyManager.startChain(c, { listenPort: port } as any);
+                    await systemProxyManager.setSystemProxy('127.0.0.1', port, port);
                     broadcastProxyStatus(true, { 
                       source: 'tray-static', 
                       chainId: c.id,
@@ -500,9 +550,12 @@ async function createTray(): Promise<void> {
                       chainType: c.type,
                       port 
                     });
-                    try { await systemProxyManager.setSystemProxy('127.0.0.1', port, port); } catch (err) { console.warn('设置系统代理失败:', err); }
                   }
-                } catch (e) { console.error('启动已保存代理链失败:', e); }
+                } catch (e) {
+                  await cleanupProxyState().catch(cleanupError => console.error('启动失败后的清理失败:', cleanupError));
+                  broadcastProxyStatus(false, { source: 'tray-chain' });
+                  console.error('启动已保存代理链失败:', e);
+                }
               }
             });
           }
@@ -631,7 +684,7 @@ function createWindow(): void {
     autoHideMenuBar: preferences.autoHideMenuBar,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       backgroundThrottling: false,
       // WebRTC安全配置
       contextIsolation: true,
@@ -685,8 +738,22 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    try {
+      const target = new URL(details.url);
+      if (target.protocol === 'https:') {
+        void shell.openExternal(target.toString());
+      }
+    } catch (error) {
+      console.warn('拒绝打开无效外部地址:', error);
+    }
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    if (currentUrl && targetUrl !== currentUrl) {
+      event.preventDefault();
+    }
   });
 
   // 关键稳定性观测与自恢复
@@ -930,7 +997,8 @@ ipcMain.handle('chains:save', async (_e, chains: ChainConfig[]) => {
   try {
     if (!Array.isArray(chains)) return { success: false, error: 'Invalid chains payload' };
     const p = join(app.getPath('userData'), 'chains.json');
-    fs.writeFileSync(p, JSON.stringify(chains, null, 2), 'utf8');
+    fs.writeFileSync(p, JSON.stringify(chains, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(p, 0o600);
     savedChainsCache = chains;
     try { rebuildTrayMenu && await rebuildTrayMenu(); } catch {}
     return { success: true, path: p };
@@ -1015,7 +1083,7 @@ ipcMain.handle('core:isInstalled', (_, coreName) => {
 // 代理引擎IPC处理程序
 ipcMain.handle('proxy:startSingbox', async (_, config) => {
   console.log(`=== 收到启动 Sing-box 请求 ===`);
-  console.log(`配置数据:`, JSON.stringify(config, null, 2));
+  console.log('收到 Sing-box 启动请求');
   
   try {
     console.log(`开始启动 Sing-box...`);
@@ -1066,6 +1134,15 @@ ipcMain.handle('proxy:stop', async () => {
   }
 });
 
+ipcMain.handle('proxy:restartAll', async () => {
+  try {
+    await proxyManager.restartAllProcesses();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '代理重启失败' };
+  }
+});
+
 // 清理代理状态IPC处理程序
 ipcMain.handle('proxy:cleanup', async () => {
   try {
@@ -1078,11 +1155,12 @@ ipcMain.handle('proxy:cleanup', async () => {
 });
 
 // 广播代理状态IPC处理程序
-ipcMain.handle('proxy:broadcastStatus', async (_, payload) => {
+ipcMain.handle('proxy:broadcastStatus', async () => {
   try {
-    console.log('收到代理状态广播请求:', payload);
-    broadcastProxyStatus(payload.running, payload);
-    return { success: true };
+    const stats = await proxyManager.getStats();
+    const running = isProxyRuntimeRunning(stats);
+    broadcastProxyStatus(running, { stats });
+    return { success: true, running };
   } catch (error) {
     console.error('Failed to broadcast proxy status:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -1099,8 +1177,18 @@ ipcMain.handle('proxy:getStats', async () => {
 });
 
 // 系统代理IPC处理程序
-ipcMain.handle('system:setProxy', async (_, { host, socksPort, httpPort }) => {
+ipcMain.handle('system:setProxy', async (_, payload: unknown) => {
   try {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('系统代理参数无效');
+    }
+    const { host, socksPort, httpPort } = payload as Record<string, unknown>;
+    const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+    const isValidPort = (value: unknown): value is number =>
+      Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 65535;
+    if (typeof host !== 'string' || !allowedHosts.has(host) || !isValidPort(socksPort) || !isValidPort(httpPort)) {
+      throw new Error('系统代理仅允许使用本机地址和有效端口');
+    }
     await systemProxyManager.setSystemProxy(host, socksPort, httpPort);
     return { success: true };
   } catch (error) {
@@ -1131,68 +1219,48 @@ ipcMain.handle('system:getProxy', async () => {
 // 端口占用处理
 ipcMain.handle('proxy:killProcessOnPort', async (_, port) => {
   try {
-    const { exec } = require('child_process');
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return { success: false, error: '端口必须是 1 到 65535 之间的整数' };
+    }
+
+    const { execFile } = require('child_process');
     const util = require('util');
-    const execAsync = util.promisify(exec);
-    
-    console.log(`尝试终止占用端口 ${port} 的进程...`);
-    
-    // 方法1: 使用 lsof 查找进程
-    try {
-      const { stdout } = await execAsync(`lsof -ti:${port}`);
-      if (stdout.trim()) {
-        const pids = stdout.trim().split('\n');
-        for (const pid of pids) {
-          console.log(`终止进程 ${pid} (占用端口 ${port})`);
-          await execAsync(`kill -9 ${pid}`);
-        }
-        return { success: true, message: `已终止占用端口 ${port} 的进程` };
-      }
-    } catch (lsofError) {
-      console.log('lsof 命令未找到进程，尝试其他方法...');
-    }
-    
-    // 方法2: 使用 netstat 查找进程 (macOS 备用方案)
-    try {
-      const { stdout } = await execAsync(`netstat -anv | grep ${port}`);
-      if (stdout.includes('LISTEN')) {
-        // 提取 PID
-        const match = stdout.match(/\s+(\d+)\s+/);
-        if (match && match[1]) {
-          const pid = match[1];
-          console.log(`通过 netstat 找到进程 ${pid}，尝试终止...`);
-          await execAsync(`kill -9 ${pid}`);
-          return { success: true, message: `已终止占用端口 ${port} 的进程` };
-        }
-      }
-    } catch (netstatError) {
-      console.log('netstat 命令也失败，尝试强制清理...');
-    }
-    
-    // 方法3: 强制清理所有可能的 sing-box 进程
-    try {
-      console.log('强制清理所有 sing-box 进程...');
-      await execAsync('pkill -f sing-box');
-      await execAsync('pkill -f "sing-box run"');
-      
-      // 等待一段时间让进程完全退出
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // 再次检查端口是否释放
+    const execFileAsync = util.promisify(execFile);
+    let pids: number[] = [];
+
+    if (process.platform === 'win32') {
+      const { stdout } = await execFileAsync('netstat', ['-ano', '-p', 'tcp']);
+      pids = stdout.split(/\r?\n/).flatMap((line: string) => {
+        const match = line.match(/^\s*TCP\s+\S+:([0-9]+)\s+\S+\s+LISTENING\s+([0-9]+)\s*$/i);
+        return match?.[1] === String(port) && match[2] ? [Number(match[2])] : [];
+      });
+    } else {
       try {
-        const { stdout } = await execAsync(`lsof -ti:${port}`);
-        if (!stdout.trim()) {
-          return { success: true, message: `已清理所有相关进程，端口 ${port} 已释放` };
-        }
-      } catch (finalCheckError) {
-        // 如果 lsof 失败，假设清理成功
-        return { success: true, message: `已清理所有相关进程` };
+        const { stdout } = await execFileAsync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+        pids = stdout.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger);
+      } catch (error: any) {
+        if (error?.code !== 1) throw error;
       }
-    } catch (pkillError) {
-      console.log('pkill 命令失败:', pkillError);
     }
-    
-    return { success: false, message: `无法终止占用端口 ${port} 的进程，请手动检查` };
+
+    if (pids.length === 0) {
+      return { success: true, message: `端口 ${port} 当前未被占用` };
+    }
+
+    const allowedCore = /(?:^|[\\/])(sing-box|xray|mihomo|clash)(?:\.exe)?$/i;
+    for (const pid of [...new Set(pids)]) {
+      if (pid === process.pid) continue;
+      const commandResult = process.platform === 'win32'
+        ? await execFileAsync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])
+        : await execFileAsync('ps', ['-p', String(pid), '-o', 'comm=']);
+      const command = String(commandResult.stdout).trim().replace(/^"|".*$/g, '');
+      if (!allowedCore.test(command)) {
+        return { success: false, error: `端口 ${port} 被非虫洞核心进程占用，已拒绝终止` };
+      }
+      process.kill(pid, 'SIGTERM');
+    }
+
+    return { success: true, message: `已停止占用端口 ${port} 的虫洞核心进程` };
   } catch (error) {
     console.error('Failed to kill process on port:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -1229,10 +1297,10 @@ ipcMain.handle('vpn:disconnect', async (_, name) => {
   }
 });
 
-ipcMain.handle('vpn:getStatus', async () => {
+ipcMain.handle('vpn:getStatus', async (_, name: unknown) => {
   try {
-    // 简化版本，实际应该检查VPN连接状态
-    return { connected: false };
+    if (typeof name !== 'string') throw new Error('VPN 名称无效');
+    return await systemProxyManager.getVPNStatus(name);
   } catch (error) {
     console.error('Failed to get VPN status:', error);
     return { connected: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -1260,14 +1328,7 @@ ipcMain.handle('system:requestAdmin', async () => {
 
 // 订阅管理IPC处理程序
 ipcMain.handle('subscription:parse', async (_event, _url: string) => {
-  try {
-    // 这里应该调用订阅管理器的解析功能
-    // 由于订阅管理器在渲染进程中，这里只是占位
-    return { success: true, servers: [], groups: [] };
-  } catch (error) {
-    console.error('Failed to parse subscription:', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+  return { success: false, error: '主进程未提供订阅解析能力，请使用订阅管理入口' };
 });
 
 // 窗口控制IPC处理程序
@@ -1374,62 +1435,8 @@ ipcMain.handle('tray:test', async () => {
 // 延迟测试IPC处理程序
 ipcMain.handle('proxy:testLatency', async (_, { node, config }) => {
   try {
-    console.log('开始测试节点延迟:', node.name, config);
-    
-    const startTime = Date.now();
-    
-    // 创建HTTP请求来测试延迟
-    const https = require('https');
-    const http = require('http');
-    
-    const testUrl = config.testUrl || 'http://connectivitycheck.gstatic.com/generate_204';
-    const timeout = config.timeout || 10000;
-    
-    return new Promise((resolve) => {
-      const url = new URL(testUrl);
-      const isHttps = url.protocol === 'https:';
-      const client = isHttps ? https : http;
-      
-      const req = client.request(url, {
-        method: 'GET',
-        timeout: timeout,
-        // 如果需要通过代理测试，可以在这里添加代理配置
-        // 例如：agent: new HttpsProxyAgent(proxyUrl)
-      }, (res: any) => {
-        const endTime = Date.now();
-        const latency = endTime - startTime;
-        
-        console.log(`延迟测试成功: ${node.name}`, { latency });
-        
-        resolve({
-          success: true,
-          latency,
-          statusCode: res.statusCode
-        });
-      });
-      
-      req.on('error', (error: any) => {
-        console.error(`延迟测试失败: ${node.name}`, error);
-        resolve({
-          success: false,
-          error: error.message,
-          latency: 0
-        });
-      });
-      
-      req.on('timeout', () => {
-        console.error(`延迟测试超时: ${node.name}`);
-        req.destroy();
-        resolve({
-          success: false,
-          error: 'Request timeout',
-          latency: 0
-        });
-      });
-      
-      req.end();
-    });
-    
+    const timeout = Math.min(Math.max(Number(config?.timeout) || 10000, 1000), 30000);
+    return await testNodeReachability(node, timeout);
   } catch (error) {
     console.error('延迟测试处理失败:', error);
     return {
@@ -1440,17 +1447,42 @@ ipcMain.handle('proxy:testLatency', async (_, { node, config }) => {
   }
 });
 
+ipcMain.handle('proxy:test-latency-group', async (_, nodes: unknown) => {
+  if (!Array.isArray(nodes) || nodes.length === 0 || nodes.length > 100) {
+    return { success: false, error: '批量延迟测试节点数量无效' };
+  }
+  const timeout = Math.min(Math.max(settingsManager.getSettings().latencyTestTimeout || 10000, 1000), 30000);
+  const data = await Promise.all(nodes.map(async (node: LatencyProbeNode) => ({
+    nodeId: node.id,
+    timestamp: Date.now(),
+    ...(await testNodeReachability(node, timeout))
+  })));
+  return { success: true, data };
+});
+
 // 延迟测试配置IPC处理程序
-ipcMain.handle('latency:test', async (_, config) => {
+ipcMain.handle('latency:test', async () => {
   try {
-    console.log('测试延迟配置:', config);
-    
-    // 这里可以添加延迟测试配置的验证逻辑
-    // 例如：测试指定的URL是否可访问
+    console.log('开始验证延迟测试配置');
+    const settings = settingsManager.getSettings();
+    const urls = (settings.latencyTestUrls || settings.latencyTestUrl || '')
+      .split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    if (urls.length === 0 || urls.some(value => {
+      try {
+        return !['http:', 'https:'].includes(new URL(value).protocol);
+      } catch {
+        return true;
+      }
+    })) {
+      throw new Error('延迟测试地址无效');
+    }
+    if (!Number.isFinite(settings.latencyTestTimeout) || settings.latencyTestTimeout < 1000) {
+      throw new Error('延迟测试超时时间无效');
+    }
     
     return {
       success: true,
-      message: '延迟测试配置验证成功'
+      message: '延迟测试配置有效'
     };
   } catch (error) {
     console.error('延迟测试配置验证失败:', error);
@@ -1464,12 +1496,25 @@ ipcMain.handle('latency:test', async (_, config) => {
 ipcMain.handle('latency:reset', async () => {
   try {
     console.log('重置延迟测试配置为默认值');
-    
-    // 这里可以重置延迟测试配置为默认值
+    const current = settingsManager.getSettings();
+    const defaults = DefaultSettings.getDefaultAppSettings();
+    const updated = {
+      ...current,
+      latencyTestUrl: defaults.latencyTestUrl,
+      latencyTestTimeout: defaults.latencyTestTimeout,
+      latencyTestRetries: defaults.latencyTestRetries,
+      latencyTestInterval: defaults.latencyTestInterval,
+      enableAutoLatencyTest: defaults.enableAutoLatencyTest,
+      latencyTestConcurrency: defaults.latencyTestConcurrency,
+      latencyTestUrls: defaults.latencyTestUrls,
+      latencyTestValidityPeriod: defaults.latencyTestValidityPeriod
+    };
+    settingsManager.saveSettings(updated);
     
     return {
       success: true,
-      message: '延迟测试配置已重置'
+      message: '延迟测试配置已重置',
+      settings: updated
     };
   } catch (error) {
     console.error('重置延迟测试配置失败:', error);
@@ -1482,15 +1527,21 @@ ipcMain.handle('latency:reset', async () => {
 
 // 设置更新通知
 ipcMain.handle('settings:updated', async (_, settings: any) => {
+  const previousSettings = settingsManager.getSettings();
+  const previousPreferences = settingsManager.getPreferences();
+  let persistedSettings = false;
+  let persistedPreferences = false;
   try {
-    console.log('收到设置更新通知:', settings);
+    console.log('收到设置更新通知');
     
     // 保存设置到文件
     if (settings.settings) {
       settingsManager.saveSettings(settings.settings);
+      persistedSettings = true;
     }
     if (settings.preferences) {
       settingsManager.savePreferences(settings.preferences);
+      persistedPreferences = true;
     }
     
     // 应用窗口设置
@@ -1563,69 +1614,80 @@ ipcMain.handle('settings:updated', async (_, settings: any) => {
         fakeIpRange: settings.settings.fakeIpRange,
         enableUdp: settings.settings.enableUdp,
         enableIpv6: settings.settings.enableIpv6,
+        enableHttpHeaderProtection: settings.settings.enableHttpHeaderProtection,
+        httpHeaderProtectionMode: settings.settings.httpHeaderProtectionMode,
+        customUserAgent: settings.settings.customUserAgent,
+        enableTimingLeakProtection: settings.settings.enableTimingLeakProtection,
+        requestDelayRange: settings.settings.requestDelayRange,
+        enableLanIsolation: settings.settings.enableLanIsolation,
+        lanAllowedCidrs: settings.settings.lanAllowedCidrs,
+        enableCfEdgeEgress: settings.settings.enableCfEdgeEgress,
+        cfEdgeEndpoint: settings.settings.cfEdgeEndpoint,
+        cfEdgePSKId: settings.settings.cfEdgePSKId,
+        cfEdgePSK: settings.settings.cfEdgePSK,
+        cfEdgePolicy: settings.settings.cfEdgePolicy,
+        cfEdgeDomainAllowlist: settings.settings.cfEdgeDomainAllowlist,
+        cfEdgeDomainDenylist: settings.settings.cfEdgeDomainDenylist,
         logLevel: settings.settings.logLevel,
         enableLog: settings.settings.enableLog,
         logFile: settings.settings.logFile
       };
       
-      // 更新代理管理器的网络设置
-      try {
-        const { ProxyManager } = require('./proxyManager');
-        const proxyManager = ProxyManager.getInstance();
-        proxyManager.updateNetworkSettings(networkSettings);
-        
-        // 如果有代理进程正在运行，重启它们以应用新设置
-        try {
-          await proxyManager.restartAllProcesses();
+      const previousNetworkSettings = Object.fromEntries(
+        Object.keys(networkSettings).map(key => [key, (previousSettings as any)[key]])
+      );
+      const networkChanged = JSON.stringify(networkSettings) !== JSON.stringify(previousNetworkSettings);
+      proxyManager.updateNetworkSettings(networkSettings);
+
+      if (networkChanged) {
+        const runtime = await proxyManager.getStats();
+        if (proxyManager.hasGlobalProcess()) {
+          await proxyManager.restartAllProcesses(previousNetworkSettings as NetworkSettings);
           console.log('代理进程已重启以应用新设置');
-        } catch (error) {
-          console.error('重启代理进程失败:', error);
-          // 发送错误通知到渲染进程
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('proxy:restartFailed', {
-              error: error instanceof Error ? error.message : 'Unknown error'
-            });
-          }
+        } else if (isProxyRuntimeRunning(runtime)) {
+          throw new Error('可信链路运行期间无法原位应用该网络设置');
         }
-        // 兼容端口：在 VPN 模式下即时启停转发器
-        try {
-          const mode = proxyModeManager.getCurrentMode();
-          if (mode === 'vpn') {
-            await CompatPortForwarder.stopAll();
-            const appSettings = settings.settings;
-            if (appSettings.enableCompatProxy) {
-              const entry = (proxyManager as any).getMiddlewareEntryPort?.() || appSettings.socksPort || appSettings.mixedPort || appSettings.proxyPort;
-              if (entry) {
-                const httpPort = appSettings.compatHttpPort || 1080;
-                const socksPort = appSettings.compatSocksPort || 1080;
-                await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
-                if (socksPort !== httpPort) {
-                  await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
-                }
-              }
+
+        const mode = proxyModeManager.getCurrentMode();
+        if (mode === 'vpn') {
+          await CompatPortForwarder.stopAll();
+          const appSettings = settings.settings;
+          if (appSettings.enableCompatProxy) {
+            const entry = proxyManager.getMiddlewareEntryPort() || appSettings.socksPort || appSettings.mixedPort || appSettings.proxyPort;
+            if (!entry) throw new Error('无法确定 VPN 兼容入口端口');
+            const httpPort = appSettings.compatHttpPort || 1080;
+            const socksPort = appSettings.compatSocksPort || 1080;
+            await CompatPortForwarder.start(httpPort, '127.0.0.1', entry);
+            if (socksPort !== httpPort) {
+              await CompatPortForwarder.start(socksPort, '127.0.0.1', entry);
             }
           }
-        } catch (err) {
-          console.warn('应用兼容端口设置失败:', err);
         }
-      } catch (error) {
-        console.error('更新代理管理器设置失败:', error);
       }
     }
     
     // 应用DNS设置
     if (settings.settings) {
-      try {
-        dnsService.init(settings.settings);
-        console.log('DNS服务设置已更新');
-      } catch (error) {
-        console.error('更新DNS服务设置失败:', error);
-      }
+      leakProtectionManager.init(settings.settings);
+      console.log('网络信任与泄露观测设置已更新');
     }
 
     return { success: true };
   } catch (error) {
     console.error('Failed to apply settings:', error);
+    try {
+      if (persistedSettings) settingsManager.saveSettings(previousSettings);
+      if (persistedPreferences) settingsManager.savePreferences(previousPreferences);
+      proxyManager.updateNetworkSettings(previousSettings);
+      leakProtectionManager.init(previousSettings);
+    } catch (rollbackError) {
+      console.error('设置回滚失败:', rollbackError);
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('proxy:restartFailed', {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
@@ -1643,49 +1705,16 @@ ipcMain.handle('settings:autoLatency:restart', async () => {
 });
 
 ipcMain.handle('subscription:update', async (_event, _subscription: any) => {
-  try {
-    // 这里应该调用订阅管理器的更新功能
-    return { success: true, servers: [], groups: [] };
-  } catch (error) {
-    console.error('Failed to update subscription:', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+  return { success: false, error: '主进程未提供订阅更新能力，请使用订阅管理入口' };
 });
 
 // 监控统计IPC处理程序
 ipcMain.handle('monitor:get-stats', async () => {
-  try {
-    // 这里应该调用监控管理器的统计功能
-    return {
-      trafficStats: {
-        upload: 0,
-        download: 0,
-        uploadSpeed: 0,
-        downloadSpeed: 0,
-        timestamp: Date.now()
-      },
-      connectionStatus: {
-        connected: false,
-        upload: 0,
-        download: 0,
-        uploadSpeed: 0,
-        downloadSpeed: 0
-      }
-    };
-  } catch (error) {
-    console.error('Failed to get monitor stats:', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+  return { success: false, error: '主进程监控统计源尚未接通' };
 });
 
 ipcMain.handle('monitor:get-history', async (_event, _limit: number = 100) => {
-  try {
-    // 这里应该调用监控管理器的历史记录功能
-    return { history: [] };
-  } catch (error) {
-    console.error('Failed to get monitor history:', error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
-  }
+  return { success: false, error: '主进程监控历史源尚未接通' };
 });
 
 ipcMain.handle('network:getInterfaces', async () => {
@@ -1699,13 +1728,13 @@ ipcMain.handle('network:getInterfaces', async () => {
 
 ipcMain.handle('network:getStatus', async () => {
   try {
-    // 简化版本，实际应该获取网络状态
     const interfaces = systemProxyManager.getNetworkInterfaces();
+    const activeInterface = interfaces.find(item => !item.internal);
     return {
-      connected: interfaces.length > 0,
-      type: 'ethernet',
-      interface: interfaces[0]?.name || '',
-      ip: interfaces[0]?.address || ''
+      connected: !!activeInterface,
+      type: 'unknown',
+      interface: activeInterface?.name || '',
+      ip: activeInterface?.address || ''
     };
   } catch (error) {
     console.error('Failed to get network status:', error);
@@ -1997,7 +2026,7 @@ ipcMain.handle('nodes:getLatencies', async () => {
 // IP地理位置测试IPC处理程序
 ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
   try {
-    console.log('开始通过代理测试IP地理位置:', proxyUrl);
+    console.log('开始通过本地代理测试IP地理位置');
 
     const { URL } = require('url');
 
@@ -2009,10 +2038,17 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
     ];
 
     const proxyUrlObj = new URL(proxyUrl);
+    if (!['socks:', 'socks5:'].includes(proxyUrlObj.protocol) ||
+        !['127.0.0.1', 'localhost', '::1'].includes(proxyUrlObj.hostname)) {
+      return { success: false, error: '仅允许通过本地 SOCKS 入口执行出口观测' };
+    }
     const appSettings = settingsManager.getSettings();
     const proxyHost = proxyUrlObj.hostname || '127.0.0.1';
     // 使用传入的proxyUrl中的端口，而不是设置中的默认SOCKS端口
     const socksPort = Number(proxyUrlObj.port) || Number(appSettings?.socksPort) || 7896;
+    if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) {
+      return { success: false, error: 'SOCKS 端口无效' };
+    }
 
     // 通过 SOCKS5 访问
     const tryViaSocks = (api: string): Promise<any> => new Promise((resolve) => {
@@ -2030,7 +2066,7 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
           const onError = (err: any) => resolve({ success: false, error: err?.message || String(err) });
           if (targetIsHttps) {
             const tls = require('tls');
-            const tlsSocket = tls.connect({ socket, servername: targetUrl.hostname, rejectUnauthorized: false });
+            const tlsSocket = tls.connect({ socket, servername: targetUrl.hostname, rejectUnauthorized: true });
             tlsSocket.setTimeout(10000, () => tlsSocket.destroy(new Error('TLS request timeout')));
             const requestLines = [
               `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,
@@ -2049,7 +2085,6 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
               .on('end', () => {
                 try {
                   const body = data.split('\r\n\r\n')[1] || '';
-                  console.log('Raw response body from SOCKS:', body); // 打印原始响应体
                   const jsonData = JSON.parse(body);
                   let result: any;
                   if (api.includes('ipapi.co')) {
@@ -2082,7 +2117,6 @@ ipcMain.handle('geolocation:testViaProxy', async (_, { proxyUrl }) => {
               .on('end', () => {
                 try {
                   const body = data.split('\r\n\r\n')[1] || '';
-                  console.log('Raw response body from SOCKS:', body); // 打印原始响应体
                   const jsonData = JSON.parse(body);
                   const result = { success: true, ip: jsonData.ip };
                   resolve(result);

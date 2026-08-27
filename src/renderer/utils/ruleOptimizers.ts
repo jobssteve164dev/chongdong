@@ -1,6 +1,5 @@
-import { RoutingRule, RuleType, RuleAction } from '../../shared/types';
+import { RoutingRule, RuleType } from '../../shared/types';
 import { RuleOptimizer, RuleOptimizationOptions, OptimizationResult, RuleOptimization } from './ruleParser';
-import { log } from './logger';
 
 /**
  * 域名规则优化器

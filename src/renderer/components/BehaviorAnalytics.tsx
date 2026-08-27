@@ -11,8 +11,7 @@ import {
   Alert,
   Spin,
   Empty,
-  Tag,
-  Tooltip
+  Tag
 } from 'antd';
 import {
   BarChartOutlined,
@@ -24,12 +23,6 @@ import {
 } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
-
-interface BehaviorSnapshot {
-  timestamp: number;
-  activeConnections: number;
-  bytesPerSecond: number;
-}
 
 interface AnalyticsData {
   totalConnections: number;
@@ -53,9 +46,11 @@ const BehaviorAnalytics: React.FC = () => {
     newestSnapshot: Date | null;
     dataSizeKB: number;
   } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadAnalyticsData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       // 从主进程获取真实的行为分析数据
       const result = await window.electron.ipcRenderer.invoke('behavior-analytics:get-data');
@@ -64,50 +59,13 @@ const BehaviorAnalytics: React.FC = () => {
         setAnalyticsData(result.data);
         setLastUpdate(new Date());
       } else {
-        // 如果获取失败，使用模拟数据作为后备
-        console.warn('获取真实数据失败，使用模拟数据:', result.error);
-        const mockData: AnalyticsData = {
-          totalConnections: 0,
-          averageConnections: 0,
-          peakConnections: 0,
-          totalBytes: 0,
-          averageBytesPerSecond: 0,
-          peakBytesPerSecond: 0,
-          activeHours: [],
-          connectionPatterns: Array.from({ length: 24 }, (_, i) => ({
-            hour: i,
-            connections: 0
-          })),
-          trafficPatterns: Array.from({ length: 24 }, (_, i) => ({
-            hour: i,
-            bytes: 0
-          }))
-        };
-        setAnalyticsData(mockData);
-        setLastUpdate(new Date());
+        setAnalyticsData(null);
+        setLoadError(result.error || '行为数据暂不可用');
       }
     } catch (error) {
       console.error('加载行为分析数据失败:', error);
-      // 使用空数据作为后备
-      const emptyData: AnalyticsData = {
-        totalConnections: 0,
-        averageConnections: 0,
-        peakConnections: 0,
-        totalBytes: 0,
-        averageBytesPerSecond: 0,
-        peakBytesPerSecond: 0,
-        activeHours: [],
-        connectionPatterns: Array.from({ length: 24 }, (_, i) => ({
-          hour: i,
-          connections: 0
-        })),
-        trafficPatterns: Array.from({ length: 24 }, (_, i) => ({
-          hour: i,
-          bytes: 0
-        }))
-      };
-      setAnalyticsData(emptyData);
-      setLastUpdate(new Date());
+      setAnalyticsData(null);
+      setLoadError(error instanceof Error ? error.message : '行为数据暂不可用');
     } finally {
       setLoading(false);
     }
@@ -177,7 +135,7 @@ const BehaviorAnalytics: React.FC = () => {
   if (!analyticsData) {
     return (
       <Empty
-        description="暂无行为分析数据"
+        description={loadError || '暂无行为分析数据'}
         image={Empty.PRESENTED_IMAGE_SIMPLE}
       >
         <Button type="primary" onClick={loadAnalyticsData}>

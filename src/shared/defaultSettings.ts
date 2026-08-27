@@ -52,9 +52,10 @@ export class DefaultSettings {
       webRTCLeakProtectionMode: 'strict',
       webRTCAllowedDomains: [],
       enableDns: true,
-      dnsServer: '8.8.8.8',
-      enableDoh: false,
-      dohServer: 'https://dns.google/dns-query',
+      dnsListenPort: 5353,
+      dnsServer: 'https://cloudflare-dns.com/dns-query',
+      enableDoh: true,
+      dohServer: 'https://cloudflare-dns.com/dns-query',
       // 新增DNS安全性和隐私性配置
       enableDot: false,
       dotServer: 'tls://1.1.1.1:853',
@@ -63,10 +64,8 @@ export class DefaultSettings {
       dnsCacheTtl: 300,
       enableDnsLoadBalance: true,
       dnsServers: [
-        '8.8.8.8',
-        '8.8.4.4',
-        '1.1.1.1',
-        '1.0.0.1'
+        'https://cloudflare-dns.com/dns-query',
+        'https://dns.google/dns-query'
       ],
       enableDnsLogging: false,
       enableDnsLeakProtection: true,
@@ -104,8 +103,7 @@ export class DefaultSettings {
       ],
       enableDnsFallback: true,
       dnsFallbackServers: [
-        '114.114.114.114',
-        '223.5.5.5'
+        'https://dns.quad9.net/dns-query'
       ],
       proxyEngine: 'singbox',
       engineSettings: {},
@@ -175,9 +173,10 @@ export class DefaultSettings {
   static getDefaultNetworkSettings() {
     return {
       enableDns: true,
-      dnsServer: '8.8.8.8',
-      enableDoh: false,
-      dohServer: 'https://dns.google/dns-query',
+      dnsListenPort: 5353,
+      dnsServer: 'https://cloudflare-dns.com/dns-query',
+      enableDoh: true,
+      dohServer: 'https://cloudflare-dns.com/dns-query',
       // 新增DNS安全性和隐私性配置
       enableDot: false,
       dotServer: 'tls://1.1.1.1:853',
@@ -186,10 +185,8 @@ export class DefaultSettings {
       dnsCacheTtl: 300,
       enableDnsLoadBalance: true,
       dnsServers: [
-        '8.8.8.8',
-        '8.8.4.4',
-        '1.1.1.1',
-        '1.0.0.1'
+        'https://cloudflare-dns.com/dns-query',
+        'https://dns.google/dns-query'
       ],
       enableDnsLogging: false,
       enableDnsLeakProtection: true,
@@ -226,8 +223,7 @@ export class DefaultSettings {
       ],
       enableDnsFallback: true,
       dnsFallbackServers: [
-        '114.114.114.114',
-        '223.5.5.5'
+        'https://dns.quad9.net/dns-query'
       ],
       enableTun: false,
       tunDevice: 'utun0',

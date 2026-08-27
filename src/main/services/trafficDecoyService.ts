@@ -1,6 +1,7 @@
 import { settingsManager } from '../settingsManager';
 import { randomBytes } from 'crypto';
-import https from 'https';
+import tls from 'tls';
+import { SocksClient } from 'socks';
 
 export type DecoyIntensity = 'low' | 'medium' | 'high';
 
@@ -23,7 +24,11 @@ export class TrafficDecoyService {
     this.stop();
     if (!this.enabled) return;
     const interval = this.pickIntervalMs();
-    this.timer = setInterval(() => this.fireOnce(), interval);
+    this.timer = setInterval(() => {
+      void this.fireOnce().catch(error => {
+        console.warn(`诱饵流量未发送: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, interval);
   }
 
   stop(): void {
@@ -43,14 +48,43 @@ export class TrafficDecoyService {
     }
   }
 
-  private fireOnce(): void {
+  private async fireOnce(): Promise<void> {
     const host = this.pickDomain();
     const path = `/${randomBytes(6).toString('hex')}`;
-    try {
-      https.get({ host, path, timeout: 3000 }, (res) => {
-        res.resume();
-      }).on('error', () => {});
-    } catch {}
+    const settings = settingsManager.getSettings();
+    const socksPort = Number(settings.socksPort || settings.mixedPort || settings.proxyPort);
+    if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) {
+      throw new Error('可信 SOCKS 入口端口无效');
+    }
+
+    const { socket } = await SocksClient.createConnection({
+      proxy: { host: '127.0.0.1', port: socksPort, type: 5 },
+      command: 'connect',
+      destination: { host, port: 443 },
+      timeout: 5000
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const secureSocket = tls.connect({ socket, servername: host, rejectUnauthorized: true });
+      const finish = (error?: Error) => {
+        secureSocket.destroy();
+        if (error) reject(error);
+        else resolve();
+      };
+      secureSocket.setTimeout(5000, () => finish(new Error('诱饵请求超时')));
+      secureSocket.once('secureConnect', () => {
+        secureSocket.write([
+          `HEAD ${path} HTTP/1.1`,
+          `Host: ${host}`,
+          'Connection: close',
+          '',
+          ''
+        ].join('\r\n'));
+      });
+      secureSocket.once('data', () => finish());
+      secureSocket.once('error', finish);
+      secureSocket.once('end', () => finish());
+    });
   }
 
   private pickDomain(): string {
@@ -70,5 +104,4 @@ export class TrafficDecoyService {
     return pool[idx] || defaultPool[0]!;
   }
 }
-
 

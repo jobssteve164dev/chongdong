@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { createConnection } from 'net'; // Added for checkPortReady
+import { internalApiSecret } from './internalApiAuth';
 
 /**
  * 协议适配器 - 为单个节点创建独立的sing-box实例
@@ -67,7 +68,7 @@ export class ProtocolAdapter implements IAdapter {
     console.log(`  - 节点ID: ${this.node.id}`);
     console.log(`  - 节点名称: ${this.node.name}`);
     console.log(`  - 节点类型: ${this.node.type}`);
-    console.log(`  - 服务器: ${this.node.server}:${this.node.port}`);
+    console.log(`  - 服务器端点: 已隐藏`);
     console.log(`  - 本地端口: ${this.port}`);
     
     try {
@@ -209,7 +210,7 @@ export class ProtocolAdapter implements IAdapter {
       (config as any).experimental.clash_api = {
         external_controller: `127.0.0.1:${this.apiPort}`,
         external_ui: '',
-        secret: ''
+        secret: internalApiSecret
       };
     }
     
@@ -220,7 +221,8 @@ export class ProtocolAdapter implements IAdapter {
     }
     
     this.configPath = path.join(configDir, `adapter_${this.id}.json`);
-    fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+    fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.chmodSync(this.configPath, 0o600);
     
     console.log(`[ProtocolAdapter] 配置文件已生成: ${this.configPath}`);
     return config;
@@ -318,7 +320,14 @@ export class ProtocolAdapter implements IAdapter {
     try {
       const http = require('http');
       return await new Promise((resolve) => {
-        const req = http.request({ hostname: '127.0.0.1', port: this.apiPort, path: '/connections', method: 'GET', timeout: 800 }, (res: any) => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port: this.apiPort,
+          path: '/connections',
+          method: 'GET',
+          timeout: 800,
+          headers: { Authorization: `Bearer ${internalApiSecret}` }
+        }, (res: any) => {
           let data = '';
           res.on('data', (c: any) => (data += c));
           res.on('end', () => {

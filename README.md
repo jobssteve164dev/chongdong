@@ -1,17 +1,27 @@
-# 虫洞 (ChongDong) - 新一代跨平台代理客户端
+# 虫洞计划（ChongDong）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg)](https://github.com/your-username/chongdong)
-[![Electron](https://img.shields.io/badge/Electron-28.0.0-green.svg)](https://electronjs.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg)](https://github.com/jobssteve164dev/chongdong)
+[![Electron](https://img.shields.io/badge/Electron-44-green.svg)](https://electronjs.org/)
 [![React](https://img.shields.io/badge/React-18.0.0-blue.svg)](https://reactjs.org/)
 
 ## 📖 项目简介
 
-虫洞 (ChongDong) 是一款现代化的跨平台代理客户端应用，专为用户提供高效、安全、易用的网络代理服务。应用采用 Electron + React + TypeScript 技术栈构建，支持 Windows、macOS 和 Linux 三大主流操作系统。
+虫洞计划是“堡垒计划”的内部组成部分，目标是建立内部可信的全链路七层网络信任机制。当前仓库提供桌面治理面、代理核心编排、静态/动态链路、系统流量接管、订阅与规则管理，以及基于真实观测证据的运行状态呈现。
+
+本项目不是面向外部用户销售的通用代理客户端。历史 `plan report/` 与 `progress report/` 只保留过程信息，不能作为当前实现或安全结论的证据；当前能力以代码、测试和本文列出的验证命令为准。
+
+## 可信结论边界
+
+- 只有核心进程真实运行且入口可用时，界面才会显示已连接。
+- “防护开关已启用”不等于“泄露检测通过”；缺少外部观测的项目显示为未验证。
+- 严格 DNS 模式默认使用加密解析器；真实 DNS 出口仍需受控权威域名验证。
+- 下载的代理核心与规则数据库使用固定版本和 SHA-256 清单校验。
+- 系统代理只允许指向本机回环入口，渲染进程只能访问显式许可的 IPC 能力。
 
 ### 🌟 核心特性
 
-- **🚀 跨平台支持**: 完美支持 Windows、macOS、Linux 系统
+- **🚀 跨平台构建**: 提供 Windows、macOS、Linux 打包配置；发布包仍需逐平台验收
 - **🎨 现代化界面**: 基于 React + Ant Design 的优雅用户界面
 - **🌙 主题切换**: 支持深色/浅色主题，保护用户眼睛
 - **🔗 多协议支持**: 集成 Clash、Xray、Sing-box 等主流代理协议
@@ -19,7 +29,7 @@
 - **⛓️ 链式代理**: 可视化配置链式代理规则
 - **📊 实时监控**: 流量统计和连接状态监控
 - **💾 配置管理**: 支持配置导入/导出和备份/恢复
-- **🔒 安全可靠**: 本地化处理，保护用户隐私
+- **🔒 可信状态**: 连接与检测结论必须绑定运行时或外部观测证据
 
 ### 🛠️ 技术架构
 
@@ -39,13 +49,13 @@
 
 | 模块 | 功能描述 | 状态 |
 |------|----------|------|
-| 🖥️ GUI界面 | 用户界面和交互逻辑 | 🚧 开发中 |
-| ⚙️ 配置管理 | 代理配置的存储和管理 | 📋 计划中 |
-| 🔧 协议引擎 | 集成各种代理协议 | 📋 计划中 |
-| 📡 订阅解析 | 处理订阅链接的解析和更新 | 📋 计划中 |
-| 🌐 系统代理 | 设置系统级网络代理 | 📋 计划中 |
-| 📊 监控统计 | 流量统计和连接监控 | 📋 计划中 |
-| 📝 日志管理 | 应用日志和错误处理 | 📋 计划中 |
+| 🖥️ 治理界面 | 配置、连接、状态与检测入口 | 已实现，持续验收 |
+| ⚙️ 配置管理 | 本地配置存储、导入与导出 | 已实现 |
+| 🔧 协议核心 | Sing-box、Xray、Mihomo 编排 | 已实现，依赖外部核心 |
+| 📡 订阅解析 | 订阅导入、解析和更新 | 已实现 |
+| ⛓️ 链路机制 | 静态链与动态链运行 | 已实现基础闭环 |
+| 🌐 系统接管 | 本机系统代理与部分 TUN/VPN 能力 | 平台能力不完全一致 |
+| 📊 观测 | 运行状态、延迟与泄露风险 | 部分检查仍需外部观测环境 |
 
 ## 🚀 快速开始
 
@@ -56,23 +66,15 @@
 - **存储**: 至少 500MB 可用空间
 - **网络**: 稳定的网络连接
 
-### 安装方式
-
-#### 方式一：下载预编译版本（推荐）
-
-1. 访问 [Releases](https://github.com/your-username/chongdong/releases) 页面
-2. 下载对应操作系统的安装包
-3. 运行安装程序，按提示完成安装
-
-#### 方式二：从源码构建
+### 从源码构建
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/chongdong.git
+git clone https://github.com/jobssteve164dev/chongdong.git
 cd chongdong
 
 # 安装依赖
-npm install
+npm ci
 
 # 开发模式运行
 npm run dev
@@ -97,11 +99,11 @@ npm run dist
 ### 环境准备
 
 ```bash
-# 安装 Node.js (推荐 v18+)
+# 安装 Node.js（推荐 v20+）
 node --version
 
 # 安装依赖
-npm install
+npm ci
 
 # 启动开发服务器
 npm run dev
@@ -115,10 +117,9 @@ chongdong/
 │   ├── main/           # Electron 主进程
 │   ├── renderer/       # React 渲染进程
 │   └── shared/         # 共享代码和类型
-├── public/             # 静态资源
 ├── dist/               # 构建输出
 ├── docs/               # 文档
-└── tests/              # 测试文件
+└── scripts/            # 运行时烟雾测试
 ```
 
 ### 开发规范
@@ -131,11 +132,13 @@ chongdong/
 ### 构建和发布
 
 ```bash
-# 开发构建
-npm run build
+# 类型、代码与测试门禁
+npm run type-check
+npm run lint
+npm test
 
 # 生产构建
-npm run build:prod
+npm run build
 
 # 打包应用
 npm run dist
@@ -146,15 +149,6 @@ npm test
 # 代码检查
 npm run lint
 ```
-
-## 📊 性能指标
-
-| 指标 | 目标值 | 当前状态 |
-|------|--------|----------|
-| 启动时间 | < 5秒 | 🚧 开发中 |
-| 内存占用 | < 200MB | 🚧 开发中 |
-| CPU占用 | < 5% | 🚧 开发中 |
-| 协议支持 | ≥ 5种 | 📋 计划中 |
 
 ## 🤝 贡献指南
 
@@ -187,38 +181,15 @@ npm run lint
 - [Electron](https://electronjs.org/) - 跨平台桌面应用框架
 - [React](https://reactjs.org/) - 用户界面库
 - [Ant Design](https://ant.design/) - 企业级 UI 设计语言
-- [Clash](https://github.com/Dreamacro/clash) - 代理工具
+- [Mihomo](https://github.com/MetaCubeX/mihomo) - Clash 兼容代理核心
 - [Xray](https://github.com/XTLS/Xray-core) - 网络代理工具
 - [Sing-box](https://github.com/SagerNet/sing-box) - 通用代理工具
 
 ## 📞 联系我们
 
-- **项目主页**: [https://github.com/your-username/chongdong](https://github.com/your-username/chongdong)
-- **问题反馈**: [Issues](https://github.com/your-username/chongdong/issues)
-- **讨论交流**: [Discussions](https://github.com/your-username/chongdong/discussions)
-- **邮箱**: chongdong@example.com
-
-## 📈 项目路线图
-
-### v1.0.0 (当前版本)
-- ✅ 基础框架搭建
-- ✅ 现代化用户界面
-- 🚧 核心功能实现
-- 📋 协议集成
-- 📋 系统代理设置
-
-### v1.1.0 (计划中)
-- 📋 订阅管理功能
-- 📋 链式代理配置
-- 📋 流量监控统计
-- 📋 配置导入导出
-
-### v1.2.0 (计划中)
-- 📋 高级规则配置
-- 📋 性能优化
-- 📋 插件系统
-- 📋 云端同步
+- **项目主页**: [https://github.com/jobssteve164dev/chongdong](https://github.com/jobssteve164dev/chongdong)
+- **问题反馈**: [Issues](https://github.com/jobssteve164dev/chongdong/issues)
 
 ---
 
-**虫洞** - 让网络连接更简单、更安全、更高效！ 🌟
+正式路线图由 SoloMap 管理；README 不复制或推断环节状态。

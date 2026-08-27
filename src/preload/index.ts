@@ -2,6 +2,39 @@
 // It has the same sandbox as a Chrome extension.
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 
+const invokeChannels = new Set([
+  'behavior-analytics:clear-data', 'behavior-analytics:get-data', 'behavior-analytics:get-stats',
+  'chain:detectNodeIPs', 'chain:getAllStatuses', 'chain:getConfig', 'chain:getStatus',
+  'chains:save', 'chains:updateSaved',
+  'core:download', 'core:downloadDatabase', 'core:getStatus', 'core:isInstalled',
+  'database:checkUpdate', 'database:getStatus', 'error:report', 'geolocation:testViaProxy',
+  'hotkeys:check-availability', 'hotkeys:register', 'hotkeys:unregister', 'hotkeys:unregister-all', 'hotkeys:validate',
+  'latency:reset', 'latency:test', 'leak-protection:check-all',
+  'network:getInterfaces', 'network:getStatus',
+  'notification:check-permission', 'notification:is-supported', 'notification:send', 'notification:test', 'notification:update-config',
+  'proxy:applyMode', 'proxy:broadcastStatus', 'proxy:checkVpnStatus', 'proxy:cleanup', 'proxy:disconnectVpn',
+  'proxy:getCurrentMode', 'proxy:getStats', 'proxy:killProcessOnPort', 'proxy:start-dynamic-chain',
+  'proxy:start-static-chain', 'proxy:startClash', 'proxy:startSingbox', 'proxy:startXray', 'proxy:stop', 'proxy:restartAll',
+  'proxy:test-latency-group', 'proxy:testLatency', 'settings:autoLatency:restart', 'settings:getWebRTCPolicy',
+  'settings:updated', 'system:checkPermissions', 'system:clearProxy', 'system:get-metrics', 'system:getProxy',
+  'system:requestAdmin', 'system:setProxy', 'system:start-monitoring', 'system:stop-monitoring',
+  'tray:latencyUpdated', 'vpn:connect', 'vpn:create',
+  'vpn:disconnect', 'vpn:getStatus', 'window:minimize', 'window:setAlwaysOnTop', 'window:setAutoHideMenuBar', 'window:show'
+]);
+
+const receiveChannels = new Set([
+  'app:crash', 'app:error', 'network:crash', 'nodes:request-latencies', 'proxy:portInUse',
+  'proxy:restartFailed', 'proxy:statusChanged', 'system:metrics-updated'
+]);
+
+const sendChannels = new Set(['nodes:latencies-response']);
+
+function assertAllowed(channel: string, allowed: Set<string>): void {
+  if (!allowed.has(channel)) {
+    throw new Error(`IPC channel is not allowed: ${channel}`);
+  }
+}
+
 // Custom APIs for renderer
 const api = {
   // 全局快捷键API
@@ -36,8 +69,12 @@ const api = {
 // Use `contextBridge` to securely expose Node.js APIs to the renderer process
 contextBridge.exposeInMainWorld('electron', {
   ipcRenderer: {
-    invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+    invoke: (channel: string, ...args: any[]) => {
+      assertAllowed(channel, invokeChannels);
+      return ipcRenderer.invoke(channel, ...args);
+    },
     on: (channel: string, listener: (...args: any[]) => void) => {
+      assertAllowed(channel, receiveChannels);
       // Create a new listener that wraps the original one
       const wrappedListener = (_event: IpcRendererEvent, ...args: any[]) => {
         listener(...args);
@@ -51,9 +88,11 @@ contextBridge.exposeInMainWorld('electron', {
       };
     },
     send: (channel: string, ...args: any[]) => {
+      assertAllowed(channel, sendChannels);
       ipcRenderer.send(channel, ...args);
     },
     removeAllListeners: (channel: string) => {
+      assertAllowed(channel, receiveChannels);
       ipcRenderer.removeAllListeners(channel);
     }
   }
@@ -90,22 +129,19 @@ contextBridge.exposeInMainWorld('api', api);
       // 由于策略是异步获取，采取保守阻断：若严格模式且不在白名单，则直接抛错
       // 放宽模式下不阻断，仅依赖 Chromium 标志策略
       const pending = getPolicy();
-      let block = false; let strict = false; let allowed: string[] = [];
-      try {
-        // 异步不可阻塞构造，尝试同步读取缓存策略（首次无缓存时保守处理在后续调用阶段拦截）
-      } catch {}
+      let block = true;
       // 先创建实例，后在常用方法上做二次保护
       const pc = new (origPeer as any)(config, constraints);
 
       const guard = async () => {
         try {
           const pol = await pending;
-          strict = pol.mode === 'strict' && pol.enabled;
-          allowed = pol.allowedDomains || [];
-          if (strict && !isAllowedDomain(host, allowed)) {
-            block = true;
-          }
-        } catch {}
+          const strict = pol.mode === 'strict' && pol.enabled;
+          const allowed = pol.allowedDomains || [];
+          block = strict && !isAllowedDomain(host, allowed);
+        } catch {
+          block = true;
+        }
       };
       guard();
 

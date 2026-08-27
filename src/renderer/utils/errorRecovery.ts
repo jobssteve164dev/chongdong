@@ -19,6 +19,7 @@ export enum ErrorSeverity {
 }
 
 import { log } from './logger';
+import { ConfigApi } from './configApi';
 
 /**
  * 错误恢复策略接口
@@ -77,24 +78,24 @@ export class ErrorRecoveryManager {
           
           // 重置DNS相关设置
           const defaultSettings = {
-            enableDns: false,
-            dnsServer: '8.8.8.8',
-            enableDoh: false,
-            dohServer: 'https://dns.google/dns-query',
+            enableDns: true,
+            dnsServer: 'https://cloudflare-dns.com/dns-query',
+            enableDoh: true,
+            dohServer: 'https://cloudflare-dns.com/dns-query',
             enableDot: false,
             dotServer: 'tls://1.1.1.1:853',
             enableDnsCache: true,
             dnsCacheSize: 1000,
             dnsCacheTtl: 300,
             enableDnsLoadBalance: true,
-            dnsServers: ['8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1'],
+            dnsServers: ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'],
             enableDnsLogging: false,
             enableDnsLeakProtection: true,
             dnsLeakProtectionMode: 'strict',
             enableDnsRules: true,
             dnsRules: [],
             enableDnsFallback: true,
-            dnsFallbackServers: ['114.114.114.114', '223.5.5.5']
+            dnsFallbackServers: ['tls://dns.quad9.net:853']
           };
 
           // 更新设置
@@ -127,12 +128,8 @@ export class ErrorRecoveryManager {
           
           // 停止所有代理
           if (window.electron?.ipcRenderer) {
-            await window.electron.ipcRenderer.invoke('proxy:stopAll');
-            
-            // 等待一秒后重新启动
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            await window.electron.ipcRenderer.invoke('proxy:startAll');
+            const result = await window.electron.ipcRenderer.invoke('proxy:restartAll');
+            if (!result?.success) throw new Error(result?.error || '代理服务重启失败');
           }
 
           log.info('代理服务恢复完成', null, 'ErrorRecovery');
@@ -158,7 +155,8 @@ export class ErrorRecoveryManager {
           
           // 重置为默认配置
           if (window.electron?.ipcRenderer) {
-            await window.electron.ipcRenderer.invoke('settings:resetToDefault');
+            const result = ConfigApi.resetConfig();
+            if (!result.success) throw new Error(result.message || '配置重置失败');
           }
 
           log.info('配置恢复完成', null, 'ErrorRecovery');
@@ -186,11 +184,6 @@ export class ErrorRecoveryManager {
           localStorage.clear();
           sessionStorage.clear();
           
-          // 重新初始化存储
-          if (window.electron?.ipcRenderer) {
-            await window.electron.ipcRenderer.invoke('storage:reinitialize');
-          }
-
           log.info('存储恢复完成', null, 'ErrorRecovery');
           return true;
         } catch (error) {
@@ -284,7 +277,7 @@ export class ErrorRecoveryManager {
         }
       } catch (error) {
         log.error(`自动恢复执行错误: ${strategy.name}`, error, 'ErrorRecovery');
-        this.recordRecoveryAttempt(strategy.id, false, error.message);
+        this.recordRecoveryAttempt(strategy.id, false, error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -308,7 +301,7 @@ export class ErrorRecoveryManager {
       return success;
     } catch (error) {
       log.error(`执行恢复策略失败: ${strategy.name}`, error, 'ErrorRecovery');
-      this.recordRecoveryAttempt(strategyId, false, error.message);
+      this.recordRecoveryAttempt(strategyId, false, error instanceof Error ? error.message : String(error));
       return false;
     }
   }

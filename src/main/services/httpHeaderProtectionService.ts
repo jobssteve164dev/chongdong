@@ -99,6 +99,7 @@ export class HttpHeaderProtectionService {
     
     const result: HttpHeaderLeakResult = {
       leaked: false,
+      verified: false,
       details: [],
       leakSources: [],
       detectedHeaders: {},
@@ -106,59 +107,32 @@ export class HttpHeaderProtectionService {
     };
 
     try {
-      // 模拟获取当前HTTP头
-      const currentHeaders = await this.getCurrentHttpHeaders();
-      result.detectedHeaders = currentHeaders;
-      
-      // 检测敏感头泄露
-      const leakDetected = await this.detectHeaderLeak(currentHeaders);
-      
-      if (leakDetected.leaked) {
-        result.leaked = true;
-        result.leakSources = leakDetected.sources;
-        result.suspiciousHeaders = leakDetected.suspiciousHeaders;
-        result.details.push(`检测到HTTP头泄露: ${leakDetected.sources.join(', ')}`);
-        
-        if (this.mode === 'strict') {
-          result.details.push('严格模式下检测到HTTP头泄露');
-        }
-      } else {
-        result.details.push('✅ HTTP头防护正常，未检测到泄露');
-      }
+      const probeHeaders = {
+        Host: 'internal.invalid',
+        'X-Forwarded-For': '192.0.2.1',
+        Via: 'audit-probe'
+      };
+      const sanitizedHeaders = this.sanitizeHeaders(probeHeaders, 'chrome', { keep: ['host'] });
+      const policyAnalysis = await this.detectHeaderLeak({ Host: 'internal.invalid' });
+      const survived = ['X-Forwarded-For', 'Via'].filter(header => sanitizedHeaders[header]);
 
-      // 记录检测到的头部信息
-      result.details.push(`检测到${Object.keys(currentHeaders).length}个HTTP头`);
+      if (survived.length > 0 || policyAnalysis.leaked) {
+        result.leaked = true;
+        result.leakSources = survived.map(header => `本地清洗未移除 ${header}`);
+        result.suspiciousHeaders = survived;
+        result.details.push(`HTTP 头本地清洗自检失败: ${result.leakSources.join(', ')}`);
+      } else {
+        result.details.push('HTTP 头本地清洗策略自检完成');
+      }
+      result.details.push('未观测真实出口请求头，不能判定出口无泄露');
 
     } catch (error) {
       console.error('HTTP头泄露检测失败:', error);
       result.details.push(`检测失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 
-    console.log('HTTP头泄露检测完成:', result);
+    console.log('HTTP头泄露检测完成');
     return result;
-  }
-
-  /**
-   * 获取当前HTTP头
-   */
-  private async getCurrentHttpHeaders(): Promise<{ [key: string]: string }> {
-    try {
-      // 模拟获取当前HTTP头
-      // 在实际应用中，这里应该从网络请求中获取真实的HTTP头
-      const headers: { [key: string]: string } = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      };
-
-      return headers;
-    } catch (error) {
-      console.error('获取HTTP头失败:', error);
-      return {};
-    }
   }
 
   /**
@@ -313,18 +287,9 @@ export class HttpHeaderProtectionService {
       return false;
     }
 
-    try {
-      console.log(`应用HTTP头防护: mode=${this.mode}`);
-      
-      // 这里应该实际修改HTTP请求头
-      // 由于这是Electron应用，我们主要提供配置和检测功能
-      // 实际的HTTP头修改需要在网络请求层面实现
-      
-      return true;
-    } catch (error) {
-      console.error('应用HTTP头防护失败:', error);
-      return false;
-    }
+    // 实际清洗由 TrafficRouter 在每个 HTTP 请求进入转发路径时调用 sanitizeHeaders。
+    console.log(`HTTP头清洗策略已启用: mode=${this.mode}`);
+    return true;
   }
 
   /**

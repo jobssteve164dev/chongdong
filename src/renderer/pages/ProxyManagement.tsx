@@ -66,10 +66,10 @@ const ProxyManagement: React.FC = () => {
       });
     };
 
-    window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
+    const unsubscribe = window.electron.ipcRenderer.on('proxy:portInUse', handlePortInUse);
 
     return () => {
-      // 清理IPC监听器
+      unsubscribe();
     };
   }, []);
 

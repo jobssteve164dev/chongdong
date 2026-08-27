@@ -39,60 +39,7 @@ export class LatencyTester {
    * 测试单个节点的延迟
    */
   public async testNodeLatency(node: ProxyServer, config?: Partial<LatencyTestConfig>): Promise<LatencyTestResult> {
-    const testConfig = { ...this.defaultConfig, ...config };
-    
-    try {
-      log.info(`开始测试节点延迟: ${node.name}`, { host: node.host, port: node.port }, 'LatencyTester');
-      
-      const startTime = Date.now();
-      
-      // 构建代理URL
-      const proxyUrl = this.buildProxyUrl(node);
-      
-      // 创建测试请求
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), testConfig.timeout);
-      
-      try {
-        const response = await fetch(testConfig.testUrl, {
-          method: 'GET',
-          signal: controller.signal,
-          // 注意：这里需要根据实际的代理配置来设置
-          // 在实际应用中，可能需要通过主进程来测试代理连接
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          
-          log.info(`节点延迟测试成功: ${node.name}`, { latency }, 'LatencyTester');
-          
-          return {
-            latency,
-            success: true,
-            timestamp: Date.now()
-          };
-        } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      log.error(`节点延迟测试失败: ${node.name}`, error, 'LatencyTester');
-      
-      return {
-        latency: 0,
-        success: false,
-        error: errorMessage,
-        timestamp: Date.now()
-      };
-    }
+    return this.testNodeLatencyViaMainProcess(node, config);
   }
 
   /**
@@ -233,15 +180,6 @@ export class LatencyTester {
     }, 'LatencyTester');
     
     return results;
-  }
-
-  /**
-   * 构建代理URL
-   */
-  private buildProxyUrl(node: ProxyServer): string {
-    const protocol = node.tls ? 'https' : 'http';
-    const auth = node.username && node.password ? `${node.username}:${node.password}@` : '';
-    return `${protocol}://${auth}${node.host}:${node.port}`;
   }
 
   /**

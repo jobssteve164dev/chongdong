@@ -28,7 +28,9 @@ export class BehaviorAnalyticsService {
   start(): void {
     this.stop();
     if (!this.enabled) return;
-    this.timer = setInterval(() => this.sampleOnce(), this.intervalSec * 1000);
+    this.timer = setInterval(() => {
+      void this.sampleOnce().catch(error => console.error('行为分析采样失败:', error));
+    }, this.intervalSec * 1000);
   }
 
   stop(): void {
@@ -64,49 +66,20 @@ export class BehaviorAnalyticsService {
         currentActiveConnections: 0,
         currentBytesPerSecond: 0
       };
-    } catch (_e) {
-      // 最后兜底返回空数据结构，保证前端不触发异常
-      return {
-        totalConnections: 0,
-        totalBytes: 0,
-        averageConnections: 0,
-        peakConnections: 0,
-        averageBytesPerSecond: 0,
-        peakBytesPerSecond: 0,
-        activeHours: [],
-        connectionPatterns: Array.from({ length: 24 }, (_, hour) => ({ hour, connections: 0 })),
-        trafficPatterns: Array.from({ length: 24 }, (_, hour) => ({ hour, bytes: 0 })),
-        currentActiveConnections: 0,
-        currentBytesPerSecond: 0
-      };
+    } catch (error) {
+      throw new Error(`无法读取行为分析观测数据: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private sampleOnce(): void {
+  private async sampleOnce(): Promise<void> {
+    if (!this.trafficRouter) return;
+    const analytics = await this.trafficRouter.getBehaviorAnalytics();
     const snapshot: BehaviorSnapshot = {
       timestamp: Date.now(),
-      activeConnections: this.getActiveConnectionsEstimate(),
-      bytesPerSecond: this.getThroughputEstimate()
+      activeConnections: Number(analytics.currentActiveConnections) || 0,
+      bytesPerSecond: Number(analytics.currentBytesPerSecond) || 0
     };
     this.history.push(snapshot);
     if (this.history.length > 2000) this.history.shift();
   }
-
-  private getActiveConnectionsEstimate(): number {
-    if (this.trafficRouter) {
-      const analytics = this.trafficRouter.getBehaviorAnalytics();
-      return analytics?.currentActiveConnections || 0;
-    }
-    return Math.floor(Math.random() * 5);
-  }
-
-  private getThroughputEstimate(): number {
-    if (this.trafficRouter) {
-      const analytics = this.trafficRouter.getBehaviorAnalytics();
-      return analytics?.currentBytesPerSecond || 0;
-    }
-    return Math.floor(1000 + Math.random() * 5000);
-  }
 }
-
-

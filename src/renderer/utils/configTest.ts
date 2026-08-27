@@ -146,7 +146,8 @@ export class ConfigTest {
       autoUpdate: true,
       updateInterval: 3600,
       servers: [],
-      groups: []
+      groups: [],
+      rules: []
     });
 
     if (addSubResult.success) {

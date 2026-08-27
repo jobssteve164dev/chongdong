@@ -1,6 +1,5 @@
-import { RoutingRule, RuleType, RuleAction } from '../../shared/types';
+import { RoutingRule, RuleType } from '../../shared/types';
 import { RuleValidator, ValidationResult } from './ruleParser';
-import { log } from './logger';
 
 /**
  * 规则格式验证器

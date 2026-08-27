@@ -57,6 +57,7 @@ export class TimingLeakProtectionService {
     
     const result: TimingLeakResult = {
       leaked: false,
+      verified: false,
       details: [],
       leakSources: [],
       timingPatterns: [],
@@ -67,8 +68,11 @@ export class TimingLeakProtectionService {
       // 分析请求历史
       const analysis = this.analyzeRequestTiming();
       
-      if (analysis.leaked) {
+      if (this.requestHistory.length < 10) {
+        result.details.push(`仅观测到 ${this.requestHistory.length} 个实际转发请求，样本不足，不能判定时序无泄露`);
+      } else if (analysis.leaked) {
         result.leaked = true;
+        result.verified = true;
         result.leakSources = analysis.sources;
         result.timingPatterns = analysis.patterns;
         result.details.push(`检测到时间泄露: ${analysis.sources.join(', ')}`);
@@ -77,7 +81,8 @@ export class TimingLeakProtectionService {
           result.details.push('严格模式下检测到时间泄露');
         }
       } else {
-        result.details.push('✅ 时间泄露防护正常，未检测到泄露');
+        result.verified = true;
+        result.details.push('实际转发请求样本中未发现已定义的时间模式泄露');
       }
 
       // 记录请求间隔
@@ -89,7 +94,7 @@ export class TimingLeakProtectionService {
       result.details.push(`检测失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
 
-    console.log('时间泄露检测完成:', result);
+    console.log('时间泄露检测完成');
     return result;
   }
 
@@ -337,18 +342,7 @@ export class TimingLeakProtectionService {
       return false;
     }
 
-    try {
-      console.log(`应用时间泄露防护: mode=${this.mode}, delayRange=${this.requestDelayRange}`);
-      
-      // 这里应该实际修改网络请求的时间行为
-      // 由于这是Electron应用，我们主要提供配置和检测功能
-      // 实际的时间防护需要在网络请求层面实现
-      
-      return true;
-    } catch (error) {
-      console.error('应用时间泄露防护失败:', error);
-      return false;
-    }
+    throw new Error('当前构建未将时间混淆接入实际转发数据面');
   }
 
   /**

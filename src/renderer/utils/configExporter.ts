@@ -1,4 +1,4 @@
-import { AppState, ApiResponse, FileInfo } from '../../shared/types';
+import { AppState, ApiResponse } from '../../shared/types';
 import { log } from './logger';
 import { ConfigValidator } from './configValidator';
 
@@ -296,13 +296,10 @@ export class ConfigExporter {
       'allow-lan': config.settings.allowLan,
       mode: config.settings.mode,
       'log-level': config.settings.logLevel,
-      'external-controller': '127.0.0.1:9090',
-      'external-ui': '',
-      'secret': '',
       'dns': {
         enable: config.settings.enableDns,
-        listen: '0.0.0.0:53',
-        'default-nameserver': ['8.8.8.8', '8.8.4.4'],
+        listen: '127.0.0.1:5353',
+        'default-nameserver': ['https://1.1.1.1/dns-query'],
         nameserver: [config.settings.dnsServer],
         'enhanced-mode': config.settings.enableFakeIp ? 'fake-ip' : 'redir-host',
         'fake-ip-range': config.settings.fakeIpRange
@@ -368,7 +365,7 @@ export class ConfigExporter {
           alterId: server.alterId || 0,
           network: server.network || 'tcp',
           tls: server.tls || false,
-          'skip-cert-verify': true,
+          'skip-cert-verify': false,
           servername: server.sni || server.host,
           path: server.wsPath || '',
           headers: server.wsHeaders || {}
@@ -379,7 +376,7 @@ export class ConfigExporter {
           uuid: server.uuid,
           network: server.network || 'tcp',
           tls: server.tls || false,
-          'skip-cert-verify': true,
+          'skip-cert-verify': false,
           servername: server.sni || server.host,
           path: server.wsPath || '',
           headers: server.wsHeaders || {}
@@ -388,7 +385,7 @@ export class ConfigExporter {
         return {
           ...baseProxy,
           password: server.password,
-          'skip-cert-verify': true,
+          'skip-cert-verify': false,
           sni: server.sni || server.host
         };
       default:
@@ -444,7 +441,7 @@ export class ConfigExporter {
           }
         }
       ],
-      outbounds: []
+      outbounds: [] as any[]
     };
 
     // 转换代理服务器为V2Ray格式
@@ -488,7 +485,7 @@ export class ConfigExporter {
             security: server.tls ? 'tls' : 'none',
             tlsSettings: server.tls ? {
               serverName: server.sni || server.host,
-              allowInsecure: true
+              allowInsecure: false
             } : undefined,
             wsSettings: server.network === 'ws' ? {
               path: server.wsPath || '/',
@@ -518,7 +515,7 @@ export class ConfigExporter {
           listen_port: config.settings.mixedPort
         }
       ],
-      outbounds: []
+      outbounds: [] as any[]
     };
 
     // 转换代理服务器为Sing-box格式
@@ -559,7 +556,7 @@ export class ConfigExporter {
           tls: server.tls ? {
             enabled: true,
             server_name: server.sni || server.host,
-            insecure: true
+            insecure: false
           } : undefined
         };
       default:

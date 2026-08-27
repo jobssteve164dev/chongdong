@@ -75,15 +75,15 @@ const CoreManager: React.FC<CoreManagerProps> = ({ onCoreStatusChange }) => {
   };
 
   // 保存更新设置
-  const saveUpdateSettings = (settings: DatabaseUpdateSettings) => {
+  const saveUpdateSettings = async (settings: DatabaseUpdateSettings) => {
     try {
-      Storage.set('databaseUpdateSettings', settings);
-      setUpdateSettings(settings);
-      
-      // 通知主进程更新设置
-      window.electron.ipcRenderer.invoke('settings:updated', {
+      const result = await window.electron.ipcRenderer.invoke('settings:updated', {
         settings: { ...DefaultSettings.getDefaultAppSettings(), ...settings }
       });
+      if (!result.success) throw new Error(result.error || '主进程未能应用数据库设置');
+
+      Storage.set('databaseUpdateSettings', settings);
+      setUpdateSettings(settings);
       
       message.success('数据库更新设置已保存');
     } catch (error) {

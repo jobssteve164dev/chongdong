@@ -1,16 +1,3 @@
-// 通过预加载脚本访问 ipcRenderer
-declare global {
-  interface Window {
-    electron: {
-      ipcRenderer: {
-        invoke: (channel: string, ...args: any[]) => Promise<any>;
-        send: (channel: string, data: any) => void;
-        on: (channel: string, func: (...args: any[]) => void) => void;
-      };
-    };
-  }
-}
-
 const { ipcRenderer } = window.electron;
 
 export interface CoreStatus {

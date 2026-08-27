@@ -1,20 +1,8 @@
-// 通过预加载脚本访问 ipcRenderer
-declare global {
-  interface Window {
-    electron: {
-      ipcRenderer: {
-        invoke: (channel: string, ...args: any[]) => Promise<any>;
-        send: (channel: string, data: any) => void;
-        on: (channel: string, func: (...args: any[]) => void) => void;
-      };
-    };
-  }
-}
-
 const { ipcRenderer } = window.electron;
 
 import { AppSettings, ProxyNode } from '../../shared/types';
 import { assertSuccessfulIpcResult, isProxyRuntimeRunning } from '../../shared/proxyRuntime';
+import { monitorManager } from './monitorManager';
 
 export interface ProxyConfig {
   id: string;
@@ -69,6 +57,7 @@ export class ProxyEngine {
     download: 0
   };
   private statusCallbacks: Array<(status: ProxyStatus) => void> = [];
+  private statusTimer: ReturnType<typeof setInterval> | null = null;
 
   private constructor() {}
 
@@ -151,11 +140,6 @@ export class ProxyEngine {
       // 启动监控管理器
       console.log('代理启动成功，开始启动监控管理器...');
       try {
-        const { monitorManager } = await import('./monitorManager');
-        console.log('监控管理器对象:', monitorManager);
-        console.log('监控管理器类型:', typeof monitorManager);
-        console.log('监控管理器方法:', Object.getOwnPropertyNames(Object.getPrototypeOf(monitorManager)));
-        console.log('调用 monitorManager.startMonitoring()...');
         await monitorManager.startMonitoring();
         console.log('监控管理器启动成功');
       } catch (error) {
@@ -220,6 +204,10 @@ export class ProxyEngine {
       this.status.upload = 0;
       this.status.download = 0;
       this.status.error = undefined;
+      if (this.statusTimer) {
+        clearInterval(this.statusTimer);
+        this.statusTimer = null;
+      }
       this.notifyStatusChange();
     } catch (error) {
       throw new Error(`Failed to stop proxy: ${error}`);
@@ -371,8 +359,8 @@ export class ProxyEngine {
    */
   private convertToSingboxConfig(config: ProxyConfig, networkSettings?: AppSettings): any {
     console.log(`=== 开始转换 Sing-box 配置 ===`);
-    console.log(`原始配置:`, config);
-    console.log(`网络设置:`, networkSettings);
+    console.log(`开始验证 ${config.name} 配置`);
+    console.log(`网络设置已加载`);
     
     // 基础Sing-box配置结构
     console.log(`构建基础 Sing-box 配置...`);
@@ -381,13 +369,6 @@ export class ProxyEngine {
         level: networkSettings?.logLevel || 'info',
         output: networkSettings?.enableLog ? networkSettings.logFile || 'chongdong.log' : 'console'
       },
-      experimental: {
-        clash_api: {
-          external_controller: '127.0.0.1:9090',
-          external_ui: '',
-          secret: ''
-        }
-      },
       // 从独立的DNS管理器获取DNS配置
       dns: (() => {
         console.log(`=== 配置 DNS ===`);
@@ -395,7 +376,7 @@ export class ProxyEngine {
           servers: [
             {
               tag: 'default',
-              address: '8.8.8.8',
+              address: 'https://cloudflare-dns.com/dns-query',
               detour: 'direct'
             }
           ],
@@ -407,17 +388,16 @@ export class ProxyEngine {
           dnsConfig.servers = [
             {
               tag: 'default',
-              address: networkSettings.dnsServer || '8.8.8.8',
+              address: networkSettings.enableDoh
+                ? networkSettings.dohServer || 'https://cloudflare-dns.com/dns-query'
+                : networkSettings.dnsServer || 'https://cloudflare-dns.com/dns-query',
               detour: 'direct'
             }
           ];
           if (networkSettings?.enableDoh) {
-            dnsConfig.servers.push({
-              tag: 'doh',
-              address: networkSettings.dohServer || 'https://dns.google/dns-query',
-              detour: 'doh'
-            });
-            console.log(`启用 DoH，使用服务器: ${networkSettings.dohServer || 'https://dns.google/dns-query'}`);
+            dnsConfig.servers[0].tag = 'doh';
+            dnsConfig.final = 'doh';
+            console.log(`已启用 DoH`);
           }
           console.log(`DNS 服务器数量: ${dnsConfig.servers.length}`);
         } else {
@@ -514,12 +494,11 @@ export class ProxyEngine {
     // 根据具体配置添加代理出站
     console.log(`=== 处理代理出站配置 ===`);
     if (config.config.outbounds) {
-      console.log(`原始出站配置数量: ${config.config.outbounds.length}`);
-      console.log(`原始出站配置:`, config.config.outbounds);
+      console.log(`出站配置数量: ${config.config.outbounds.length}`);
       
       // 修复网络类型和字段名
       const fixedOutbounds = config.config.outbounds.map((outbound: any, index: number) => {
-        console.log(`处理第 ${index + 1} 个出站配置:`, outbound);
+        console.log(`处理第 ${index + 1} 个出站配置`);
         // 只保留 Sing-box 需要的字段
         const fixedOutbound: any = {
           type: outbound.type,
@@ -528,11 +507,10 @@ export class ProxyEngine {
           server_port: outbound.server_port || outbound.port
         };
         
-        console.log(`修复后的出站配置:`, fixedOutbound);
         
         // 确保所有必需字段都有值
         if (!fixedOutbound.server || !fixedOutbound.server_port) {
-          console.warn(`跳过无效的出站配置:`, outbound);
+          console.warn(`跳过第 ${index + 1} 个无效出站配置`);
           console.warn(`原因: 缺少服务器地址或端口`);
           return null;
         }
@@ -544,7 +522,6 @@ export class ProxyEngine {
           console.log(`配置 VMess 协议`);
           fixedOutbound.uuid = outbound.uuid;
           fixedOutbound.security = outbound.security || 'auto';
-          console.log(`UUID: ${outbound.uuid}`);
           console.log(`安全类型: ${outbound.security || 'auto'}`);
           
           // 处理传输配置
@@ -556,12 +533,11 @@ export class ProxyEngine {
               headers: outbound.wsHeaders || {}
             };
             console.log(`WebSocket 路径: ${outbound.wsPath || "/"}`);
-            console.log(`WebSocket 头部:`, outbound.wsHeaders || {});
             
             // 兼容 wsHost -> headers.Host
             if ((outbound as any).wsHost && !fixedOutbound.transport.headers.Host) {
               fixedOutbound.transport.headers.Host = (outbound as any).wsHost;
-              console.log(`设置 WebSocket Host: ${(outbound as any).wsHost}`);
+              console.log(`已设置 WebSocket Host`);
             }
           } else {
             console.log(`使用默认 TCP 传输`);
@@ -582,14 +558,13 @@ export class ProxyEngine {
           fixedOutbound.tls = {
             enabled: true,
             server_name: serverName,
-            insecure: outbound.allowInsecure ?? true, // 默认允许不安全证书
+            insecure: false,
           };
-          console.log(`启用 TLS，SNI 设置为: ${serverName}`);
+          console.log(`已启用 TLS 和 SNI`);
         } else {
           console.log(`未知协议类型: ${outbound.type}`);
         }
         
-        console.log(`最终出站配置:`, fixedOutbound);
         return fixedOutbound;
       });
       
@@ -616,20 +591,24 @@ export class ProxyEngine {
       // 只有当有有效的用户配置时才添加到 outbounds
       if (uniqueOutbounds.length > 0) {
         console.log(`=== 添加用户出站配置 ===`);
-        console.log(`添加的出站配置:`, uniqueOutbounds);
+        console.log(`添加 ${uniqueOutbounds.length} 个用户出站配置`);
         singboxConfig.outbounds.unshift(...uniqueOutbounds);
         // 将 final 改为第一个用户配置的 tag
         const finalTag = uniqueOutbounds[0].tag;
         console.log(`设置最终路由标签: ${finalTag}`);
         singboxConfig.route.final = finalTag;
+        if (networkSettings?.enableDoh && Array.isArray(singboxConfig.dns?.servers)) {
+          singboxConfig.dns.servers.forEach((server: any) => {
+            server.detour = finalTag;
+          });
+        }
       } else {
-        console.log(`没有有效的用户出站配置`);
+        throw new Error('没有有效的代理出站，拒绝启动直连回退');
       }
     }
 
     // 添加调试日志
     console.log(`=== Sing-box 配置转换完成 ===`);
-    console.log(`最终配置:`, JSON.stringify(singboxConfig, null, 2));
     console.log(`配置大小: ${JSON.stringify(singboxConfig).length} 字符`);
     
     // 分析路由规则
@@ -659,7 +638,7 @@ export class ProxyEngine {
       },
       dns: networkSettings?.enableDns ? {
         servers: [
-          networkSettings.dnsServer || '8.8.8.8',
+          networkSettings.dnsServer || 'https://cloudflare-dns.com/dns-query',
           ...(networkSettings.enableDoh ? [networkSettings.dohServer || 'https://dns.google/dns-query'] : [])
         ],
         queryStrategy: 'UseIP'
@@ -723,14 +702,11 @@ export class ProxyEngine {
       'allow-lan': false,
       mode: 'rule',
       'log-level': networkSettings?.logLevel || 'info',
-      'external-controller': '127.0.0.1:9090',
-      'external-ui': '',
-      'secret': '',
       dns: networkSettings?.enableDns ? {
         enable: true,
-        listen: '0.0.0.0:53',
-        'default-nameserver': ['8.8.8.8', '8.8.4.4'],
-        nameserver: networkSettings?.dnsServers || ['8.8.8.8', '8.8.4.4'],
+        listen: '127.0.0.1:5353',
+        'default-nameserver': ['https://1.1.1.1/dns-query'],
+        nameserver: networkSettings?.dnsServers || ['https://1.1.1.1/dns-query'],
         'enhanced-mode': networkSettings?.enableFakeIp ? 'fake-ip' : 'redir-host',
         'fake-ip-range': networkSettings?.fakeIpRange || '198.18.0.1/16',
         'fake-ip-filter': [
@@ -804,8 +780,9 @@ export class ProxyEngine {
    * 开始状态监控
    */
   private startStatusMonitoring(): void {
+    if (this.statusTimer) clearInterval(this.statusTimer);
     // 每5秒更新一次状态
-    setInterval(async () => {
+    this.statusTimer = setInterval(async () => {
       if (this.status.running) {
         try {
           const stats = await this.getStats();
@@ -818,6 +795,10 @@ export class ProxyEngine {
           // 如果获取状态失败，可能代理已经停止
           this.status.running = false;
           this.status.error = '状态更新失败';
+          if (this.statusTimer) {
+            clearInterval(this.statusTimer);
+            this.statusTimer = null;
+          }
           this.notifyStatusChange();
         }
       }

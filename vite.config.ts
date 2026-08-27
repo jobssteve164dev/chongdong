@@ -1,38 +1,39 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import electron from 'vite-plugin-electron';
-import renderer from 'vite-plugin-electron-renderer';
+import electron from 'vite-plugin-electron/simple';
 import path from 'path';
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [
-    react(),
-    electron([
-      {
-        entry: '../main/index.ts',
+export default defineConfig(async ({ command }) => {
+  const plugins = [react()];
+  if (command === 'serve') {
+    plugins.push(...await electron({
+      main: {
+        entry: path.resolve(__dirname, 'src/main/index.ts'),
+        vite: { build: { outDir: path.resolve(__dirname, 'dist/main') } }
       },
-      {
-        entry: '../preload/index.ts',
-        onstart(options) {
-          // Notify the Renderer-Process to reload the page when the Preload-Scripts build is complete.
-          options.reload();
+      preload: {
+        input: path.resolve(__dirname, 'src/preload/index.ts'),
+        vite: { build: { outDir: path.resolve(__dirname, 'dist/preload') } },
+        onstart({ reload }) {
+          reload();
         },
-      },
-    ]),
-    renderer(),
-  ],
-  root: 'src/renderer',
-  base: './',
-  build: {
-    outDir: path.join(__dirname, 'dist', 'renderer'),
-    emptyOutDir: true,
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src', 'renderer'),
-      '@/shared': path.resolve(__dirname, 'src', 'shared'),
-    },
-  },
-});
+      }
+    }));
+  }
 
+  return {
+    plugins,
+    root: 'src/renderer',
+    base: './',
+    build: {
+      outDir: path.join(__dirname, 'dist', 'renderer'),
+      emptyOutDir: true,
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src', 'renderer'),
+        '@/shared': path.resolve(__dirname, 'src', 'shared'),
+      },
+    },
+  };
+});

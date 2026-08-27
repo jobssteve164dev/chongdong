@@ -128,7 +128,7 @@ export class SubscriptionManager {
    */
   public async importFromUrl(url: string): Promise<RoutingRule[]> {
     try {
-      log.info('开始从订阅链接导入规则', { url }, 'SubscriptionManager');
+      log.info('开始从订阅链接导入规则', null, 'SubscriptionManager');
 
       // 验证URL格式
       if (!url || !url.startsWith('http')) {
@@ -172,7 +172,7 @@ export class SubscriptionManager {
    */
   public async parseSubscription(url: string): Promise<SubscriptionParseResult> {
     try {
-      log.info('开始解析订阅', { url }, 'SubscriptionManager');
+      log.info('开始解析订阅', null, 'SubscriptionManager');
 
       // 获取订阅内容
       const response = await fetch(url);

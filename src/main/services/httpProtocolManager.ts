@@ -5,6 +5,7 @@
  */
 export class HttpProtocolManager {
   private static instance: HttpProtocolManager;
+  private cleanupTimer: NodeJS.Timeout | null = null;
   
   private enabled: boolean = true;
   private mode: 'strict' | 'relaxed' = 'strict';
@@ -454,7 +455,8 @@ export class HttpProtocolManager {
    * 启动定期清理任务
    */
   public startCleanupTask(intervalMs: number = 60000): void {
-    setInterval(() => {
+    this.stopCleanupTask();
+    this.cleanupTimer = setInterval(() => {
       this.cleanupExpiredConnections();
     }, intervalMs);
     
@@ -465,7 +467,10 @@ export class HttpProtocolManager {
    * 停止定期清理任务
    */
   public stopCleanupTask(): void {
-    // 这里应该停止定时器，但由于我们没有存储定时器引用，暂时跳过
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
     console.log('停止HTTP连接清理任务');
   }
 }

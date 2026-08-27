@@ -196,7 +196,7 @@ export class ChainIPDetector {
             const secureSocket = tls.connect({
               socket: socket,
               servername: targetUrl.hostname,
-              rejectUnauthorized: false
+              rejectUnauthorized: true
             }, () => {
               const requestLines = [
                 `GET ${targetUrl.pathname + targetUrl.search} HTTP/1.1`,

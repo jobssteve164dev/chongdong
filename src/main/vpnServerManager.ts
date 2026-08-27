@@ -54,9 +54,9 @@ export class VpnServerManager {
   private serverInfo = {
     host: '127.0.0.1',
     port: 1701, // L2TP默认端口
-    username: 'chongdong',
-    password: 'chongdong123',
-    sharedSecret: 'chongdong-secret', // L2TP/IPSec共享密钥
+    username: `wormhole-${randomBytes(4).toString('hex')}`,
+    password: randomBytes(24).toString('base64url'),
+    sharedSecret: randomBytes(32).toString('base64url'),
     protocol: 'L2TP/IPSec'
   };
   private proxyNodes: ProxyNode[] = [];
@@ -86,31 +86,25 @@ export class VpnServerManager {
    * 启动VPN服务器
    */
   public async startVpnServer(config: VpnServerConfig): Promise<void> {
-    console.log(`[VpnServerManager] 启动内置L2TP服务器`);
-    
-    try {
-      // 保存代理节点信息用于路由配置
-      this.proxyNodes = config.proxyNodes || [];
-      
-      // 1. 配置系统路由以避免死循环
-      await this.configureTrafficRouting();
-      
-      // 2. 启动内置L2TP服务器
-      await this.startL2tpServer();
-      
-      this.status.running = true;
-      this.status.interface = config.interface;
-      this.status.serverInfo = this.serverInfo;
-      console.log(`[VpnServerManager] 内置L2TP服务器启动成功`);
-      console.log(`[VpnServerManager] 服务器信息: ${this.serverInfo.host}:${this.serverInfo.port}`);
-      console.log(`[VpnServerManager] 用户名: ${this.serverInfo.username}`);
-      console.log(`[VpnServerManager] 密码: ${this.serverInfo.password}`);
-      
-    } catch (error) {
-      this.status.error = error instanceof Error ? error.message : String(error);
-      console.error(`[VpnServerManager] L2TP服务器启动失败:`, error);
-      throw error;
+    if (!this.hasCompleteDataPlane()) {
+      const error = `内置 ${config.type.toUpperCase()} 数据面尚未实现，已拒绝启动不完整的 VPN 服务`;
+      this.status = { running: false, connectedClients: 0, error };
+      throw new Error(error);
     }
+
+    this.proxyNodes = config.proxyNodes || [];
+    await this.configureTrafficRouting();
+    await this.startL2tpServer();
+    this.status = {
+      running: true,
+      connectedClients: 0,
+      interface: config.interface,
+      serverInfo: this.serverInfo
+    };
+  }
+
+  private hasCompleteDataPlane(): boolean {
+    return false;
   }
 
   /**
@@ -159,7 +153,7 @@ export class VpnServerManager {
       // 在macOS上添加直连路由
       const command = `sudo route add ${host} -gateway $(netstat -rn | grep default | awk '{print $2}' | head -1)`;
       await execAsync(command);
-      console.log(`[VpnServerManager] 已为代理节点 ${host} 添加直连路由`);
+      console.log(`[VpnServerManager] 已添加代理节点直连路由`);
     } catch (error) {
       console.warn(`[VpnServerManager] 为 ${host} 添加直连路由失败:`, error);
     }
@@ -212,7 +206,6 @@ export class VpnServerManager {
   private handleL2tpMessage(msg: Buffer, rinfo: any): void {
     console.log(`[VpnServerManager] 处理L2TP消息...`);
     console.log(`[VpnServerManager] Message length: ${msg.length} bytes`);
-    console.log(`[VpnServerManager] Message hex: ${msg.toString('hex')}`);
     
     try {
       // 解析L2TP头部
@@ -284,7 +277,6 @@ export class VpnServerManager {
       offset += 4;
 
       console.log(`[VpnServerManager] 控制消息: Ns=${ns}, Nr=${nr}`);
-      console.log(`[VpnServerManager] 原始消息: ${msg.toString('hex')}`);
 
       const avps = this.parseAvps(msg, offset);
       const messageTypeAvp = avps.find(avp => avp.vendorId === 0 && avp.type === 0);
@@ -301,10 +293,10 @@ export class VpnServerManager {
       
       const messageType = messageTypeAvp.value.readUInt16BE(0);
       console.log(`[VpnServerManager] 找到消息类型: ${messageType}`);
-      console.log(`[VpnServerManager] 客户端消息的所有AVPs:`, avps.map(avp => ({
+      console.log(`[VpnServerManager] 客户端消息AVP元数据:`, avps.map(avp => ({
         type: avp.type,
         vendorId: avp.vendorId,
-        value: avp.value.toString('hex')
+        length: avp.value.length
       })));
       
       // 根据消息类型处理
@@ -365,7 +357,6 @@ export class VpnServerManager {
       }
 
       const value = msg.slice(avpOffset + 6, avpOffset + avpLength);
-      console.log(`[VpnServerManager] AVP值: ${value.toString('hex')}`);
       
       avps.push({ type: avpType, vendorId, value });
       avpOffset += avpLength;
@@ -445,8 +436,6 @@ export class VpnServerManager {
     
     if (!expectedResponse.equals(challengeResponseAvp.value)) {
         console.error(`[VpnServerManager] Invalid Challenge Response. Disconnecting.`);
-        console.error(`[VpnServerManager] Expected: ${expectedResponse.toString('hex')}`);
-        console.error(`[VpnServerManager] Received: ${challengeResponseAvp.value.toString('hex')}`);
         // TODO: Send StopCCN
         return;
     }
@@ -457,7 +446,7 @@ export class VpnServerManager {
   private handleStopccn(rinfo: any, tunnelId: number, ns: number, _nr: number): void {
     console.log(`[VpnServerManager] 处理StopCCN，隧道ID: ${tunnelId}`);
     console.log(`[VpnServerManager] StopCCN详情: tunnelId=${tunnelId}, ns=${ns}, _nr=${_nr}`);
-    console.log(`[VpnServerManager] 客户端地址: ${rinfo.address}:${rinfo.port}`);
+    console.log(`[VpnServerManager] 收到 StopCCN 请求`);
     
     // Send StopCCN response with the same tunnel ID as the request
     this.sendStopccn(rinfo, tunnelId, 0, ns + 1);
@@ -611,7 +600,7 @@ export class VpnServerManager {
 
     const response = Buffer.concat([header, allAvps]);
 
-    console.log(`[VpnServerManager] SCCRP响应: ${response.toString('hex')}`);
+    console.log(`[VpnServerManager] SCCRP响应长度: ${response.length}`);
     this.sendL2tpMessage(rinfo, response);
   }
 
@@ -622,7 +611,6 @@ export class VpnServerManager {
     // Send StopCCN response that matches the client's format exactly - no Result Code AVP
     const response = this.createL2tpControlMessage(tunnelId, 0, ns, nr, 6); // StopCCN = 6, no additional AVPs
     console.log(`[VpnServerManager] 发送StopCCN响应到 ${rinfo.address}:${rinfo.port}`);
-    console.log(`[VpnServerManager] StopCCN响应十六进制: ${response.toString('hex')}`);
     console.log(`[VpnServerManager] StopCCN响应长度: ${response.length} 字节`);
     console.log(`[VpnServerManager] StopCCN响应详情:`);
     console.log(`  - 标志: 0x${response.readUInt16BE(0).toString(16)}`);
@@ -634,10 +622,10 @@ export class VpnServerManager {
     
     // Parse our own response to show AVPs
     const ourAvps = this.parseAvps(response, 12);
-    console.log(`[VpnServerManager] 我们发送的AVPs:`, ourAvps.map(avp => ({
+    console.log(`[VpnServerManager] 我们发送的AVP元数据:`, ourAvps.map(avp => ({
       type: avp.type,
       vendorId: avp.vendorId,
-      value: avp.value.toString('hex')
+      length: avp.value.length
     })));
     
     this.sendL2tpMessage(rinfo, response);
@@ -693,7 +681,7 @@ export class VpnServerManager {
         if (nodeHost && nodeHost !== '127.0.0.1' && nodeHost !== 'localhost') {
           try {
             await execAsync(`sudo route delete ${nodeHost}`);
-            console.log(`[VpnServerManager] 已移除代理节点 ${nodeHost} 的直连路由`);
+            console.log(`[VpnServerManager] 已移除代理节点直连路由`);
           } catch (error) {
             console.warn(`[VpnServerManager] 移除 ${nodeHost} 的直连路由失败:`, error);
           }

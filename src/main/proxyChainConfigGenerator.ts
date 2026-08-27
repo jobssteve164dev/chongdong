@@ -47,34 +47,7 @@ export class ProxyChainConfigGenerator {
    */
   public generateChainConfig(nodes: ProxyNode[], listenPort: number): ProxyChainConfig {
     if (nodes.length === 0) {
-      // 无节点时的安全回退：仍然生成一个可启动的基础配置（mixed 入站 + direct 出站）
-      const inbounds = this.generateInbounds(listenPort);
-      const logConfig = this.generateLogConfig();
-      // 如果全局禁用UDP，则为安全起见增加一条“UDP -> block”的规则
-      let udpBlockRule: any | null = null;
-      try {
-        const { settingsManager } = require('../main/settingsManager');
-        const settings = settingsManager.getSettings?.() || {};
-        if (settings.enableUdp === false) {
-          udpBlockRule = { network: 'udp', outbound: 'block' };
-        }
-      } catch {}
-
-      return {
-        inbounds,
-        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
-        route: {
-          rules: [
-            ...(udpBlockRule ? [udpBlockRule] : []),
-            {
-              inbound: [inbounds[0].tag, 'tun-in'],
-              outbound: 'direct'
-            }
-          ],
-          final: 'direct'
-        },
-        log: logConfig
-      };
+      throw new Error('代理链没有节点，拒绝生成直连回退配置');
     }
 
     // 增加验证步骤：过滤掉无效节点，防止因上游数据问题导致崩溃
@@ -87,32 +60,7 @@ export class ProxyChainConfigGenerator {
     });
 
     if (validNodes.length === 0) {
-      const inbounds = this.generateInbounds(listenPort);
-      const logConfig = this.generateLogConfig();
-      let udpBlockRule: any | null = null;
-      try {
-        const { settingsManager } = require('../main/settingsManager');
-        const settings = settingsManager.getSettings?.() || {};
-        if (settings.enableUdp === false) {
-          udpBlockRule = { network: 'udp', outbound: 'block' };
-        }
-      } catch {}
-
-      return {
-        inbounds,
-        outbounds: [this.createDirectOutbound(), this.createBlockOutbound()],
-        route: {
-          rules: [
-            ...(udpBlockRule ? [udpBlockRule] : []),
-            {
-              inbound: [inbounds[0].tag, 'tun-in'],
-              outbound: 'direct'
-            }
-          ],
-          final: 'direct'
-        },
-        log: logConfig
-      };
+      throw new Error('代理链节点全部无效，拒绝生成直连回退配置');
     }
     
     console.log(`[ProxyChainConfigGenerator] Generating chain config for ${validNodes.length} valid nodes on port ${listenPort}`);
@@ -136,7 +84,7 @@ export class ProxyChainConfigGenerator {
       log: logConfig
     };
 
-    console.log(`[ProxyChainConfigGenerator] Generated chain config:`, JSON.stringify(config, null, 2));
+    console.log(`[ProxyChainConfigGenerator] Generated chain config with ${validNodes.length} nodes`);
 
     return config;
   }
@@ -169,7 +117,7 @@ export class ProxyChainConfigGenerator {
     };
 
     const nodeType = (!nextHopHost || !nextHopPort) ? 'FINAL' : 'INTERMEDIATE';
-    console.log(`[ProxyChainConfigGenerator] Generated ${nodeType} node config for ${node.name} on port ${listenPort}:`, JSON.stringify(config, null, 2));
+    console.log(`[ProxyChainConfigGenerator] Generated ${nodeType} node config on port ${listenPort}`);
     
     return config;
   }
@@ -341,7 +289,7 @@ export class ProxyChainConfigGenerator {
           password: node.password,
           tls: {
             enabled: true,
-            insecure: true
+            insecure: false
           }
         };
         try {
@@ -378,10 +326,7 @@ export class ProxyChainConfigGenerator {
   private generateRoute(nodes: ProxyNode[]): any {
     // 如果没有有效节点，则只返回默认规则
     if (nodes.length === 0 || !nodes[0]) {
-      return {
-        rules: [],
-        final: 'direct'
-      };
+      throw new Error('没有有效节点，无法生成可信路由');
     }
     
     // 路由规则非常简单：将所有入站流量指向链条的第一个节点
@@ -405,7 +350,7 @@ export class ProxyChainConfigGenerator {
           outbound: firstNodeTag,
         },
       ],
-      final: 'direct',
+      final: firstNodeTag,
     };
   }
 
@@ -432,7 +377,7 @@ export class ProxyChainConfigGenerator {
           outbound: outboundTag,
         },
       ],
-      final: 'direct',
+      final: outboundTag,
     };
   }
 

@@ -16,60 +16,17 @@ import {
   Row,
   Col,
   Statistic,
-  Alert,
-  List,
-  Avatar,
-  Tooltip,
-  Badge,
-  Progress,
-  Divider,
-  Upload,
   InputNumber,
-  DatePicker,
-  TimePicker,
-  Checkbox,
-  Radio,
-  Tabs,
-  Collapse,
-  Descriptions,
-  Steps,
-  Result,
   Empty,
-  Skeleton,
-  Spin,
-  notification,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  DownloadOutlined,
-  UploadOutlined,
-  SyncOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
   LinkOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  ClockCircleOutlined,
   CloudOutlined,
-  ThunderboltOutlined,
-  GlobalOutlined,
-  WifiOutlined,
-  SettingOutlined,
   ReloadOutlined,
-  FilterOutlined,
-  ExportOutlined,
   ImportOutlined,
-  CopyOutlined,
-  ShareAltOutlined,
-  InfoCircleOutlined,
-  QuestionCircleOutlined,
-  WarningOutlined,
-  CloseCircleOutlined,
-  StopOutlined,
-  PlayCircleOutlined,
-  PauseCircleOutlined,
 } from '@ant-design/icons';
 import { Subscription, ProxyServer, ProxyProtocol } from '../../shared/types/index';
 import { log } from '../utils/logger';
@@ -182,21 +139,6 @@ const CustomServerList: React.FC<CustomServerListProps> = ({ onEdit, onDelete })
   );
 };
 
-// 新增辅助函数，用于通知主进程设置已更新
-const notifyMainProcessOfSettingsChange = async () => {
-  try {
-    const currentSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
-    if (currentSettings) {
-      log.info('Notifying main process of settings update', currentSettings, 'SubscriptionManagement');
-      await window.electron.ipcRenderer.invoke('settings:updated', { settings: currentSettings });
-    }
-  } catch (error) {
-    log.error('Failed to notify main process of settings update', error, 'SubscriptionManagement');
-    message.error('无法同步设置到主进程，部分功能可能无法正常工作。');
-  }
-};
-
-
 const SubscriptionManagement: React.FC = () => {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(false);
@@ -226,43 +168,7 @@ const SubscriptionManagement: React.FC = () => {
       // 从存储中加载订阅配置
       const savedSubscriptions = Storage.get<Subscription[]>(STORAGE_KEYS.SUBSCRIPTION_CONFIG, []) || [];
 
-      // 如果没有保存的订阅，使用默认订阅
-      if (savedSubscriptions.length === 0) {
-        const defaultSubscriptions: Subscription[] = [
-          {
-            id: '1',
-            name: '香港节点订阅',
-            url: 'https://example.com/hk-subscription',
-            enabled: true,
-            autoUpdate: true,
-            updateInterval: 3600,
-            lastUpdate: Date.now() - 1800000, // 30分钟前
-            nextUpdate: Date.now() + 1800000, // 30分钟后
-            servers: [],
-            groups: [],
-            rules: [],
-          },
-          {
-            id: '2',
-            name: '新加坡节点订阅',
-            url: 'https://example.com/sg-subscription',
-            enabled: true,
-            autoUpdate: false,
-            updateInterval: 7200,
-            lastUpdate: Date.now() - 3600000, // 1小时前
-            nextUpdate: Date.now() + 3600000, // 1小时后
-            servers: [],
-            groups: [],
-            rules: [],
-          }
-        ];
-
-        // 保存默认订阅到存储
-        Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, defaultSubscriptions);
-        setSubscriptions(defaultSubscriptions);
-      } else {
-        setSubscriptions(savedSubscriptions);
-      }
+      setSubscriptions(savedSubscriptions);
     } catch (error: unknown) {
       message.error('加载订阅配置失败');
       log.error('加载订阅配置失败', error, 'SubscriptionManagement');
@@ -270,26 +176,23 @@ const SubscriptionManagement: React.FC = () => {
   };
 
   // 保存订阅配置到存储，并通知主进程
-  const saveSubscriptions = useCallback((newSubscriptions: Subscription[]) => {
+  const saveSubscriptions = useCallback(async (newSubscriptions: Subscription[]) => {
     try {
-      // 1. 更新 subscriptions 到 localStorage
-      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, newSubscriptions);
-      setSubscriptions(newSubscriptions);
-
-      // 2. 更新完整的 settings 对象
       const currentSettings = Storage.get<AppSettings>(STORAGE_KEYS.SETTINGS);
       if (currentSettings) {
         const updatedSettings = { ...currentSettings, subscriptions: newSubscriptions };
+        const result = await window.electron.ipcRenderer.invoke('settings:updated', { settings: updatedSettings });
+        if (!result.success) throw new Error(result.error || '主进程未能保存订阅配置');
         Storage.set(STORAGE_KEYS.SETTINGS, updatedSettings);
-        
-        // 3. 通知主进程
-        notifyMainProcessOfSettingsChange();
       } else {
-        log.warn('Could not find current settings in storage to update subscriptions.', 'SubscriptionManagement');
+        throw new Error('未找到当前设置');
       }
+
+      Storage.set(STORAGE_KEYS.SUBSCRIPTION_CONFIG, newSubscriptions);
+      setSubscriptions(newSubscriptions);
     } catch (error: unknown) {
-      message.error('保存订阅配置失败');
       log.error('保存订阅配置失败', error, 'SubscriptionManagement');
+      throw error;
     }
   }, []);
 
@@ -305,18 +208,26 @@ const SubscriptionManagement: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDeleteSubscription = (id: string) => {
+  const handleDeleteSubscription = async (id: string) => {
     const updatedSubscriptions = subscriptions.filter(sub => sub.id !== id);
-    saveSubscriptions(updatedSubscriptions);
-    message.success('订阅已删除');
-    log.info('删除订阅', { id }, 'SubscriptionManagement');
+    try {
+      await saveSubscriptions(updatedSubscriptions);
+      message.success('订阅已删除');
+      log.info('删除订阅', { id }, 'SubscriptionManagement');
+    } catch {
+      message.error('删除订阅失败');
+    }
   };
 
-  const handleToggleSubscription = (id: string) => {
+  const handleToggleSubscription = async (id: string) => {
     const updatedSubscriptions = subscriptions.map(sub =>
       sub.id === id ? { ...sub, enabled: !sub.enabled } : sub
     );
-    saveSubscriptions(updatedSubscriptions);
+    try {
+      await saveSubscriptions(updatedSubscriptions);
+    } catch {
+      message.error('更新订阅状态失败');
+    }
   };
 
   const handleUpdateSubscription = async (subscription: Subscription) => {
@@ -330,7 +241,7 @@ const SubscriptionManagement: React.FC = () => {
             ? result.updatedSubscription!
             : sub
         );
-        saveSubscriptions(updatedSubscriptions);
+        await saveSubscriptions(updatedSubscriptions);
         message.success('订阅更新成功');
         log.info('更新订阅成功', { subscription: subscription.name, serverCount: result.servers?.length }, 'SubscriptionManagement');
       } else {
@@ -352,7 +263,7 @@ const SubscriptionManagement: React.FC = () => {
         const updatedSubscriptions = subscriptions.map(sub =>
           sub.id === editingSubscription.id ? { ...sub, ...values } : sub
         );
-        saveSubscriptions(updatedSubscriptions);
+        await saveSubscriptions(updatedSubscriptions);
         message.success('订阅已更新');
         log.info('更新订阅', { subscription: editingSubscription.name }, 'SubscriptionManagement');
       } else {
@@ -365,7 +276,7 @@ const SubscriptionManagement: React.FC = () => {
           groups: [],
           rules: [],
         };
-        saveSubscriptions([...subscriptions, newSubscription]);
+        await saveSubscriptions([...subscriptions, newSubscription]);
         message.success('订阅已添加');
         log.info('添加订阅', { subscription: newSubscription.name }, 'SubscriptionManagement');
       }

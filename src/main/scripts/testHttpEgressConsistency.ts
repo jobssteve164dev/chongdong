@@ -26,7 +26,7 @@ async function getSocksSocket(host: string, port: number) {
 async function fetchHttp1Json(host: string, path: string): Promise<IpResult> {
   try {
     const socket = await getSocksSocket(host, 443);
-    const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: false });
+    const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: true });
     const requestLines = [
       `GET ${path} HTTP/1.1`,
       `Host: ${host}`,
@@ -61,7 +61,7 @@ async function fetchHttp1Json(host: string, path: string): Promise<IpResult> {
 async function fetchHttp2Json(host: string, path: string): Promise<IpResult> {
   try {
     const socket = await getSocksSocket(host, 443);
-    const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: false, ALPNProtocols: ['h2'] });
+    const tlsSocket = tls.connect({ socket, servername: host, rejectUnauthorized: true, ALPNProtocols: ['h2'] });
 
     return await new Promise<IpResult>((resolve) => {
       const session = http2.connect(`https://${host}`, {
@@ -144,5 +144,4 @@ if (require.main === module) {
     process.exit(2);
   });
 }
-
 

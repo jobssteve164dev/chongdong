@@ -19,7 +19,7 @@ export class OfflineGeoResolver implements GeoResolver {
 
   public async resolveCountry(domain: string): Promise<string | null> {
     try {
-      // 1) 域名解析为IP (优先使用配置中的DoH/DoT，否则退回settings.dnsServer 或 8.8.8.8)
+      // 1) 域名解析为IP，仅使用配置中的加密 DNS
       let ip: string | null = null;
       try {
         const settingsManager = (await import('../settingsManager')).settingsManager;
@@ -28,10 +28,8 @@ export class OfflineGeoResolver implements GeoResolver {
         const pushSafe = (arr?: string[]) => { (arr||[]).forEach(x => { if (x && typeof x === 'string') candidates.push(x); }); };
         // 优先DoH/DoT
         pushSafe((s.dnsServers || []).filter(x => x.startsWith('https://') || x.startsWith('tls://')));
-        // 退回配置的主DNS
-        if (s.dnsServer) candidates.push(s.dnsServer);
-        // 最后使用公共DNS
-        if (candidates.length === 0) candidates.push('8.8.8.8');
+        if (s.dnsServer && /^(https|tls):\/\//.test(s.dnsServer)) candidates.push(s.dnsServer);
+        if (candidates.length === 0) candidates.push('https://cloudflare-dns.com/dns-query');
         for (const server of candidates) {
           ip = await dnsService.resolveDomainOnce(domain, server);
           if (ip) break;
@@ -94,5 +92,4 @@ export class OfflineGeoResolver implements GeoResolver {
 }
 
 export const offlineGeoResolver = new OfflineGeoResolver();
-
 

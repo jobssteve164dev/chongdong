@@ -424,13 +424,27 @@ export class TrafficRouter {
             }
             return; // 已处理该首包
           } catch (e) {
-            console.warn('[TrafficRouter] Edge egress failed, fallback local chain:', (e as Error)?.message || e);
+            const errorMessage = (e as Error)?.message || String(e);
+            console.error('[TrafficRouter] Edge 出口失败，已拒绝绕过所选路径:', errorMessage);
+            this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+              connectionId,
+              error: `Edge 出口失败: ${errorMessage}`
+            });
+            clientSocket.destroy();
+            adapterSocket.destroy();
+            return;
           }
         }
       } catch (e) {
-        // 中间件失败时，回退为透明转发
-        console.warn('[TrafficRouter] 中间件处理失败，已降级为透明转发: ', (e as Error).message);
-        outBuf = data;
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error('[TrafficRouter] 信任中间件失败，已拒绝透明绕过:', errorMessage);
+        this.emitMonitoringEvent(MonitoringEventType.ERROR_OCCURRED, {
+          connectionId,
+          error: `信任中间件失败: ${errorMessage}`
+        });
+        clientSocket.destroy();
+        adapterSocket.destroy();
+        return;
       }
       
       if (!adapterSocket.destroyed) {

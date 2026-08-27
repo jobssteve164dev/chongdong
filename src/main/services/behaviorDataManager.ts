@@ -297,7 +297,8 @@ export class BehaviorDataManager {
 
   private async saveData(data: PersistedBehaviorData): Promise<void> {
     const jsonString = JSON.stringify(data, null, 2);
-    fs.writeFileSync(this.dataFilePath, jsonString, 'utf-8');
+    fs.writeFileSync(this.dataFilePath, jsonString, { encoding: 'utf-8', mode: 0o600 });
+    fs.chmodSync(this.dataFilePath, 0o600);
   }
 }
 
