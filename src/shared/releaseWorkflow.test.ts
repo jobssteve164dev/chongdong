@@ -114,7 +114,10 @@ describe('desktop release workflow', () => {
       'merge-multiple': true,
     });
     const publishStep = releaseJob?.steps?.find(step => step.run?.includes('gh release create'));
-    expect(publishStep?.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+    expect(publishStep?.env).toEqual({
+      GH_TOKEN: '${{ github.token }}',
+      GH_REPO: '${{ github.repository }}',
+    });
     expect(publishStep?.run).toEqual(expect.stringContaining('gh release view'));
     expect(publishStep?.run).toEqual(expect.stringContaining('gh release upload'));
     expect(publishStep?.run).toEqual(expect.stringContaining('--clobber'));

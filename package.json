@@ -1,6 +1,6 @@
 {
   "name": "chongdong",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "堡垒计划内部的全链路七层网络信任治理与运行客户端",
   "main": "dist/main/index.js",
   "homepage": "https://github.com/jobssteve164dev/chongdong",
