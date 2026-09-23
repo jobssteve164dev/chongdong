@@ -1,6 +1,6 @@
 {
   "name": "chongdong",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "堡垒计划内部的全链路七层网络信任治理与运行客户端",
   "main": "dist/main/index.js",
   "homepage": "https://github.com/jobssteve164dev/chongdong",
@@ -113,9 +113,11 @@
       "package.json"
     ],
     "mac": {
+      "artifactName": "ChongDong-${version}-macOS-x64.${ext}",
       "category": "public.app-category.utilities"
     },
     "win": {
+      "artifactName": "ChongDong-${version}-Windows-x64-Setup.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -126,6 +128,7 @@
       ]
     },
     "linux": {
+      "artifactName": "ChongDong-${version}-Linux-x64.${ext}",
       "target": [
         {
           "target": "AppImage",

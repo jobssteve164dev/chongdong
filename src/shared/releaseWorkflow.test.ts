@@ -40,9 +40,20 @@ type Workflow = {
   };
 };
 
+type PackageConfig = {
+  build?: {
+    win?: { artifactName?: string };
+    mac?: { artifactName?: string };
+    linux?: { artifactName?: string };
+  };
+};
+
 describe('desktop release workflow', () => {
   const workflowPath = path.join(process.cwd(), '.github', 'workflows', 'release.yml');
   const workflow = YAML.parse(fs.readFileSync(workflowPath, 'utf8')) as Workflow;
+  const packageConfig = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')
+  ) as PackageConfig;
   const packageJob = workflow.jobs?.package;
   const matrix = packageJob?.strategy?.matrix?.include ?? [];
 
@@ -96,6 +107,18 @@ describe('desktop release workflow', () => {
       path: '${{ matrix.pattern }}',
       'if-no-files-found': 'error',
     });
+  });
+
+  it('gives every public installer a readable platform-specific filename', () => {
+    expect(packageConfig.build?.win?.artifactName).toBe(
+      'ChongDong-${version}-Windows-x64-Setup.${ext}'
+    );
+    expect(packageConfig.build?.mac?.artifactName).toBe(
+      'ChongDong-${version}-macOS-x64.${ext}'
+    );
+    expect(packageConfig.build?.linux?.artifactName).toBe(
+      'ChongDong-${version}-Linux-x64.${ext}'
+    );
   });
 
   it('publishes all installers to a GitHub release only for version tags', () => {
